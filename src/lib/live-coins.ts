@@ -105,6 +105,13 @@ let cache: { coins: Coin[]; expires: number } | null = null;
 // grid to empty — that silent "nothing happened" was being read as a broken
 // Refresh button.
 let lastGood: Coin[] | null = null;
+let lastFetchAt = 0;
+// getLiveCoins hits GeckoTerminal with 7 parallel requests (4 pump-fun pages +
+// 3 pumpswap pages). That budget is shared server-side across every visitor,
+// so "force" is a request to be fresh, not a license to always re-fetch —
+// if anyone (this click or someone else's) already refreshed a moment ago,
+// serve that instead of piling on more upstream calls.
+const MIN_FORCE_INTERVAL_MS = 15_000;
 
 /**
  * Live PANDA data always comes straight from chain (via GeckoTerminal's Pump.fun
@@ -114,7 +121,11 @@ let lastGood: Coin[] | null = null;
  */
 export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; live: boolean }> {
   if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, live: true };
+  if (opts.force && cache && Date.now() - lastFetchAt < MIN_FORCE_INTERVAL_MS) {
+    return { coins: cache.coins, live: true };
+  }
 
+  lastFetchAt = Date.now();
   const [pumpFun, pumpSwap] = await Promise.all([
     fetchDexPoolsPages("pump-fun", 4, opts.force),
     fetchDexPoolsPages("pumpswap", 3, opts.force),

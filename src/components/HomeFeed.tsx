@@ -1,20 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import CoinCard from "@/components/CoinCard";
 import LiveBadge from "@/components/LiveBadge";
 import RefreshButton from "@/components/RefreshButton";
 import { Coin } from "@/lib/types";
 
+const REFRESH_COOLDOWN_MS = 8000;
+
 export default function HomeFeed({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
+  const lastAttempt = useRef(0);
 
   function refresh() {
     if (refreshing) return;
+    // Repeated clicks right after a failure just burn more of the shared
+    // rate-limit budget without changing the outcome — space them out.
+    if (Date.now() - lastAttempt.current < REFRESH_COOLDOWN_MS) return;
+    lastAttempt.current = Date.now();
     setRefreshing(true);
     setRefreshError(false);
     fetch("/api/coins?force=1")

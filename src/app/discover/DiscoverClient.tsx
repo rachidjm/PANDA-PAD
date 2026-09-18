@@ -16,6 +16,7 @@ const sorts = [
 ] as const;
 
 type SortId = (typeof sorts)[number]["id"];
+const REFRESH_COOLDOWN_MS = 8000;
 
 export default function DiscoverClient({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   const trimmedQuery = urlQuery.trim();
   const searching = trimmedQuery !== "" && trimmedQuery !== resolvedQuery;
   const navDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRefreshAttempt = useRef(0);
 
   function typeQuery(value: string) {
     setInputValue(value);
@@ -74,6 +76,10 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
 
   function refresh() {
     if (refreshing) return;
+    // Repeated clicks right after a failure just burn more of the shared
+    // rate-limit budget without changing the outcome — space them out.
+    if (Date.now() - lastRefreshAttempt.current < REFRESH_COOLDOWN_MS) return;
+    lastRefreshAttempt.current = Date.now();
     setRefreshing(true);
     setRefreshError(false);
     fetch("/api/coins?force=1")
