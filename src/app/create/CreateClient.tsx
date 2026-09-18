@@ -286,6 +286,35 @@ export default function CreateClient() {
           </Field>
         </div>
 
+        <div>
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="text-sm font-medium text-paper/80">Paired with</span>
+            <ComingSoonBadge />
+          </div>
+          <div className="pointer-events-none flex gap-2 opacity-40">
+            <span className="flex-1 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-center text-sm font-medium">
+              SOL
+            </span>
+            <span className="flex-1 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-center text-sm font-medium">
+              USDC
+            </span>
+            <span className="flex-1 rounded-2xl border border-dashed border-paper/15 bg-transparent px-4 py-3 text-center text-sm font-medium text-panda-grey">
+              More soon
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="text-sm font-medium text-paper/80">Your first buy</span>
+            <ComingSoonBadge />
+          </div>
+          <p className="pointer-events-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-xs leading-relaxed text-panda-grey opacity-40">
+            Paid in USDC, because that is what the coin trades against — you spend SOL and the launch buys the USDC
+            on the way in. How much of the supply that comes to depends on the rate at launch.
+          </p>
+        </div>
+
         <button
           onClick={launch}
           disabled={!canLaunch}
@@ -310,6 +339,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1.5 block text-sm font-medium text-paper/80">{label}</span>
       {children}
     </label>
+  );
+}
+
+function ComingSoonBadge() {
+  return (
+    <span className="rounded-full border border-paper/10 bg-paper/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-panda-grey">
+      Coming soon
+    </span>
   );
 }
 
