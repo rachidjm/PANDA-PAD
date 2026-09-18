@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import BN from "bn.js";
+import { LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
-import { buildBuyTransaction } from "@/lib/pump/buy";
-import { buildSellTransaction } from "@/lib/pump/sell";
-import { PANDA_FEE_BPS } from "@/lib/pump/client";
+import { PANDA_FEE_BPS } from "@/lib/pump/constants";
+import { base64ToTransaction } from "@/lib/pump/wire";
 
 const buyPresets = [0.1, 0.5, 1];
 const sellPresets = [25, 50, 100];
@@ -74,25 +72,30 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     setSignature("");
     try {
       setStatus("building");
-      const mint = new PublicKey(coin.mint);
-      const tx =
+      const body =
         side === "buy"
-          ? await buildBuyTransaction({ connection, mint, user: publicKey, solAmount: parseFloat(amount) })
-          : await buildSellTransaction({
-              connection,
-              mint,
-              user: publicKey,
-              tokenAmount: new BN(Math.round(parseFloat(amount) * 10 ** tokenDecimals)),
-            });
+          ? { mint: coin.mint, user: publicKey.toBase58(), solAmount: parseFloat(amount) }
+          : {
+              mint: coin.mint,
+              user: publicKey.toBase58(),
+              tokenAmount: Math.round(parseFloat(amount) * 10 ** tokenDecimals).toString(),
+            };
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-      tx.feePayer = publicKey;
-      tx.recentBlockhash = blockhash;
+      const res = await fetch(`/api/pump/${side}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to build transaction.");
+
+      const tx: Transaction = base64ToTransaction(data.transaction);
 
       setStatus("signing");
       const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
       setStatus("confirming");
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       const confirmation = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
       if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
 

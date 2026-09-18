@@ -2,7 +2,8 @@ import { Connection, PublicKey, Transaction, ComputeBudgetProgram, SystemProgram
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { getSellSolAmountFromTokenAmount } from "@pump-fun/pump-sdk";
-import { getPumpSdk, getOnlinePumpSdk, DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./client";
+import { getPumpSdk, getOnlinePumpSdk } from "./client";
+import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./constants";
 
 /**
  * Builds a real, unsigned Pump.fun sell transaction for an existing bonding
