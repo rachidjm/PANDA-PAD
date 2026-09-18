@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import WalletButton from "@/components/WalletButton";
 import Panda from "@/components/panda/Panda";
@@ -14,7 +14,14 @@ const links = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [query, setQuery] = useState("");
+
+  function submitSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = query.trim();
+    router.push(q ? `/discover?q=${encodeURIComponent(q)}` : "/discover");
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
@@ -42,14 +49,14 @@ export default function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <div className="relative hidden md:block">
+          <form onSubmit={submitSearch} className="relative hidden md:block">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search coins"
               className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40"
             />
-          </div>
+          </form>
           <WalletButton />
         </div>
       </div>

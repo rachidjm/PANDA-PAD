@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import CoinCard from "@/components/CoinCard";
 import LiveBadge from "@/components/LiveBadge";
 import RefreshButton from "@/components/RefreshButton";
@@ -17,10 +18,11 @@ const sorts = [
 type SortId = (typeof sorts)[number]["id"];
 
 export default function DiscoverClient({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
+  const searchParams = useSearchParams();
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
   const [sort, setSort] = useState<SortId>("trending");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(searchParams.get("q") || "");
   const [refreshing, setRefreshing] = useState(false);
 
   function refresh() {

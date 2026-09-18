@@ -8,8 +8,19 @@ import { put } from "@vercel/blob";
  * just takes any URI — so this is PANDA's own hosting, picked because it
  * needs no new third-party account (it's already part of the Vercel project).
  */
+
+// Vercel's "connect a store" flow names the token after whatever prefix you
+// gave the store, which isn't always the plain BLOB_READ_WRITE_TOKEN the SDK
+// looks for by default (e.g. it can come out as
+// BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN) — try the common variants instead
+// of forcing a rename in the Vercel dashboard.
+const BLOB_TOKEN =
+  process.env.BLOB_READ_WRITE_TOKEN ||
+  process.env.BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN ||
+  process.env.PANDA_PAD_BLOB_READ_WRITE_TOKEN;
+
 export async function POST(req: Request) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (!BLOB_TOKEN) {
     return NextResponse.json(
       { error: "Image hosting isn't configured yet — enable Vercel Blob for this project (Storage tab → Create → Blob)." },
       { status: 503 }
@@ -36,6 +47,7 @@ export async function POST(req: Request) {
     const imageBlob = await put(`panda/${Date.now()}-${image.name}`, image, {
       access: "public",
       contentType: image.type,
+      token: BLOB_TOKEN,
     });
 
     const metadata = {
@@ -53,6 +65,7 @@ export async function POST(req: Request) {
     const metadataBlob = await put(`panda/${Date.now()}-metadata.json`, JSON.stringify(metadata), {
       access: "public",
       contentType: "application/json",
+      token: BLOB_TOKEN,
     });
 
     return NextResponse.json({ uri: metadataBlob.url, imageUrl: imageBlob.url });
