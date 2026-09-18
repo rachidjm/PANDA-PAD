@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import WalletButton from "@/components/WalletButton";
 import Panda from "@/components/panda/Panda";
+import CoinSearchBox from "@/components/CoinSearchBox";
 
 const links = [
   { href: "/discover", label: "Discover" },
@@ -14,27 +14,6 @@ const links = [
 
 export default function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function goToResults(q: string) {
-    const target = q ? `/discover?q=${encodeURIComponent(q)}` : "/discover";
-    if (pathname === "/discover") router.replace(target, { scroll: false });
-    else router.push(target);
-  }
-
-  function typeSearch(value: string) {
-    setQuery(value);
-    if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => goToResults(value.trim()), 250);
-  }
-
-  function submitSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (debounce.current) clearTimeout(debounce.current);
-    goToResults(query.trim());
-  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
@@ -62,14 +41,9 @@ export default function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <form onSubmit={submitSearch} className="relative hidden md:block">
-            <input
-              value={query}
-              onChange={(e) => typeSearch(e.target.value)}
-              placeholder="Search all Solana coins"
-              className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40"
-            />
-          </form>
+          <div className="hidden md:block">
+            <CoinSearchBox />
+          </div>
           <WalletButton />
         </div>
       </div>

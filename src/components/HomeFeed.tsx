@@ -11,17 +11,20 @@ export default function HomeFeed({ coins: initialCoins, live: initialLive }: { c
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
 
   function refresh() {
+    if (refreshing) return;
     setRefreshing(true);
+    setRefreshError(false);
     fetch("/api/coins?force=1")
       .then((r) => r.json())
       .then((data: { coins?: Coin[]; live?: boolean }) => {
-        if (data.coins?.length) {
-          setCoins(data.coins);
-          setLive(!!data.live);
-        }
+        if (data.coins?.length) setCoins(data.coins);
+        setLive(!!data.live);
+        if (!data.live) setRefreshError(true);
       })
+      .catch(() => setRefreshError(true))
       .finally(() => setRefreshing(false));
   }
 
@@ -39,6 +42,11 @@ export default function HomeFeed({ coins: initialCoins, live: initialLive }: { c
           View all
         </Link>
       </div>
+      {refreshError && (
+        <p className="mb-4 text-xs text-clay-red">
+          Couldn&apos;t refresh (data source is rate-limited right now) — showing the last known prices.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {feed.slice(0, 8).map((coin) => (
           <CoinCard key={coin.mint} coin={coin} />

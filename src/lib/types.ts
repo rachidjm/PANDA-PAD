@@ -1,6 +1,6 @@
 export type DoodleKind = "cat" | "frog" | "donut" | "ghost" | "egg" | "cloud" | "fish" | "worm";
 
-export type CoinSource = "pump-fun" | "pumpswap";
+export type CoinSource = "pump-fun" | "pumpswap" | "other";
 
 export type Coin = {
   mint: string;
@@ -21,6 +21,8 @@ export type Coin = {
   creator: string;
   createdAt: string;
   source: CoinSource;
+  /** Raw dex id from the data source (e.g. "raydium", "orca") when source is "other". */
+  dex?: string;
   poolAddress?: string;
   /** Quote asset symbol for the trading pair (e.g. "SOL"), when known. */
   quoteSymbol?: string;

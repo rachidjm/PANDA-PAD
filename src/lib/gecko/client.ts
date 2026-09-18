@@ -123,6 +123,18 @@ export async function fetchTokenInfo(address: string): Promise<GeckoTokenInfoAtt
   }
 }
 
+/** All pools trading a given token, across every dex on the network — used to look up a coin by mint when it isn't pump-fun/pumpswap. */
+export async function fetchTokenPools(tokenAddress: string): Promise<GeckoPoolsResponse> {
+  try {
+    return await geckoGet<GeckoPoolsResponse>(
+      `/networks/${NETWORK}/tokens/${tokenAddress}/pools?include=base_token&page=1`,
+      60
+    );
+  } catch {
+    return { data: [], included: [] };
+  }
+}
+
 export async function fetchPool(address: string): Promise<GeckoPoolsResponse["data"][number] | null> {
   try {
     const res = await geckoGet<{ data: GeckoPool; included?: GeckoIncludedToken[] }>(

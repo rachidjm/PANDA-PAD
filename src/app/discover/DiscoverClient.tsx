@@ -29,6 +29,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   const [searchError, setSearchError] = useState("");
   const [resolvedQuery, setResolvedQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
   const trimmedQuery = urlQuery.trim();
   const searching = trimmedQuery !== "" && trimmedQuery !== resolvedQuery;
   const navDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,15 +73,17 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   }, [urlQuery]);
 
   function refresh() {
+    if (refreshing) return;
     setRefreshing(true);
+    setRefreshError(false);
     fetch("/api/coins?force=1")
       .then((r) => r.json())
       .then((data: { coins?: Coin[]; live?: boolean }) => {
-        if (data.coins?.length) {
-          setCoins(data.coins);
-          setLive(!!data.live);
-        }
+        if (data.coins?.length) setCoins(data.coins);
+        setLive(!!data.live);
+        if (!data.live) setRefreshError(true);
       })
+      .catch(() => setRefreshError(true))
       .finally(() => setRefreshing(false));
   }
 
@@ -132,6 +135,12 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
           </button>
         ))}
       </div>
+
+      {refreshError && (
+        <p className="mt-4 text-xs text-clay-red">
+          Couldn&apos;t refresh (data source is rate-limited right now) — showing the last known prices.
+        </p>
+      )}
 
       {list.length === 0 && !searching ? (
         <EmptyState query={urlQuery} error={searchError} />

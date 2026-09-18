@@ -6,6 +6,7 @@ import { LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
 import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { base64ToTransaction } from "@/lib/pump/wire";
+import { dexLabel } from "@/lib/dex-labels";
 
 const buyPresets = [0.1, 0.5, 1];
 const sellPresets = [25, 50, 100];
@@ -26,6 +27,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const [signature, setSignature] = useState("");
 
   const graduated = coin.source === "pumpswap";
+  const externalDex = coin.source === "other";
+  const tradeDisabled = graduated || externalDex;
 
   useEffect(() => {
     if (!connected || !publicKey) return;
@@ -67,7 +70,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const displayTokens = connected ? tokenBalance : null;
 
   async function submit() {
-    if (!connected || !publicKey || !amount || graduated) return;
+    if (!connected || !publicKey || !amount || tradeDisabled) return;
     setError("");
     setSignature("");
     try {
@@ -242,7 +245,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
       <button
         onClick={submit}
-        disabled={!connected || !amount || busy || graduated}
+        disabled={!connected || !amount || busy || tradeDisabled}
         className={`mt-3 w-full rounded-xl py-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
           side === "buy" ? "bg-bamboo text-ink hover:brightness-110" : "bg-clay-red text-ink hover:brightness-110"
         }`}
@@ -251,6 +254,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           ? "Connect wallet to trade"
           : graduated
           ? "Graduated — PumpSwap trading coming soon"
+          : externalDex
+          ? `Not on Pump.fun — trade on ${dexLabel(coin.dex)}`
           : status === "building"
           ? "Preparing transaction…"
           : status === "signing"
@@ -276,9 +281,24 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
         </a>
       )}
 
-      <p className="mt-3 text-center text-xs text-panda-grey">
-        Real on-chain trade via Pump.fun. PANDA never holds your funds.
-      </p>
+      {externalDex ? (
+        <p className="mt-3 text-center text-xs text-panda-grey">
+          This coin doesn&apos;t trade on Pump.fun, so PANDA can&apos;t route the trade — view it on{" "}
+          <a
+            href={`https://solscan.io/token/${coin.mint}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-paper underline"
+          >
+            Solscan
+          </a>{" "}
+          instead.
+        </p>
+      ) : (
+        <p className="mt-3 text-center text-xs text-panda-grey">
+          Real on-chain trade via Pump.fun. PANDA never holds your funds.
+        </p>
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import Panda from "@/components/panda/Panda";
 import LiveBadge from "@/components/LiveBadge";
 import TradingPanel from "@/components/coin/TradingPanel";
 import PriceChart from "@/components/coin/PriceChart";
+import { dexLabel } from "@/lib/dex-labels";
 
 const tabs = ["Trades", "Holders", "Rewards"] as const;
 type Tab = (typeof tabs)[number];
@@ -213,7 +214,13 @@ function PoolInfoCard({ coin }: { coin: Coin }) {
         )}
         <div className="flex items-center justify-between">
           <span className="text-panda-grey">Source</span>
-          <span className="font-medium">{coin.source === "pump-fun" ? "Pump.fun bonding curve" : "PumpSwap (graduated)"}</span>
+          <span className="font-medium">
+            {coin.source === "pump-fun"
+              ? "Pump.fun bonding curve"
+              : coin.source === "pumpswap"
+              ? "PumpSwap (graduated)"
+              : dexLabel(coin.dex)}
+          </span>
         </div>
       </div>
     </div>

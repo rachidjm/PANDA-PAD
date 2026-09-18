@@ -1,0 +1,146 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import Doodle from "@/components/doodles/Doodle";
+import { formatPct } from "@/lib/format";
+import { Coin } from "@/lib/types";
+
+/**
+ * Compact live-search dropdown: results appear in a small row list right
+ * under the input as you type — it never navigates away from the current
+ * page. Only clicking a result (or "See all results") does.
+ */
+export default function CoinSearchBox() {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [results, setResults] = useState<Coin[] | null>(null);
+  const [resolvedQuery, setResolvedQuery] = useState("");
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const trimmed = query.trim();
+  const loading = trimmed !== "" && trimmed !== resolvedQuery;
+
+  // Wait for typing to pause before firing a request — GeckoTerminal's free
+  // API rate-limits hard, and firing on every keystroke burns through it fast.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(trimmed), 300);
+    return () => clearTimeout(t);
+  }, [trimmed]);
+
+  useEffect(() => {
+    if (!debouncedQuery) return;
+    let cancelled = false;
+    fetch(`/api/coins?q=${encodeURIComponent(debouncedQuery)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setError(data.error || "Search failed. Try again.");
+          setResults([]);
+        } else {
+          setError("");
+          setResults(data.coins || []);
+        }
+        setResolvedQuery(debouncedQuery);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Search failed. Check your connection.");
+        setResults([]);
+        setResolvedQuery(debouncedQuery);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  function seeAll() {
+    setOpen(false);
+    router.push(trimmed ? `/discover?q=${encodeURIComponent(trimmed)}` : "/discover");
+  }
+
+  const showDropdown = open && trimmed.length > 0;
+
+  return (
+    <div ref={boxRef} className="relative">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          seeAll();
+        }}
+      >
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search all Solana coins"
+          className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40"
+        />
+      </form>
+
+      {showDropdown && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 min-w-[280px] overflow-y-auto rounded-2xl border border-paper/10 bg-ink-raised shadow-2xl">
+          {loading ? (
+            <p className="px-4 py-3 text-xs text-panda-grey">Searching…</p>
+          ) : error ? (
+            <p className="px-4 py-3 text-xs text-clay-red">{error}</p>
+          ) : results && results.length > 0 ? (
+            <>
+              {results.slice(0, 8).map((c) => (
+                <Link
+                  key={c.mint}
+                  href={`/coin/${c.mint}`}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-paper/5"
+                >
+                  <div
+                    className="h-7 w-7 shrink-0 overflow-hidden rounded-full"
+                    style={{ backgroundColor: c.image ? undefined : c.bg }}
+                  >
+                    {c.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={c.image} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Doodle kind={c.doodle} className="h-full w-full" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">${c.ticker}</p>
+                    <p className="truncate text-xs text-panda-grey">{c.name}</p>
+                  </div>
+                  <span className={`shrink-0 text-xs font-medium ${c.changePct >= 0 ? "text-bamboo" : "text-clay-red"}`}>
+                    {formatPct(c.changePct)}
+                  </span>
+                </Link>
+              ))}
+              <button
+                onClick={seeAll}
+                className="block w-full border-t border-paper/10 px-3 py-2 text-center text-xs text-paper/60 hover:text-paper"
+              >
+                See all results
+              </button>
+            </>
+          ) : (
+            <p className="px-4 py-3 text-xs text-panda-grey">No coins match &ldquo;{trimmed}&rdquo;.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
