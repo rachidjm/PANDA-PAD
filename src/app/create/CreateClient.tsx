@@ -7,9 +7,10 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
 
-type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "done" | "error";
+type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
+const firstBuyPresets = [0.5, 1, 2, 5];
 
 export default function CreateClient() {
   const { connection } = useConnection();
@@ -25,7 +26,9 @@ export default function CreateClient() {
   const [twitter, setTwitter] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ mint: string; signature: string } | null>(null);
+  const [firstBuyAmount, setFirstBuyAmount] = useState("");
+  const [buyError, setBuyError] = useState("");
+  const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   function handleFile(file: File | undefined) {
@@ -41,9 +44,33 @@ export default function CreateClient() {
 
   const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected;
 
+  // Buys the just-created coin as a second, separate transaction — the
+  // bonding curve doesn't exist until the create transaction has confirmed,
+  // so this can't be bundled into the same one. You sign it too.
+  async function buyFirst(mint: string, solAmount: number): Promise<string> {
+    if (!publicKey) throw new Error("Wallet not connected.");
+    const res = await fetch("/api/pump/buy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mint, user: publicKey.toBase58(), solAmount }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to build the first-buy transaction.");
+
+    const tx = base64ToTransaction(data.transaction);
+    const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+    if (confirmation.value.err) throw new Error("First buy failed to confirm.");
+
+    return signature;
+  }
+
   async function launch() {
     if (!canLaunch || !publicKey) return;
     setError("");
+    setBuyError("");
     try {
       setStage("uploading");
       const form = new FormData();
@@ -89,6 +116,20 @@ export default function CreateClient() {
       if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
+
+      const buyAmount = parseFloat(firstBuyAmount);
+      if (buyAmount > 0) {
+        setStage("buying");
+        try {
+          const buySignature = await buyFirst(mint.publicKey.toBase58(), buyAmount);
+          setResult({ mint: mint.publicKey.toBase58(), signature, buySignature });
+        } catch (buyErr) {
+          // The coin itself launched fine — only the optional first buy failed.
+          // That's not a launch failure, just a separate note on the success screen.
+          setBuyError(explainError(buyErr));
+        }
+      }
+
       setStage("done");
     } catch (err) {
       setStage("error");
@@ -105,16 +146,19 @@ export default function CreateClient() {
     setDescription("");
     setWebsite("");
     setTwitter("");
+    setFirstBuyAmount("");
+    setBuyError("");
     setResult(null);
     setError("");
   }
 
-  if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming") {
+  if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming" || stage === "buying") {
     const labels: Record<string, string> = {
       uploading: "Uploading image…",
       building: "Preparing transaction…",
       signing: "Confirm in wallet…",
       confirming: "Confirming on Solana…",
+      buying: `Buying your first $${ticker || "COIN"}…`,
     };
     return (
       <div className="flex flex-col items-center gap-5 py-16 text-center">
@@ -158,6 +202,15 @@ export default function CreateClient() {
         <p className="max-w-xs text-xs text-panda-grey">
           It can take a few minutes to show up in Discover while our data source indexes the new pool.
         </p>
+        {result.buySignature && (
+          <p className="text-sm text-bamboo">Your first buy of ${ticker} went through too.</p>
+        )}
+        {buyError && (
+          <p className="max-w-xs text-xs text-clay-red">
+            The coin launched fine, but your first buy didn&apos;t go through: {buyError} You can still buy it from
+            its page below.
+          </p>
+        )}
         <div className="flex flex-wrap justify-center gap-3">
           <a
             href={`https://solscan.io/tx/${result.signature}`}
@@ -295,32 +348,44 @@ export default function CreateClient() {
         </div>
 
         <div>
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="text-sm font-medium text-paper/80">Paired with</span>
-            <ComingSoonBadge />
-          </div>
-          <div className="pointer-events-none flex gap-2 opacity-40">
-            <span className="flex-1 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-center text-sm font-medium">
-              SOL
-            </span>
-            <span className="flex-1 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-center text-sm font-medium">
-              USDC
-            </span>
-            <span className="flex-1 rounded-2xl border border-dashed border-paper/15 bg-transparent px-4 py-3 text-center text-sm font-medium text-panda-grey">
-              More soon
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="text-sm font-medium text-paper/80">Your first buy</span>
-            <ComingSoonBadge />
-          </div>
-          <p className="pointer-events-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-xs leading-relaxed text-panda-grey opacity-40">
-            Paid in USDC, because that is what the coin trades against — you spend SOL and the launch buys the USDC
-            on the way in. How much of the supply that comes to depends on the rate at launch.
+          <span className="mb-1.5 block text-sm font-medium text-paper/80">Your first buy (optional)</span>
+          <p className="mb-2 text-xs text-panda-grey">
+            Buy some of ${ticker || "your coin"} the moment it launches, paid in SOL — as its very first trade.
+            This is a second transaction right after creation, so you sign it separately.
           </p>
+          <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
+            <input
+              value={firstBuyAmount}
+              onChange={(e) => setFirstBuyAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="0"
+              inputMode="decimal"
+              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey/50"
+            />
+            <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">SOL</span>
+          </div>
+          <div className="mt-2 grid grid-cols-5 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFirstBuyAmount("")}
+              className={`rounded-xl py-2 text-xs font-semibold transition-colors ${
+                !firstBuyAmount ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
+              }`}
+            >
+              None
+            </button>
+            {firstBuyPresets.map((p) => (
+              <button
+                type="button"
+                key={p}
+                onClick={() => setFirstBuyAmount(String(p))}
+                className={`rounded-xl py-2 text-xs font-semibold transition-colors ${
+                  firstBuyAmount === String(p) ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
+                }`}
+              >
+                {p} SOL
+              </button>
+            ))}
+          </div>
         </div>
 
         <button
@@ -371,14 +436,6 @@ function PumpFunIcon() {
         <line x1="16" y1="10" x2="16" y2="22" stroke="#123832" strokeWidth="1.2" />
       </g>
     </svg>
-  );
-}
-
-function ComingSoonBadge() {
-  return (
-    <span className="rounded-full border border-paper/10 bg-paper/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-panda-grey">
-      Coming soon
-    </span>
   );
 }
 
