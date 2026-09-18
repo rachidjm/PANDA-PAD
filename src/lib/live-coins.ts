@@ -1,4 +1,4 @@
-import { Coin, DoodleKind, Trade } from "./types";
+import { ActivityEvent, Coin, DoodleKind, Trade } from "./types";
 import {
   fetchDexPoolsPages,
   fetchPoolTrades,
@@ -249,6 +249,58 @@ export async function getCoinTrades(coin: Coin): Promise<{ trades: Trade[]; live
     txHash: t.attributes.tx_hash,
   }));
   return { trades, live: true };
+}
+
+let activityCache: { events: ActivityEvent[]; expires: number } | null = null;
+const ACTIVITY_CACHE_MS = 30_000;
+const ACTIVITY_COIN_COUNT = 6;
+const ACTIVITY_PER_COIN = 6;
+
+/**
+ * A real, platform-wide "recent activity" feed — not simulated. Pulls the
+ * most recent real trades from a handful of the busiest already-fetched
+ * coins (no extra cost to find them) and merges them by real timestamp.
+ * Each coin's trades cost one upstream request, so this is cached
+ * server-side for ACTIVITY_CACHE_MS — the whole point of the feed is a
+ * cheap, honest "still alive" signal, not a firehose.
+ */
+export async function getRecentActivity(): Promise<{ events: ActivityEvent[]; live: boolean }> {
+  if (activityCache && activityCache.expires > Date.now()) return { events: activityCache.events, live: true };
+
+  const { coins } = await getLiveCoins();
+  const top = [...coins]
+    .filter((c) => c.poolAddress)
+    .sort((a, b) => b.volume24h - a.volume24h)
+    .slice(0, ACTIVITY_COIN_COUNT);
+
+  const perCoin = await Promise.all(
+    top.map(async (coin) => {
+      const raw = await fetchPoolTrades(coin.poolAddress as string).catch(() => []);
+      return raw.slice(0, ACTIVITY_PER_COIN).map((t, i): ActivityEvent => ({
+        id: `${coin.mint}-${t.attributes.tx_hash}-${i}`,
+        side: t.attributes.kind,
+        trader: `${t.attributes.tx_from_address.slice(0, 4)}…${t.attributes.tx_from_address.slice(-4)}`,
+        sol: Number(
+          Number(t.attributes.kind === "buy" ? t.attributes.from_token_amount : t.attributes.to_token_amount).toFixed(3)
+        ),
+        tokens: Math.round(
+          Number(t.attributes.kind === "buy" ? t.attributes.to_token_amount : t.attributes.from_token_amount)
+        ),
+        time: timeAgo(t.attributes.block_timestamp),
+        txHash: t.attributes.tx_hash,
+        ts: new Date(t.attributes.block_timestamp).getTime(),
+        coinMint: coin.mint,
+        coinTicker: coin.ticker,
+        coinImage: coin.image,
+        coinDoodle: coin.doodle,
+        coinBg: coin.bg,
+      }));
+    })
+  );
+
+  const events = perCoin.flat().sort((a, b) => b.ts - a.ts).slice(0, 20);
+  activityCache = { events, expires: Date.now() + ACTIVITY_CACHE_MS };
+  return { events, live: true };
 }
 
 function timeAgo(iso: string): string {

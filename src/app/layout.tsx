@@ -3,7 +3,9 @@ import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
 import { PandaDefs } from "@/components/panda/Panda";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import WalletProvider from "@/components/providers/WalletProvider";
+import MotionProvider from "@/components/providers/MotionProvider";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -27,10 +29,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="es" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <PandaDefs />
-        <WalletProvider>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-        </WalletProvider>
+        <MotionProvider>
+          <WalletProvider>
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+          </WalletProvider>
+        </MotionProvider>
       </body>
     </html>
   );

@@ -45,3 +45,13 @@ export type Trade = {
   time: string;
   txHash?: string;
 };
+
+/** A real trade, tagged with the coin it happened on — powers the platform-wide activity feed. */
+export type ActivityEvent = Trade & {
+  ts: number;
+  coinMint: string;
+  coinTicker: string;
+  coinImage?: string;
+  coinDoodle: DoodleKind;
+  coinBg: string;
+};

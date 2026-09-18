@@ -1,10 +1,10 @@
 import Link from "next/link";
 import Panda from "@/components/panda/Panda";
 import HomeFeed from "@/components/HomeFeed";
-import { getLiveCoins } from "@/lib/live-coins";
+import { getLiveCoins, getRecentActivity } from "@/lib/live-coins";
 
 export default async function Home() {
-  const { coins, live } = await getLiveCoins();
+  const [{ coins, live }, { events }] = await Promise.all([getLiveCoins(), getRecentActivity()]);
 
   return (
     <div className="mx-auto max-w-6xl px-5">
@@ -45,7 +45,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <HomeFeed coins={coins} live={live} />
+      <HomeFeed coins={coins} live={live} activityEvents={events} />
     </div>
   );
 }
