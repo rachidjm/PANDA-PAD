@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Coin, Holder, Trade } from "@/lib/types";
-import { formatCompact, formatNumber, formatPct, truncateAddress } from "@/lib/format";
+import { Coin, Trade } from "@/lib/types";
+import { formatCompact, formatNumber, formatPct } from "@/lib/format";
 import Doodle from "@/components/doodles/Doodle";
 import Panda from "@/components/panda/Panda";
 import LiveBadge from "@/components/LiveBadge";
@@ -15,12 +15,11 @@ type Tab = (typeof tabs)[number];
 type Props = {
   coin: Coin;
   trades: Trade[];
-  holders: Holder[];
   live: boolean;
   tradesLive: boolean;
 };
 
-export default function CoinClient({ coin, trades, holders, live, tradesLive }: Props) {
+export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
   const [tab, setTab] = useState<Tab>("Trades");
   const positive = coin.changePct >= 0;
 
@@ -80,7 +79,7 @@ export default function CoinClient({ coin, trades, holders, live, tradesLive }: 
 
           <div className="py-6">
             {tab === "Trades" && <TradesTab trades={trades} coin={coin} live={tradesLive} />}
-            {tab === "Holders" && <HoldersTab holders={holders} coin={coin} />}
+            {tab === "Holders" && <HoldersTab />}
             {tab === "Rewards" && <RewardsTab coin={coin} />}
           </div>
         </div>
@@ -198,7 +197,6 @@ function MarketActivityCard({ coin }: { coin: Coin }) {
 }
 
 function PoolInfoCard({ coin }: { coin: Coin }) {
-  if (coin.source === "mock") return null;
   return (
     <div className="rounded-[22px] border border-paper/10 bg-ink-raised p-5">
       <p className="text-sm font-medium text-paper/80">Pool</p>
@@ -226,76 +224,67 @@ function TradesTab({ trades, coin, live }: { trades: Trade[]; coin: Coin; live: 
   const quote = coin.quoteSymbol || "SOL";
   return (
     <div>
-      {!live && (
-        <p className="mb-3 text-xs text-panda-grey">Demo trades — connect to a real pool for live activity.</p>
-      )}
-      <div className="overflow-hidden rounded-2xl border border-paper/10">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-paper/10 text-left text-xs text-panda-grey">
-              <th className="px-4 py-2.5 font-medium">Side</th>
-              <th className="px-4 py-2.5 font-medium">Trader</th>
-              <th className="px-4 py-2.5 font-medium">{quote}</th>
-              <th className="px-4 py-2.5 font-medium">Tokens</th>
-              <th className="px-4 py-2.5 font-medium">Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trades.map((t) => (
-              <tr key={t.id} className="border-b border-paper/5 last:border-0">
-                <td className={`px-4 py-2.5 font-medium ${t.side === "buy" ? "text-bamboo" : "text-clay-red"}`}>
-                  {t.side === "buy" ? "Buy" : "Sell"}
-                </td>
-                <td className="px-4 py-2.5 text-paper/80">
-                  {t.txHash ? (
-                    <a
-                      href={`https://solscan.io/tx/${t.txHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="hover:text-paper hover:underline"
-                    >
-                      {t.trader}
-                    </a>
-                  ) : (
-                    t.trader
-                  )}
-                </td>
-                <td className="px-4 py-2.5">{t.sol}</td>
-                <td className="px-4 py-2.5">{formatNumber(t.tokens)}</td>
-                <td className="px-4 py-2.5 text-panda-grey">{t.time}</td>
+      {trades.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-paper/10 bg-ink-raised py-14 text-center">
+          <Panda pose="empty" size={110} />
+          <p className="text-sm text-paper/80">No trades yet</p>
+          <p className="max-w-xs text-xs text-panda-grey">
+            {live ? "This pool hasn't seen a trade recently." : "Couldn't reach the trade feed — try refreshing."}
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-paper/10">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-paper/10 text-left text-xs text-panda-grey">
+                <th className="px-4 py-2.5 font-medium">Side</th>
+                <th className="px-4 py-2.5 font-medium">Trader</th>
+                <th className="px-4 py-2.5 font-medium">{quote}</th>
+                <th className="px-4 py-2.5 font-medium">Tokens</th>
+                <th className="px-4 py-2.5 font-medium">Time</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {trades.map((t) => (
+                <tr key={t.id} className="border-b border-paper/5 last:border-0">
+                  <td className={`px-4 py-2.5 font-medium ${t.side === "buy" ? "text-bamboo" : "text-clay-red"}`}>
+                    {t.side === "buy" ? "Buy" : "Sell"}
+                  </td>
+                  <td className="px-4 py-2.5 text-paper/80">
+                    {t.txHash ? (
+                      <a
+                        href={`https://solscan.io/tx/${t.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="hover:text-paper hover:underline"
+                      >
+                        {t.trader}
+                      </a>
+                    ) : (
+                      t.trader
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">{t.sol}</td>
+                  <td className="px-4 py-2.5">{formatNumber(t.tokens)}</td>
+                  <td className="px-4 py-2.5 text-panda-grey">{t.time}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function HoldersTab({ holders, coin }: { holders: Holder[]; coin: Coin }) {
-  if (coin.source !== "mock") {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-paper/10 bg-ink-raised py-14 text-center">
-        <Panda pose="empty" size={110} />
-        <p className="text-sm text-paper/80">Holder data isn&apos;t available yet</p>
-        <p className="max-w-xs text-xs text-panda-grey">
-          We only have real price and trade data for now — a holder breakdown needs our own indexer, coming soon.
-        </p>
-      </div>
-    );
-  }
+function HoldersTab() {
   return (
-    <div className="space-y-3">
-      {holders.map((h, i) => (
-        <div key={h.address} className="flex items-center gap-3">
-          <span className="w-5 text-xs text-panda-grey">{i + 1}</span>
-          <span className="w-28 shrink-0 text-sm">{truncateAddress(h.address)}</span>
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-paper/10">
-            <div className="h-full rounded-full bg-paper/70" style={{ width: `${Math.min(h.pct, 100)}%` }} />
-          </div>
-          <span className="w-12 shrink-0 text-right text-sm text-panda-grey">{h.pct}%</span>
-        </div>
-      ))}
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-paper/10 bg-ink-raised py-14 text-center">
+      <Panda pose="empty" size={110} />
+      <p className="text-sm text-paper/80">Holder data isn&apos;t available yet</p>
+      <p className="max-w-xs text-xs text-panda-grey">
+        We only have real price and trade data for now — a holder breakdown needs our own indexer, coming soon.
+      </p>
     </div>
   );
 }

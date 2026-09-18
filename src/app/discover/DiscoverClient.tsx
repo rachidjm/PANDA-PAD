@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import CoinCard from "@/components/CoinCard";
 import LiveBadge from "@/components/LiveBadge";
+import RefreshButton from "@/components/RefreshButton";
 import Panda from "@/components/panda/Panda";
 import { Coin } from "@/lib/types";
 
@@ -15,9 +16,25 @@ const sorts = [
 
 type SortId = (typeof sorts)[number]["id"];
 
-export default function DiscoverClient({ coins, live }: { coins: Coin[]; live: boolean }) {
+export default function DiscoverClient({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
+  const [coins, setCoins] = useState(initialCoins);
+  const [live, setLive] = useState(initialLive);
   const [sort, setSort] = useState<SortId>("trending");
   const [query, setQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  function refresh() {
+    setRefreshing(true);
+    fetch("/api/coins?force=1")
+      .then((r) => r.json())
+      .then((data: { coins?: Coin[]; live?: boolean }) => {
+        if (data.coins?.length) {
+          setCoins(data.coins);
+          setLive(!!data.live);
+        }
+      })
+      .finally(() => setRefreshing(false));
+  }
 
   const list = useMemo(() => {
     const filtered = coins.filter(
@@ -48,6 +65,7 @@ export default function DiscoverClient({ coins, live }: { coins: Coin[]; live: b
         <div className="flex items-center gap-2.5">
           <h1 className="font-display text-2xl font-bold">Discover</h1>
           <LiveBadge live={live} />
+          <RefreshButton loading={refreshing} onClick={refresh} />
         </div>
         <input
           value={query}

@@ -1,6 +1,6 @@
 export type DoodleKind = "cat" | "frog" | "donut" | "ghost" | "egg" | "cloud" | "fish" | "worm";
 
-export type CoinSource = "pump-fun" | "pumpswap" | "mock";
+export type CoinSource = "pump-fun" | "pumpswap";
 
 export type Coin = {
   mint: string;
@@ -16,7 +16,6 @@ export type Coin = {
   telegram?: string | null;
   marketCap: number;
   volume24h: number;
-  holders: number;
   changePct: number;
   priceHistory: number[];
   creator: string;
@@ -43,10 +42,4 @@ export type Trade = {
   tokens: number;
   time: string;
   txHash?: string;
-};
-
-export type Holder = {
-  address: string;
-  pct: number;
-  tokens: number;
 };

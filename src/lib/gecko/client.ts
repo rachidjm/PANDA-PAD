@@ -11,10 +11,10 @@
 const BASE = "https://api.geckoterminal.com/api/v2";
 const NETWORK = "solana";
 
-async function geckoGet<T>(path: string, revalidateSeconds: number): Promise<T> {
+async function geckoGet<T>(path: string, revalidateSeconds: number, noCache = false): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { Accept: "application/json" },
-    next: { revalidate: revalidateSeconds },
+    ...(noCache ? { cache: "no-store" as const } : { next: { revalidate: revalidateSeconds } }),
   });
   if (!res.ok) throw new Error(`GeckoTerminal ${path} → ${res.status}`);
   return res.json() as Promise<T>;
@@ -69,8 +69,21 @@ export function tokenIdToAddress(id: string): string {
   return id.startsWith(`${NETWORK}_`) ? id.slice(NETWORK.length + 1) : id;
 }
 
-export async function fetchDexPools(dex: "pump-fun" | "pumpswap"): Promise<GeckoPoolsResponse> {
-  return geckoGet<GeckoPoolsResponse>(`/networks/${NETWORK}/dexes/${dex}/pools?include=base_token`, 60);
+export async function fetchDexPools(dex: "pump-fun" | "pumpswap", page = 1, noCache = false): Promise<GeckoPoolsResponse> {
+  return geckoGet<GeckoPoolsResponse>(`/networks/${NETWORK}/dexes/${dex}/pools?include=base_token&page=${page}`, 60, noCache);
+}
+
+/** Fetches several pages of a dex's pools in parallel and merges them into one list. */
+export async function fetchDexPoolsPages(dex: "pump-fun" | "pumpswap", pages: number, noCache = false): Promise<GeckoPoolsResponse> {
+  const results = await Promise.all(
+    Array.from({ length: pages }, (_, i) =>
+      fetchDexPools(dex, i + 1, noCache).catch(() => ({ data: [], included: [] } as GeckoPoolsResponse))
+    )
+  );
+  return {
+    data: results.flatMap((r) => r.data),
+    included: results.flatMap((r) => r.included || []),
+  };
 }
 
 export type GeckoTokenInfoAttributes = {

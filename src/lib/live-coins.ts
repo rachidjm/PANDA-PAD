@@ -1,7 +1,6 @@
 import { Coin, DoodleKind, Trade } from "./types";
-import { coins as demoCoins, mockTrades as demoTrades, mockHolders, getCoin as getDemoCoin } from "./mock-data";
 import {
-  fetchDexPools,
+  fetchDexPoolsPages,
   fetchPoolTrades,
   fetchPoolHourlyCloses,
   fetchTokenInfo,
@@ -53,7 +52,6 @@ function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefined, sour
     bg: look.bg,
     marketCap: num(pool.attributes.market_cap_usd) || num(pool.attributes.fdv_usd),
     volume24h: num(pool.attributes.volume_usd?.h24),
-    holders: 0,
     changePct: num(pool.attributes.price_change_percentage?.h24),
     priceHistory: buildApproxTrend(pool.attributes.price_change_percentage),
     creator: "",
@@ -98,60 +96,56 @@ async function enrichSocials(coin: Coin): Promise<Coin> {
 
 let cache: { coins: Coin[]; expires: number } | null = null;
 
-export async function getLiveCoins(): Promise<{ coins: Coin[]; live: boolean }> {
-  if (cache && cache.expires > Date.now()) return { coins: cache.coins, live: true };
+/**
+ * Live PANDA data always comes straight from chain (via GeckoTerminal's Pump.fun
+ * / PumpSwap indexing) — there is no demo/mock fallback. If the feed is
+ * genuinely empty or unreachable, callers get `coins: []` and show an honest
+ * empty state instead of fabricated coins.
+ */
+export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; live: boolean }> {
+  if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, live: true };
 
-  try {
-    const [pumpFun, pumpSwap] = await Promise.all([fetchDexPools("pump-fun"), fetchDexPools("pumpswap")]);
+  const [pumpFun, pumpSwap] = await Promise.all([
+    fetchDexPoolsPages("pump-fun", 4, opts.force),
+    fetchDexPoolsPages("pumpswap", 3, opts.force),
+  ]);
 
-    const map = (res: typeof pumpFun, source: "pump-fun" | "pumpswap") =>
-      res.data.map((pool) => {
-        const tokenId = pool.relationships.base_token.data.id;
-        const token = res.included?.find((t) => t.id === tokenId);
-        return poolToCoin(pool, token, source);
-      });
+  const map = (res: typeof pumpFun, source: "pump-fun" | "pumpswap") =>
+    res.data.map((pool) => {
+      const tokenId = pool.relationships.base_token.data.id;
+      const token = res.included?.find((t) => t.id === tokenId);
+      return poolToCoin(pool, token, source);
+    });
 
-    const merged = [...map(pumpFun, "pump-fun"), ...map(pumpSwap, "pumpswap")]
-      .filter((c) => c.marketCap > 0)
-      .sort((a, b) => b.volume24h - a.volume24h)
-      .slice(0, 16);
-
-    const enriched = await Promise.all(
-      merged.slice(0, 10).map((c) => enrichSocials(c).catch(() => c))
-    );
-    const coins = [...enriched, ...merged.slice(10)];
-
-    if (coins.length === 0) throw new Error("empty live feed");
-
-    cache = { coins, expires: Date.now() + 60_000 };
-    return { coins, live: true };
-  } catch {
-    return { coins: demoCoins, live: false };
+  const byMint = new Map<string, Coin>();
+  for (const coin of [...map(pumpFun, "pump-fun"), ...map(pumpSwap, "pumpswap")]) {
+    if (coin.marketCap > 0 && !byMint.has(coin.mint)) byMint.set(coin.mint, coin);
   }
+  const merged = [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
+
+  const enriched = await Promise.all(merged.slice(0, 18).map((c) => enrichSocials(c).catch(() => c)));
+  const coins = [...enriched, ...merged.slice(18)];
+
+  if (coins.length > 0) cache = { coins, expires: Date.now() + 60_000 };
+  return { coins, live: coins.length > 0 };
 }
 
 export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
   const { coins, live } = await getLiveCoins();
   const coin = coins.find((c) => c.mint.toLowerCase() === mint.toLowerCase());
-  if (coin && live && coin.poolAddress) {
+  if (coin && coin.poolAddress) {
     const closes = await fetchPoolHourlyCloses(coin.poolAddress);
     if (closes.length > 4) {
       coin.priceHistory = closes;
       coin.range24h = { low: Math.min(...closes), high: Math.max(...closes) };
     }
   }
-  if (coin) return { coin, live };
-  // Not in the live top list — maybe a demo ticker used as a direct link.
-  const demo = getDemoCoin(mint);
-  return { coin: demo, live: false };
+  return { coin, live };
 }
 
 export async function getCoinTrades(coin: Coin): Promise<{ trades: Trade[]; live: boolean }> {
-  if (coin.source === "mock" || !coin.poolAddress) {
-    return { trades: demoTrades(coin), live: false };
-  }
+  if (!coin.poolAddress) return { trades: [], live: false };
   const raw = await fetchPoolTrades(coin.poolAddress);
-  if (raw.length === 0) return { trades: demoTrades(coin), live: false };
   const trades: Trade[] = raw.slice(0, 20).map((t, i) => ({
     id: `${t.attributes.tx_hash}-${i}`,
     side: t.attributes.kind,
@@ -172,5 +166,3 @@ function timeAgo(iso: string): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
 }
-
-export { mockHolders };
