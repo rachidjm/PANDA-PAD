@@ -200,7 +200,6 @@ export default function CreateClient() {
           <div className="flex items-center gap-2.5 rounded-2xl border border-bamboo/50 bg-bamboo/10 px-4 py-3">
             <PumpFunIcon />
             <span className="text-sm font-semibold">Pump.fun</span>
-            <span className="ml-auto text-xs text-panda-grey">Only option for now</span>
           </div>
         </div>
 
@@ -353,10 +352,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function PumpFunIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" className="shrink-0" aria-hidden="true">
-      <circle cx="10" cy="10" r="9.5" fill="#0e0d0c" stroke="#c9d94c" strokeWidth="1" />
-      <rect x="5" y="8.5" width="10" height="3" rx="1.5" fill="#f7f4ec" />
-      <rect x="5" y="8.5" width="5" height="3" rx="1.5" fill="#c9d94c" />
+    <svg width="22" height="22" viewBox="0 0 32 32" className="shrink-0" aria-hidden="true">
+      <defs>
+        <clipPath id="pumpPillClip">
+          <rect x="4" y="10" width="24" height="12" rx="6" />
+        </clipPath>
+      </defs>
+      <g transform="rotate(-45 16 16)">
+        <g clipPath="url(#pumpPillClip)">
+          <rect x="4" y="10" width="12" height="8" fill="#4ADE94" />
+          <rect x="4" y="18" width="12" height="4" fill="#2EBE78" />
+          <rect x="16" y="10" width="12" height="8" fill="#FFFFFF" />
+          <rect x="16" y="18" width="12" height="4" fill="#C7D3D6" />
+        </g>
+        <rect x="6.5" y="16.5" width="1.6" height="1.6" rx="0.8" fill="#FFFFFF" />
+        <rect x="7" y="19" width="1.2" height="2.6" rx="0.6" fill="#FFFFFF" />
+        <rect x="4" y="10" width="24" height="12" rx="6" fill="none" stroke="#123832" strokeWidth="1.6" />
+        <line x1="16" y1="10" x2="16" y2="22" stroke="#123832" strokeWidth="1.2" />
+      </g>
     </svg>
   );
 }
