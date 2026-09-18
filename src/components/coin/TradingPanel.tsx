@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
 import { PANDA_FEE_BPS } from "@/lib/pump/constants";
-import { base64ToTransaction } from "@/lib/pump/wire";
+import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { dexLabel } from "@/lib/dex-labels";
 
 const buyPresets = [0.1, 0.5, 1];
@@ -28,7 +28,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
   const graduated = coin.source === "pumpswap";
   const externalDex = coin.source === "other";
-  const tradeDisabled = graduated || externalDex;
+  const tradeDisabled = graduated;
 
   useEffect(() => {
     if (!connected || !publicKey) return;
@@ -84,15 +84,18 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               tokenAmount: Math.round(parseFloat(amount) * 10 ** tokenDecimals).toString(),
             };
 
-      const res = await fetch(`/api/pump/${side}`, {
+      const endpoint = externalDex ? "/api/jupiter/swap" : `/api/pump/${side}`;
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(externalDex ? { ...body, side } : body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to build transaction.");
 
-      const tx: Transaction = base64ToTransaction(data.transaction);
+      const tx: Transaction | VersionedTransaction = externalDex
+        ? base64ToVersionedTransaction(data.transaction)
+        : base64ToTransaction(data.transaction);
 
       setStatus("signing");
       const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
@@ -254,8 +257,6 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           ? "Connect wallet to trade"
           : graduated
           ? "Graduated — PumpSwap trading coming soon"
-          : externalDex
-          ? `Not on Pump.fun — trade on ${dexLabel(coin.dex)}`
           : status === "building"
           ? "Preparing transaction…"
           : status === "signing"
@@ -283,16 +284,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
       {externalDex ? (
         <p className="mt-3 text-center text-xs text-panda-grey">
-          This coin doesn&apos;t trade on Pump.fun, so PANDA can&apos;t route the trade — view it on{" "}
-          <a
-            href={`https://solscan.io/token/${coin.mint}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-paper underline"
-          >
-            Solscan
-          </a>{" "}
-          instead.
+          Not a Pump.fun coin — routed via Jupiter across {dexLabel(coin.dex)} and other Solana DEXes. PANDA never holds your funds.
         </p>
       ) : (
         <p className="mt-3 text-center text-xs text-panda-grey">
@@ -309,6 +301,7 @@ function explainError(err: unknown): string {
   if (/insufficient/i.test(message)) return "Insufficient balance for this trade plus fees.";
   if (/slippage/i.test(message)) return "Price moved too much — try again or raise slippage.";
   if (/graduated|PumpSwap/i.test(message)) return message;
+  if (/no route/i.test(message)) return "No trading route found for this pair right now — try again shortly.";
   if (/blockhash|expired/i.test(message)) return "Transaction expired — try again.";
   if (/429|too many requests/i.test(message)) return "The Solana RPC is rate-limiting us — wait a moment and retry.";
   if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return "Network error reaching Solana — check your connection and retry.";
