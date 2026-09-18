@@ -196,6 +196,15 @@ export default function CreateClient() {
 
       <div className="mt-8 space-y-5">
         <div>
+          <span className="mb-1.5 block text-sm font-medium text-paper/80">Launch on</span>
+          <div className="flex items-center gap-2.5 rounded-2xl border border-bamboo/50 bg-bamboo/10 px-4 py-3">
+            <PumpFunIcon />
+            <span className="text-sm font-semibold">Pump.fun</span>
+            <span className="ml-auto text-xs text-panda-grey">Only option for now</span>
+          </div>
+        </div>
+
+        <div>
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
@@ -339,6 +348,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1.5 block text-sm font-medium text-paper/80">{label}</span>
       {children}
     </label>
+  );
+}
+
+function PumpFunIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className="shrink-0" aria-hidden="true">
+      <circle cx="10" cy="10" r="9.5" fill="#0e0d0c" stroke="#c9d94c" strokeWidth="1" />
+      <rect x="5" y="8.5" width="10" height="3" rx="1.5" fill="#f7f4ec" />
+      <rect x="5" y="8.5" width="5" height="3" rx="1.5" fill="#c9d94c" />
+    </svg>
   );
 }
 
