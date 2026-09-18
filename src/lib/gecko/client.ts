@@ -43,6 +43,7 @@ export type GeckoPool = {
   relationships: {
     base_token: GeckoRelationship;
     quote_token: GeckoRelationship;
+    dex?: GeckoRelationship;
   };
 };
 
@@ -84,6 +85,18 @@ export async function fetchDexPoolsPages(dex: "pump-fun" | "pumpswap", pages: nu
     data: results.flatMap((r) => r.data),
     included: results.flatMap((r) => r.included || []),
   };
+}
+
+/**
+ * Searches pools across the ENTIRE Solana network (not just the pump-fun /
+ * pumpswap dex listings) so a search can find any coin by name or ticker,
+ * not only the ones already sitting in our cached top-volume list.
+ */
+export async function searchPools(query: string, page = 1): Promise<GeckoPoolsResponse> {
+  return geckoGet<GeckoPoolsResponse>(
+    `/search/pools?query=${encodeURIComponent(query)}&network=${NETWORK}&include=base_token&page=${page}`,
+    20
+  );
 }
 
 export type GeckoTokenInfoAttributes = {

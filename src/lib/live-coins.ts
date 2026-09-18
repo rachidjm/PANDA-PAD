@@ -4,6 +4,7 @@ import {
   fetchPoolTrades,
   fetchPoolHourlyCloses,
   fetchTokenInfo,
+  searchPools,
   tokenIdToAddress,
   GeckoPool,
   GeckoIncludedToken,
@@ -38,7 +39,7 @@ function windowMap<T, R>(source: Record<string, T | undefined> | undefined, pick
   return Object.keys(out).length ? out : undefined;
 }
 
-function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefined, source: "pump-fun" | "pumpswap"): Coin {
+export function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefined, source: "pump-fun" | "pumpswap"): Coin {
   const mint = token ? tokenIdToAddress(token.id) : pool.relationships.base_token.data.id;
   const symbol = token?.attributes.symbol || pool.attributes.name.split("/")[0].trim();
   const look = fallbackLook(mint);
@@ -128,6 +129,36 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
 
   if (coins.length > 0) cache = { coins, expires: Date.now() + 60_000 };
   return { coins, live: coins.length > 0 };
+}
+
+/**
+ * Live search across the WHOLE Solana network via GeckoTerminal's search
+ * endpoint, then narrowed down to pools on Pump.fun / PumpSwap — the only
+ * venues PANDA can actually trade on. This is what powers the search boxes
+ * (unlike the cached top-60 list, it can find any coin, not just the biggest
+ * ones already fetched).
+ */
+export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; live: boolean }> {
+  const q = query.trim();
+  if (!q) return { coins: [], live: true };
+
+  // A single page keeps this to one upstream request per search — GeckoTerminal's
+  // free public API rate-limits aggressively, and a real error here should
+  // surface (not be swallowed into a misleading "no coins found").
+  const { data, included = [] } = await searchPools(q, 1);
+
+  const byMint = new Map<string, Coin>();
+  for (const pool of data) {
+    const dexId = pool.relationships.dex?.data.id;
+    if (dexId !== "pump-fun" && dexId !== "pumpswap") continue;
+    const tokenId = pool.relationships.base_token.data.id;
+    const token = included.find((t) => t.id === tokenId);
+    const coin = poolToCoin(pool, token, dexId);
+    if (!byMint.has(coin.mint)) byMint.set(coin.mint, coin);
+  }
+
+  const coins = [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 40);
+  return { coins, live: true };
 }
 
 export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {

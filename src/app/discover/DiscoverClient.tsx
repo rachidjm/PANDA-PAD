@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import CoinCard from "@/components/CoinCard";
 import LiveBadge from "@/components/LiveBadge";
 import RefreshButton from "@/components/RefreshButton";
@@ -18,12 +18,58 @@ const sorts = [
 type SortId = (typeof sorts)[number]["id"];
 
 export default function DiscoverClient({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const urlQuery = searchParams.get("q") || "";
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
   const [sort, setSort] = useState<SortId>("trending");
-  const [query, setQuery] = useState(searchParams.get("q") || "");
+  const [inputValue, setInputValue] = useState(urlQuery);
+  const [searchResults, setSearchResults] = useState<Coin[] | null>(null);
+  const [searchError, setSearchError] = useState("");
+  const [resolvedQuery, setResolvedQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const trimmedQuery = urlQuery.trim();
+  const searching = trimmedQuery !== "" && trimmedQuery !== resolvedQuery;
+  const navDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function typeQuery(value: string) {
+    setInputValue(value);
+    if (navDebounce.current) clearTimeout(navDebounce.current);
+    navDebounce.current = setTimeout(() => {
+      router.replace(value.trim() ? `/discover?q=${encodeURIComponent(value.trim())}` : "/discover", { scroll: false });
+    }, 250);
+  }
+
+  // Live search across the whole Solana network (not just the cached list)
+  // as soon as the URL's ?q= settles, so results appear without pressing Enter.
+  useEffect(() => {
+    const q = urlQuery.trim();
+    if (!q) return;
+    let cancelled = false;
+    fetch(`/api/coins?q=${encodeURIComponent(q)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setSearchError(data.error || "Search failed. Try again.");
+          setSearchResults([]);
+        } else {
+          setSearchError("");
+          setSearchResults(data.coins || []);
+        }
+        setResolvedQuery(q);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSearchError("Search failed. Check your connection and try again.");
+        setSearchResults([]);
+        setResolvedQuery(q);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [urlQuery]);
 
   function refresh() {
     setRefreshing(true);
@@ -39,12 +85,8 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   }
 
   const list = useMemo(() => {
-    const filtered = coins.filter(
-      (c) =>
-        c.ticker.toLowerCase().includes(query.toLowerCase()) ||
-        c.name.toLowerCase().includes(query.toLowerCase())
-    );
-    const sorted = [...filtered];
+    const base = urlQuery.trim() ? searchResults ?? [] : coins;
+    const sorted = [...base];
     switch (sort) {
       case "new":
         sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -59,7 +101,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
         sorted.sort((a, b) => b.changePct - a.changePct);
     }
     return sorted;
-  }, [coins, sort, query]);
+  }, [coins, searchResults, sort, urlQuery]);
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-10">
@@ -70,9 +112,9 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
           <RefreshButton loading={refreshing} onClick={refresh} />
         </div>
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search coins"
+          value={inputValue}
+          onChange={(e) => typeQuery(e.target.value)}
+          placeholder="Search all Solana coins"
           className="w-full max-w-xs rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40 sm:hidden"
         />
       </div>
@@ -91,10 +133,10 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
         ))}
       </div>
 
-      {list.length === 0 ? (
-        <EmptyState query={query} />
+      {list.length === 0 && !searching ? (
+        <EmptyState query={urlQuery} error={searchError} />
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 transition-opacity ${searching ? "opacity-60" : ""}`}>
           {list.map((coin) => (
             <CoinCard key={coin.mint} coin={coin} />
           ))}
@@ -104,11 +146,17 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   );
 }
 
-function EmptyState({ query }: { query: string }) {
+function EmptyState({ query, error }: { query: string; error?: string }) {
   return (
     <div className="mt-16 flex flex-col items-center gap-4 text-center">
       <Panda pose="empty" size={140} />
-      <p className="text-panda-grey">No coins match &ldquo;{query}&rdquo;. Try a different search, or create it yourself.</p>
+      {error ? (
+        <p className="text-clay-red">{error}</p>
+      ) : query ? (
+        <p className="text-panda-grey">No coins match &ldquo;{query}&rdquo;. Try a different search, or create it yourself.</p>
+      ) : (
+        <p className="text-panda-grey">No coins to show right now.</p>
+      )}
     </div>
   );
 }
