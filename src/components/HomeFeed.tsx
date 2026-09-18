@@ -6,6 +6,7 @@ import LiveBadge from "@/components/LiveBadge";
 import RefreshButton from "@/components/RefreshButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import HomeSection from "@/components/home/HomeSection";
+import PandaEcosystemCard from "@/components/home/PandaEcosystemCard";
 import { buildHomeSections, SECTION_TITLES, SectionId } from "@/lib/home-sections";
 import { ActivityEvent, Coin } from "@/lib/types";
 
@@ -56,6 +57,10 @@ export default function HomeFeed({
 
   return (
     <section className="pb-24">
+      <div className="mb-10">
+        <PandaEcosystemCard />
+      </div>
+
       <div className="mb-5 flex items-end justify-between">
         <div className="flex items-center gap-2.5">
           <h2 className="font-display text-xl font-bold">Live coins</h2>

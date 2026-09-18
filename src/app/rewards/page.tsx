@@ -1,10 +1,10 @@
-import RewardsClient from "./RewardsClient";
+import RewardsDashboard from "@/components/rewards/RewardsDashboard";
 
 const steps = [
-  { label: "Trade", detail: "You buy or sell a GIF coin." },
+  { label: "Trade", detail: "You buy or sell a coin." },
   { label: "Fees", detail: "A small fee is taken from the trade." },
-  { label: "Rewards", detail: "That fee is pooled for holders." },
-  { label: "$PANDA", detail: "Your share lands in your wallet." },
+  { label: "Fee Distribution", detail: "The creator routes a share of it to holders." },
+  { label: "Rewards", detail: "Your real share becomes claimable in your wallet." },
 ];
 
 export default function RewardsPage() {
@@ -32,7 +32,7 @@ export default function RewardsPage() {
         ))}
       </ol>
 
-      <RewardsClient />
+      <RewardsDashboard />
     </div>
   );
 }

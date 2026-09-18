@@ -6,8 +6,19 @@ import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
+import FeeDistributionStep from "@/components/create/FeeDistributionStep";
 
-type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
+type Stage =
+  | "form"
+  | "uploading"
+  | "building"
+  | "signing"
+  | "confirming"
+  | "feeDistribution"
+  | "feeSigning"
+  | "buying"
+  | "done"
+  | "error";
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const firstBuyPresets = [0.5, 1, 2, 5];
@@ -28,6 +39,8 @@ export default function CreateClient() {
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
   const [buyError, setBuyError] = useState("");
+  const [feeError, setFeeError] = useState("");
+  const [feeDistributionSet, setFeeDistributionSet] = useState(false);
   const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -116,25 +129,61 @@ export default function CreateClient() {
       if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
-
-      const buyAmount = parseFloat(firstBuyAmount);
-      if (buyAmount > 0) {
-        setStage("buying");
-        try {
-          const buySignature = await buyFirst(mint.publicKey.toBase58(), buyAmount);
-          setResult({ mint: mint.publicKey.toBase58(), signature, buySignature });
-        } catch (buyErr) {
-          // The coin itself launched fine — only the optional first buy failed.
-          // That's not a launch failure, just a separate note on the success screen.
-          setBuyError(explainError(buyErr));
-        }
-      }
-
-      setStage("done");
+      // The coin itself is live now — Fee Distribution and the optional first
+      // buy are separate, later transactions, so pause here and let the
+      // FeeDistributionStep UI take over instead of finishing automatically.
+      setStage("feeDistribution");
     } catch (err) {
       setStage("error");
       setError(explainError(err));
     }
+  }
+
+  async function submitFeeDistribution(shareholders: { address: string; shareBps: number }[]) {
+    if (!result || !publicKey) return;
+    setFeeError("");
+    try {
+      setStage("feeSigning");
+      const res = await fetch("/api/pump/fee-shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mint: result.mint, creator: publicKey.toBase58(), shareholders }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to build the fee-distribution transaction.");
+
+      const tx = base64ToTransaction(data.transaction);
+      const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+      const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+      if (confirmation.value.err) throw new Error("Fee distribution failed to confirm.");
+
+      setFeeDistributionSet(true);
+      await finishAfterFeeDistribution();
+    } catch (err) {
+      // The coin (and its default 100%-to-creator fees) is still live either
+      // way — only the fee-split setup failed, so this doesn't block launch.
+      setFeeError(explainError(err));
+      await finishAfterFeeDistribution();
+    }
+  }
+
+  async function finishAfterFeeDistribution() {
+    if (!result) return;
+    const buyAmount = parseFloat(firstBuyAmount);
+    if (buyAmount > 0) {
+      setStage("buying");
+      try {
+        const buySignature = await buyFirst(result.mint, buyAmount);
+        setResult({ ...result, buySignature });
+      } catch (buyErr) {
+        // The coin itself launched fine — only the optional first buy failed.
+        // That's not a launch failure, just a separate note on the success screen.
+        setBuyError(explainError(buyErr));
+      }
+    }
+    setStage("done");
   }
 
   function reset() {
@@ -148,8 +197,31 @@ export default function CreateClient() {
     setTwitter("");
     setFirstBuyAmount("");
     setBuyError("");
+    setFeeError("");
+    setFeeDistributionSet(false);
     setResult(null);
     setError("");
+  }
+
+  if (stage === "feeDistribution" || stage === "feeSigning") {
+    if (!result || !publicKey) return null;
+    return (
+      <div className="flex flex-col items-center gap-6 py-10 text-center">
+        <Panda pose="success" size={120} />
+        <div>
+          <p className="font-display text-xl font-bold">${ticker} is live</p>
+          <p className="mt-1 text-sm text-panda-grey">Now, optionally, decide how its creator fees are split.</p>
+        </div>
+        <div className="w-full max-w-md text-left">
+          <FeeDistributionStep
+            creator={publicKey.toBase58()}
+            submitting={stage === "feeSigning"}
+            onSkip={() => finishAfterFeeDistribution()}
+            onContinue={(shareholders) => submitFeeDistribution(shareholders)}
+          />
+        </div>
+      </div>
+    );
   }
 
   if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming" || stage === "buying") {
@@ -209,6 +281,13 @@ export default function CreateClient() {
           <p className="max-w-xs text-xs text-clay-red">
             The coin launched fine, but your first buy didn&apos;t go through: {buyError} You can still buy it from
             its page below.
+          </p>
+        )}
+        {feeDistributionSet && <p className="text-sm text-bamboo">Fee distribution is set, real and on-chain.</p>}
+        {feeError && (
+          <p className="max-w-xs text-xs text-clay-red">
+            The coin launched fine, but fee distribution didn&apos;t go through: {feeError} You keep 100% of creator
+            fees by default until you set it up from the coin page.
           </p>
         )}
         <div className="flex flex-wrap justify-center gap-3">

@@ -21,3 +21,16 @@ export const PANDA_FEE_BPS = 100; // 1%
 export const PANDA_TREASURY = new PublicKey(
   process.env.NEXT_PUBLIC_PANDA_TREASURY || "GJvaNLciu58gCyJap2tzGam76SS1w2Bg9bHbfKyzxb8m"
 );
+
+/**
+ * Where a coin's "Holders" creator-fee share lands, when a creator opts into
+ * Fee Distribution — a real Solana address, public key only. PANDA never
+ * holds this wallet's private key in the frontend/repo; the server-side
+ * signer needed to actually pay individual holders out of it is separate,
+ * operational infrastructure that isn't wired up yet (see RewardsDashboard's
+ * "coming soon" claim state). `null` when unset, so callers can render an
+ * honest "not configured" state instead of a fake address.
+ */
+export const PANDA_REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL
+  ? new PublicKey(process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL)
+  : null;

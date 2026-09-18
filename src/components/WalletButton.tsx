@@ -3,10 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { WalletName } from "@solana/wallet-adapter-base";
-
-function truncate(address: string) {
-  return `${address.slice(0, 4)}…${address.slice(-4)}`;
-}
+import WalletPanel from "@/components/portfolio/WalletPanel";
+import { truncateAddress } from "@/lib/format";
 
 export default function WalletButton() {
   const { wallets, select, disconnect, connected, connecting, publicKey } = useWallet();
@@ -29,19 +27,18 @@ export default function WalletButton() {
           className="flex items-center gap-2 rounded-full border border-paper/20 bg-ink-raised px-4 py-2 text-sm font-medium hover:border-paper/40 transition-colors"
         >
           <span className="h-2 w-2 rounded-full bg-bamboo" />
-          {truncate(publicKey.toBase58())}
+          {truncateAddress(publicKey.toBase58())}
+          <span className="text-panda-grey">▾</span>
         </button>
         {open && (
-          <div className="absolute right-0 mt-2 w-44 rounded-2xl border border-paper/15 bg-ink-raised p-1.5 shadow-xl">
-            <button
-              onClick={() => {
+          <div className="absolute right-0 mt-2">
+            <WalletPanel
+              publicKey={publicKey}
+              onDisconnect={() => {
                 disconnect();
                 setOpen(false);
               }}
-              className="w-full rounded-xl px-3 py-2 text-left text-sm text-paper/80 hover:bg-paper/10 hover:text-paper transition-colors"
-            >
-              Disconnect
-            </button>
+            />
           </div>
         )}
       </div>

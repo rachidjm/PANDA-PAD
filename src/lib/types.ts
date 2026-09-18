@@ -55,3 +55,46 @@ export type ActivityEvent = Trade & {
   coinDoodle: DoodleKind;
   coinBg: string;
 };
+
+/** One real, non-zero balance found in a connected wallet — read live from Solana, never stored. */
+export type PortfolioHolding = {
+  mint: string;
+  amount: number;
+  decimals: number;
+  symbol?: string;
+  name?: string;
+  image?: string;
+  doodle?: DoodleKind;
+  bg?: string;
+  /** Only set when a real price was found (PANDA-tracked coin or a GeckoTerminal-indexed pool). */
+  priceUsd?: number;
+  valueUsd?: number;
+  changePct?: number;
+};
+
+/** A single real on-chain creator-fee recipient, in basis points (10,000 = 100%). */
+export type Shareholder = { address: string; shareBps: number };
+
+/**
+ * A held coin with a nonzero on-chain Holders fee share. Deliberately has no
+ * dollar/token reward *amount* field: PANDA's Rewards Pool wallet is shared
+ * across every coin that opts into Fee Distribution, so a live pool balance
+ * can't be honestly split per-coin without per-mint on-chain distribution
+ * history (not implemented yet) — splitting the shared balance by live
+ * ownership alone would double-count across coins and misrepresent a real
+ * number, which is worse than not showing one. `holderSharePct` and
+ * `holdersFeeBps` are both real, independently-verifiable on-chain facts.
+ */
+export type RewardSource = {
+  coinMint: string;
+  coinTicker: string;
+  coinImage?: string;
+  coinDoodle: DoodleKind;
+  coinBg: string;
+  holderBalance: number;
+  circulatingSupply: number;
+  /** holderBalance / circulatingSupply, as a percentage. */
+  holderSharePct: number;
+  /** This coin's real on-chain "Holders" allocation, in basis points. */
+  holdersFeeBps: number;
+};

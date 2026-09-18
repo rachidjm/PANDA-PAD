@@ -12,12 +12,12 @@ export default async function Home() {
         <div>
           <p className="font-display text-base font-semibold text-paper/70">PANDA</p>
           <h1 className="mt-3 font-display text-5xl font-extrabold leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl">
-            The GIF coin
+            The Solana
             <br />
-            launchpad
+            coin launchpad
           </h1>
           <p className="mt-5 max-w-sm text-lg text-paper/70">
-            Turn GIFs into coins. Create one in a minute, or trade what the internet already made.
+            Create any coin in a minute — GIFs, memes, or your own idea — or trade what&apos;s already live.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link

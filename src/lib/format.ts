@@ -18,6 +18,13 @@ export function truncateAddress(address: string): string {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
+/** USD formatting for real dollar amounts (portfolio/reward values) — keeps cents for small
+ *  amounts, unlike `formatCompact`, which is for large stats like market cap. */
+export function formatUsd(n: number): string {
+  if (Math.abs(n) >= 1000) return formatCompact(n);
+  return `$${n.toFixed(2)}`;
+}
+
 /** Adapts decimal precision so very small memecoin prices don't render as $0.0000. */
 export function formatPrice(n: number): string {
   if (n === 0) return "$0";

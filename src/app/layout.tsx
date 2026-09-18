@@ -20,8 +20,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "PANDA — The GIF Coin Launchpad",
-  description: "Turn GIFs into coins. Create and trade GIF coins on Solana.",
+  title: "PANDA — The Solana Coin Launchpad",
+  description: "Create and trade coins on Solana — GIFs, memes, or your own idea, all in one place.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
