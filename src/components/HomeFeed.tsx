@@ -14,6 +14,7 @@ export default function HomeFeed({ coins: initialCoins, live: initialLive }: { c
   const [live, setLive] = useState(initialLive);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
   const lastAttempt = useRef(0);
 
   function refresh() {
@@ -29,7 +30,12 @@ export default function HomeFeed({ coins: initialCoins, live: initialLive }: { c
       .then((data: { coins?: Coin[]; live?: boolean }) => {
         if (data.coins?.length) setCoins(data.coins);
         setLive(!!data.live);
-        if (!data.live) setRefreshError(true);
+        if (!data.live) {
+          setRefreshError(true);
+        } else {
+          setJustUpdated(true);
+          setTimeout(() => setJustUpdated(false), 1800);
+        }
       })
       .catch(() => setRefreshError(true))
       .finally(() => setRefreshing(false));
@@ -43,7 +49,7 @@ export default function HomeFeed({ coins: initialCoins, live: initialLive }: { c
         <div className="flex items-center gap-2.5">
           <h2 className="font-display text-xl font-bold">Live coins</h2>
           <LiveBadge live={live} />
-          <RefreshButton loading={refreshing} onClick={refresh} />
+          <RefreshButton loading={refreshing} onClick={refresh} justUpdated={justUpdated} />
         </div>
         <Link href="/discover" className="text-sm font-medium text-paper/60 hover:text-paper transition-colors">
           View all

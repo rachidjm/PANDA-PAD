@@ -1,6 +1,16 @@
 "use client";
 
-export default function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+export default function RefreshButton({
+  loading,
+  onClick,
+  justUpdated,
+}: {
+  loading: boolean;
+  onClick: () => void;
+  /** Briefly true right after a successful refresh — confirms the click did
+   * something even when the fetched numbers happen to look the same. */
+  justUpdated?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
@@ -22,7 +32,7 @@ export default function RefreshButton({ loading, onClick }: { loading: boolean; 
         <path d="M16.5 10a6.5 6.5 0 1 1-2.1-4.8" />
         <path d="M16.5 3.5v3.5h-3.5" />
       </svg>
-      {loading ? "Refreshing…" : "Refresh"}
+      {loading ? "Refreshing…" : justUpdated ? "Updated ✓" : "Refresh"}
     </button>
   );
 }

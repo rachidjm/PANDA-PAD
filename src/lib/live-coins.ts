@@ -111,7 +111,7 @@ let lastFetchAt = 0;
 // so "force" is a request to be fresh, not a license to always re-fetch —
 // if anyone (this click or someone else's) already refreshed a moment ago,
 // serve that instead of piling on more upstream calls.
-const MIN_FORCE_INTERVAL_MS = 15_000;
+const MIN_FORCE_INTERVAL_MS = 10_000;
 
 /**
  * Live PANDA data always comes straight from chain (via GeckoTerminal's Pump.fun
@@ -142,10 +142,12 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
   for (const coin of [...map(pumpFun, "pump-fun"), ...map(pumpSwap, "pumpswap")]) {
     if (coin.marketCap > 0 && !byMint.has(coin.mint)) byMint.set(coin.mint, coin);
   }
-  const merged = [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
-
-  const enriched = await Promise.all(merged.slice(0, 18).map((c) => enrichSocials(c).catch(() => c)));
-  const coins = [...enriched, ...merged.slice(18)];
+  // No social enrichment here — it's only ever shown on the individual coin
+  // page, never on these list cards, and it used to cost up to 18 extra
+  // upstream requests on every single refresh (on top of the 7 above) for
+  // data nothing on this screen displays. getLiveCoin() enriches lazily,
+  // one request, only for the specific coin someone actually opens.
+  const coins = [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
 
   if (coins.length > 0) {
     cache = { coins, expires: Date.now() + 60_000 };
@@ -228,6 +230,9 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
       coin.range24h = { low: Math.min(...closes), high: Math.max(...closes) };
     }
   }
+  // Description/website/socials only matter on this page, so fetch them
+  // lazily here (one request) instead of eagerly for every coin in a list.
+  if (coin) coin = await enrichSocials(coin).catch(() => coin as Coin);
   return { coin, live };
 }
 

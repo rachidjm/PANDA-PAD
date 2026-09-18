@@ -31,6 +31,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   const [resolvedQuery, setResolvedQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
   const trimmedQuery = urlQuery.trim();
   const searching = trimmedQuery !== "" && trimmedQuery !== resolvedQuery;
   const navDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,7 +88,12 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
       .then((data: { coins?: Coin[]; live?: boolean }) => {
         if (data.coins?.length) setCoins(data.coins);
         setLive(!!data.live);
-        if (!data.live) setRefreshError(true);
+        if (!data.live) {
+          setRefreshError(true);
+        } else {
+          setJustUpdated(true);
+          setTimeout(() => setJustUpdated(false), 1800);
+        }
       })
       .catch(() => setRefreshError(true))
       .finally(() => setRefreshing(false));
@@ -118,7 +124,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
         <div className="flex items-center gap-2.5">
           <h1 className="font-display text-2xl font-bold">Discover</h1>
           <LiveBadge live={live} />
-          <RefreshButton loading={refreshing} onClick={refresh} />
+          <RefreshButton loading={refreshing} onClick={refresh} justUpdated={justUpdated} />
         </div>
         <input
           value={inputValue}
