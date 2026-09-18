@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #0e0d0c;
+  --ink-raised: #16140f;
+  --paper: #f7f4ec;
+  --ink-line: #f7f4ec;
+  --panda-grey: #8b8680;
+  --meme-orange: #ff6a1a;
+  --bamboo: #c9d94c;
+  --clay-red: #e8543e;
+  --font-display: var(--font-bricolage);
+  --font-body: var(--font-inter);
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-raised: var(--ink-raised);
+  --color-paper: var(--paper);
+  --color-panda-grey: var(--panda-grey);
+  --color-meme-orange: var(--meme-orange);
+  --color-bamboo: var(--bamboo);
+  --color-clay-red: var(--clay-red);
+  --font-display: var(--font-display);
+  --font-sans: var(--font-body);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--meme-orange);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--meme-orange);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Panda mascot motion                                              */
+/* ---------------------------------------------------------------- */
+
+.panda-figure {
+  overflow: visible;
+}
+
+.panda-pose-idle {
+  animation: panda-breathe 4.2s ease-in-out infinite;
+  transform-origin: 50% 60%;
+}
+
+@keyframes panda-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.008); }
+}
+
+.panda-ears { transform-origin: 120px 54px; }
+.panda-ear { transform-box: fill-box; transform-origin: center; transition: transform 0.35s ease; }
+
+.panda-figure:hover .panda-ear-l { transform: rotate(-8deg); }
+.panda-figure:hover .panda-ear-r { transform: rotate(8deg); }
+
+.panda-eye { transform-box: fill-box; transform-origin: center; transition: transform 0.08s ease; }
+.panda-eye.blinking { transform: scaleY(0.08); }
+
+.panda-coin-spin { transform-box: fill-box; transform-origin: center; animation: panda-spin 2.4s linear infinite; }
+@keyframes panda-spin {
+  0% { transform: scaleX(1) rotate(0deg); }
+  50% { transform: scaleX(0.25) rotate(180deg); }
+  100% { transform: scaleX(1) rotate(360deg); }
+}
+
+.panda-coin-bounce { transform-box: fill-box; transform-origin: center; animation: panda-coin-bounce 0.9s ease-in-out infinite; }
+@keyframes panda-coin-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.panda-prop-loading { animation: panda-run 0.5s ease-in-out infinite; }
+@keyframes panda-run {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.panda-pose-tradeUp { animation: panda-cheer 0.7s ease-in-out; }
+@keyframes panda-cheer {
+  0% { transform: translateY(0) rotate(0); }
+  30% { transform: translateY(-10px) rotate(-3deg); }
+  60% { transform: translateY(0) rotate(3deg); }
+  100% { transform: translateY(0) rotate(0); }
+}
+
+.panda-pose-tradeDown { animation: panda-wince 0.6s ease-in-out; }
+@keyframes panda-wince {
+  0% { transform: translateX(0) rotate(0); }
+  25% { transform: translateX(-4px) rotate(-2deg); }
+  75% { transform: translateX(4px) rotate(2deg); }
+  100% { transform: translateX(0) rotate(0); }
+}
+
+.panda-pose-success .panda-prop-success { animation: panda-lift 0.8s ease-out; }
+@keyframes panda-lift {
+  0% { transform: translateY(14px) scale(0.6); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.panda-pose-error { animation: panda-shake 0.5s ease-in-out; }
+@keyframes panda-shake {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+.panda-pencil {
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: panda-draw 1.4s ease-in-out infinite;
+}
+@keyframes panda-draw {
+  0% { stroke-dashoffset: 34; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -34; }
+}
+
+/* ---------------------------------------------------------------- */
+/* Doodle "GIF" characters                                          */
+/* ---------------------------------------------------------------- */
+
+.doodle { overflow: visible; }
+
+.doodle-dance { transform-box: fill-box; transform-origin: bottom center; animation: doodle-dance 0.9s ease-in-out infinite; }
+@keyframes doodle-dance {
+  0%, 100% { transform: rotate(-4deg) translateX(-2px); }
+  50% { transform: rotate(4deg) translateX(2px); }
+}
+
+.doodle-bop { transform-box: fill-box; transform-origin: bottom center; animation: doodle-bop 0.8s ease-in-out infinite; }
+@keyframes doodle-bop {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.9) translateY(4px); }
+}
+
+.doodle-spin { transform-box: fill-box; transform-origin: center; animation: doodle-spin 3s linear infinite; }
+@keyframes doodle-spin { to { transform: rotate(360deg); } }
+
+.doodle-float { transform-box: fill-box; transform-origin: center; animation: doodle-float 2.4s ease-in-out infinite; }
+@keyframes doodle-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.doodle-wobble { transform-box: fill-box; transform-origin: bottom center; animation: doodle-wobble 1.1s ease-in-out infinite; }
+@keyframes doodle-wobble {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+.doodle-drift { transform-box: fill-box; transform-origin: center; animation: doodle-drift 3.6s ease-in-out infinite; }
+@keyframes doodle-drift {
+  0%, 100% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+}
+
+.doodle-swim { transform-box: fill-box; transform-origin: center; animation: doodle-swim 1.6s ease-in-out infinite; }
+@keyframes doodle-swim {
+  0%, 100% { transform: translateX(-4px) rotate(-2deg); }
+  50% { transform: translateX(4px) rotate(2deg); }
+}
+
+.doodle-wiggle { transform-box: fill-box; transform-origin: left center; animation: doodle-wiggle 1s ease-in-out infinite; }
+@keyframes doodle-wiggle {
+  0%, 100% { transform: scaleX(1); }
+  50% { transform: scaleX(0.94) translateX(4px); }
+}
+
+/* Sticker-style coin cards */
+.sticker-card {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease;
+}
+.sticker-card:hover {
+  transform: rotate(-1deg) translateY(-4px);
+}
+.sticker-card:nth-child(even):hover {
+  transform: rotate(1deg) translateY(-4px);
+}
