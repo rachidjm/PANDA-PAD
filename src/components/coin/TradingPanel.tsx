@@ -7,6 +7,7 @@ import BN from "bn.js";
 import { Coin } from "@/lib/types";
 import { buildBuyTransaction } from "@/lib/pump/buy";
 import { buildSellTransaction } from "@/lib/pump/sell";
+import { PANDA_FEE_BPS } from "@/lib/pump/client";
 
 const buyPresets = [0.1, 0.5, 1];
 const sellPresets = [25, 50, 100];
@@ -89,7 +90,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       tx.recentBlockhash = blockhash;
 
       setStatus("signing");
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
       setStatus("confirming");
       const confirmation = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
@@ -182,6 +183,23 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               Max
             </button>
           </div>
+
+          {!!parseFloat(amount) && (
+            <div className="mt-3 space-y-1 rounded-xl bg-ink px-3.5 py-3 text-xs">
+              <div className="flex items-center justify-between text-panda-grey">
+                <span>Amount</span>
+                <span>{parseFloat(amount).toFixed(4)} SOL</span>
+              </div>
+              <div className="flex items-center justify-between text-panda-grey">
+                <span>PANDA fee ({PANDA_FEE_BPS / 100}%)</span>
+                <span>{((parseFloat(amount) * PANDA_FEE_BPS) / 10_000).toFixed(4)} SOL</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
+                <span>You pay</span>
+                <span>{(parseFloat(amount) * (1 + PANDA_FEE_BPS / 10_000)).toFixed(4)} SOL</span>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-2">
@@ -209,6 +227,13 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               </button>
             ))}
           </div>
+
+          {!!parseFloat(amount) && (
+            <p className="mt-3 rounded-xl bg-ink px-3.5 py-3 text-xs text-panda-grey">
+              PANDA takes a {PANDA_FEE_BPS / 100}% fee out of the SOL you receive — the exact amount depends on the
+              price at the moment you sell, shown in your wallet before you sign.
+            </p>
+          )}
         </div>
       )}
 
@@ -249,7 +274,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       )}
 
       <p className="mt-3 text-center text-xs text-panda-grey">
-        Real on-chain trade via Pump.fun, plus a 1% PANDA fee — both shown in your wallet before you sign. PANDA never holds your funds.
+        Real on-chain trade via Pump.fun. PANDA never holds your funds.
       </p>
     </div>
   );
@@ -262,5 +287,8 @@ function explainError(err: unknown): string {
   if (/slippage/i.test(message)) return "Price moved too much — try again or raise slippage.";
   if (/graduated|PumpSwap/i.test(message)) return message;
   if (/blockhash|expired/i.test(message)) return "Transaction expired — try again.";
+  if (/429|too many requests/i.test(message)) return "The Solana RPC is rate-limiting us — wait a moment and retry.";
+  if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return "Network error reaching Solana — check your connection and retry.";
+  if (/failed to confirm/i.test(message)) return "Sent, but confirmation timed out — check the wallet's activity before retrying.";
   return "Trade failed. Please try again.";
 }

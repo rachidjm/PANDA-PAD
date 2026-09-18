@@ -15,9 +15,10 @@ export default function WalletProvider({ children }: { children: React.ReactNode
   // explicitly too: it's what lets the button deep-link into the Phantom
   // mobile app when no extension is installed, instead of just saying "install it".
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const config = useMemo(() => ({ commitment: "confirmed" as const, confirmTransactionInitialTimeout: 60_000 }), []);
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={config}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
         {children}
       </SolanaWalletProvider>
