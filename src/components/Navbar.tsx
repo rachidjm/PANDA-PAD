@@ -5,16 +5,19 @@ import { usePathname } from "next/navigation";
 import WalletButton from "@/components/WalletButton";
 import Panda from "@/components/panda/Panda";
 import CoinSearchBox from "@/components/CoinSearchBox";
-
-const links = [
-  { href: "/discover", label: "Discover" },
-  { href: "/create", label: "Create" },
-  { href: "/rewards", label: "Rewards" },
-  { href: "/analytics", label: "Analytics" },
-];
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { t } = useLanguage();
+
+  const links = [
+    { href: "/discover", label: t("nav.discover") },
+    { href: "/create", label: t("nav.create") },
+    { href: "/rewards", label: t("nav.rewards") },
+    { href: "/analytics", label: t("nav.analytics") },
+  ];
 
   return (
     <header className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
@@ -45,6 +48,7 @@ export default function Navbar() {
           <div className="hidden md:block">
             <CoinSearchBox />
           </div>
+          <LanguageSwitcher />
           <WalletButton />
         </div>
       </div>

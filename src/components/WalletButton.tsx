@@ -5,9 +5,11 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import type { WalletName } from "@solana/wallet-adapter-base";
 import WalletPanel from "@/components/portfolio/WalletPanel";
 import { truncateAddress } from "@/lib/format";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function WalletButton() {
   const { wallets, select, disconnect, connected, connecting, publicKey } = useWallet();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -54,7 +56,7 @@ export default function WalletButton() {
         disabled={connecting}
         className="rounded-full bg-paper px-4 py-2 text-sm font-semibold text-ink hover:brightness-90 transition disabled:opacity-60"
       >
-        {connecting ? "Connecting…" : "Connect wallet"}
+        {connecting ? t("wallet.connecting") : t("wallet.connect")}
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-60 rounded-2xl border border-paper/15 bg-ink-raised p-1.5 shadow-xl">
@@ -66,7 +68,7 @@ export default function WalletButton() {
                 rel="noreferrer"
                 className="block rounded-xl px-3 py-2.5 text-sm text-paper/80 hover:bg-paper/10 hover:text-paper transition-colors"
               >
-                Install Phantom
+                {t("wallet.installPhantom")}
               </a>
               <a
                 href="https://solflare.com/"
@@ -74,7 +76,7 @@ export default function WalletButton() {
                 rel="noreferrer"
                 className="block rounded-xl px-3 py-2.5 text-sm text-paper/80 hover:bg-paper/10 hover:text-paper transition-colors"
               >
-                Install Solflare
+                {t("wallet.installSolflare")}
               </a>
             </div>
           ) : (
@@ -93,9 +95,7 @@ export default function WalletButton() {
               </button>
             ))
           )}
-          <p className="px-3 pb-1.5 pt-2 text-[11px] leading-snug text-panda-grey">
-            PANDA never sees your seed phrase or keys. You approve everything in your wallet.
-          </p>
+          <p className="px-3 pb-1.5 pt-2 text-[11px] leading-snug text-panda-grey">{t("wallet.neverSeeKeys")}</p>
         </div>
       )}
     </div>

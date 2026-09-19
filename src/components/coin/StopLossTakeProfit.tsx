@@ -9,6 +9,7 @@ import type { Position } from "@/lib/portfolio/positions";
 import type { TriggerOrder } from "@/lib/jupiter/trigger";
 import { base64ToVersionedTransaction, versionedTransactionToBase64 } from "@/lib/pump/wire";
 import { formatUsd } from "@/lib/format";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const DEFAULT_SLIPPAGE_BPS = 500; // 5%, same default as the rest of the app
@@ -26,6 +27,7 @@ type CancelStatus = "idle" | "cancelling" | "error";
 export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
   const { connection } = useConnection();
   const { connected, publicKey, signMessage, signTransaction } = useWallet();
+  const { t } = useLanguage();
 
   const [position, setPosition] = useState<Position | null>(null);
   const [tokenDecimals, setTokenDecimals] = useState(6);
@@ -101,7 +103,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
     });
     const challenge = await challengeRes.json();
     if (!challengeRes.ok) throw new Error(challenge.error || "Failed to get an auth challenge.");
-    if (challenge.type !== "message") throw new Error("This wallet needs message-signing support for the Trigger vault.");
+    if (challenge.type !== "message") throw new Error(t("sltp.noMessageSigning"));
 
     const signatureBytes = await signMessage(new TextEncoder().encode(challenge.challenge));
     const signature = bs58.encode(signatureBytes);
@@ -129,7 +131,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
 
   async function submit() {
     if (!publicKey || !signTransaction) {
-      setError("This wallet doesn't support the signing this order needs.");
+      setError(t("sltp.noSigning"));
       setStatus("error");
       return;
     }
@@ -138,7 +140,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
     const hasSl = slPrice !== "" && sl > 0;
     const hasTp = tpPrice !== "" && tp > 0;
     if (!hasSl && !hasTp) {
-      setError("Set a stop loss price, a take profit price, or both.");
+      setError(t("sltp.needBoth"));
       setStatus("error");
       return;
     }
@@ -256,25 +258,23 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
   return (
     <div className="rounded-[22px] border border-paper/10 bg-ink-raised p-4">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between">
-        <span className="text-sm font-semibold">Stop Loss / Take Profit</span>
-        <span className="text-xs text-panda-grey">{open ? "Hide" : "Set up"}</span>
+        <span className="text-sm font-semibold">{t("sltp.title")}</span>
+        <span className="text-xs text-panda-grey">{open ? t("sltp.hide") : t("sltp.setup")}</span>
       </button>
 
       {open && (
         <div className="mt-4">
           <p className="rounded-xl border border-meme-orange/30 bg-meme-orange/10 px-3.5 py-3 text-xs leading-relaxed text-paper/85">
-            Setting this up moves your ${coin.ticker} into a <strong>Jupiter-managed vault</strong> (held by Privy, not
-            PANDA or your own wallet) until the order fills or you cancel it. This is a different trust model than
-            regular trading on PANDA, where your funds never leave your wallet until you sign.
+            {t("sltp.disclosure", { ticker: coin.ticker })}
           </p>
 
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-xs font-medium text-paper/80">Active orders on ${coin.ticker}</span>
+            <span className="text-xs font-medium text-paper/80">{t("sltp.activeOrders", { ticker: coin.ticker })}</span>
             <button onClick={refreshOrders} className="text-xs font-semibold text-meme-orange hover:brightness-110">
-              {ordersLoaded ? "Refresh" : "Show"}
+              {ordersLoaded ? t("sltp.refresh") : t("sltp.show")}
             </button>
           </div>
-          {ordersLoaded && orders.length === 0 && <p className="mt-1.5 text-xs text-panda-grey">No active orders on this coin.</p>}
+          {ordersLoaded && orders.length === 0 && <p className="mt-1.5 text-xs text-panda-grey">{t("sltp.noActiveOrders")}</p>}
 
           {ordersLoaded && orders.length > 0 && (
             <div className="mt-1.5 space-y-1.5">
@@ -282,7 +282,11 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
                 <div key={o.id} className="flex items-center justify-between rounded-xl bg-ink px-3 py-2 text-xs">
                   <div>
                     <p className="font-medium">
-                      {o.orderType === "oco" ? "Stop Loss / Take Profit" : o.triggerCondition === "below" ? "Stop loss" : "Take profit"}
+                      {o.orderType === "oco"
+                        ? t("sltp.oco")
+                        : o.triggerCondition === "below"
+                        ? t("sltp.stopLossOrder")
+                        : t("sltp.takeProfitOrder")}
                     </p>
                     <p className="text-panda-grey">{o.triggerPriceUsd ? formatUsd(o.triggerPriceUsd) : "—"} · {o.orderState}</p>
                   </div>
@@ -291,7 +295,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
                     disabled={cancelStatus[o.id] === "cancelling"}
                     className="rounded-lg bg-clay-red/15 px-2.5 py-1.5 font-semibold text-clay-red hover:bg-clay-red/25 disabled:opacity-50"
                   >
-                    {cancelStatus[o.id] === "cancelling" ? "Cancelling…" : "Cancel"}
+                    {cancelStatus[o.id] === "cancelling" ? t("sltp.cancelling") : t("sltp.cancel")}
                   </button>
                 </div>
               ))}
@@ -300,7 +304,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div>
-              <span className="mb-1 block text-xs text-panda-grey">Stop loss (USD)</span>
+              <span className="mb-1 block text-xs text-panda-grey">{t("sltp.stopLossLabel")}</span>
               <input
                 value={slPrice}
                 onChange={(e) => setSlPrice(e.target.value.replace(/[^0-9.]/g, ""))}
@@ -310,7 +314,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
               />
             </div>
             <div>
-              <span className="mb-1 block text-xs text-panda-grey">Take profit (USD)</span>
+              <span className="mb-1 block text-xs text-panda-grey">{t("sltp.takeProfitLabel")}</span>
               <input
                 value={tpPrice}
                 onChange={(e) => setTpPrice(e.target.value.replace(/[^0-9.]/g, ""))}
@@ -322,7 +326,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
           </div>
 
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-panda-grey">Amount of your ${coin.ticker}</span>
+            <span className="text-panda-grey">{t("sltp.amountOf", { ticker: coin.ticker })}</span>
             <div className="flex gap-1">
               {[25, 50, 100].map((pct) => (
                 <button
@@ -340,8 +344,10 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
           </div>
 
           <p className="mt-2 text-xs text-panda-grey">
-            Protects {((position.remainingTokens * amountPct) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })} $
-            {coin.ticker} · expires in 30 days if it hasn&apos;t filled.
+            {t("sltp.protects", {
+              amount: ((position.remainingTokens * amountPct) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+              ticker: coin.ticker,
+            })}
           </p>
 
           <button
@@ -350,14 +356,14 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {status === "authenticating"
-              ? "Confirm sign-in in wallet…"
+              ? t("sltp.confirmSignIn")
               : status === "depositing"
-              ? "Confirm deposit in wallet…"
+              ? t("sltp.confirmDeposit")
               : status === "creating"
-              ? "Creating order…"
+              ? t("sltp.creatingOrder")
               : status === "done"
-              ? "Order set!"
-              : "Set order"}
+              ? t("sltp.orderSet")
+              : t("sltp.setOrder")}
           </button>
 
           {status === "error" && error && <p className="mt-2 text-center text-xs text-clay-red">{error}</p>}

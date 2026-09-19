@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchPoolOhlcv, GeckoOhlcvTimeframe } from "@/lib/gecko/client";
 
 const PRESETS: Record<string, { timeframe: GeckoOhlcvTimeframe; aggregate: number; limit: number }> = {
+  "1m": { timeframe: "minute", aggregate: 1, limit: 90 },
   "5m": { timeframe: "minute", aggregate: 5, limit: 72 },
   "1h": { timeframe: "hour", aggregate: 1, limit: 48 },
   "4h": { timeframe: "hour", aggregate: 4, limit: 42 },

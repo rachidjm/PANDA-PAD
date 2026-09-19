@@ -7,6 +7,7 @@ import { Coin } from "@/lib/types";
 import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { dexLabel } from "@/lib/dex-labels";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const buyPresets = [0.1, 0.5, 1];
 const sellPresets = [25, 50, 100];
@@ -17,6 +18,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const quote = coin.quoteSymbol || "SOL";
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
+  const { t } = useLanguage();
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [solBalance, setSolBalance] = useState<number | null>(null);
@@ -146,7 +148,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               : "bg-ink text-panda-grey hover:text-paper"
           }`}
         >
-          Buy
+          {t("trading.buy")}
         </button>
         <button
           onClick={() => setSide("sell")}
@@ -156,12 +158,14 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               : "bg-ink text-panda-grey hover:text-paper"
           }`}
         >
-          Sell
+          {t("trading.sell")}
         </button>
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm">
-        <span className="text-panda-grey">{side === "buy" ? "SOL balance" : `${coin.ticker} balance`}</span>
+        <span className="text-panda-grey">
+          {side === "buy" ? t("trading.solBalance") : t("trading.tokenBalance", { ticker: coin.ticker })}
+        </span>
         <span className="font-medium">
           {side === "buy"
             ? displaySol !== null
@@ -205,22 +209,22 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               disabled={busy}
               className="rounded-xl bg-paper/5 py-2 text-xs font-semibold text-paper/70 transition-colors hover:bg-paper/10 hover:text-paper disabled:opacity-50"
             >
-              Max
+              {t("trading.max")}
             </button>
           </div>
 
           {!!parseFloat(amount) && (
             <div className="mt-3 space-y-1 rounded-xl bg-ink px-3.5 py-3 text-xs">
               <div className="flex items-center justify-between text-panda-grey">
-                <span>Amount</span>
+                <span>{t("trading.amount")}</span>
                 <span>{parseFloat(amount).toFixed(4)} SOL</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
-                <span>PANDA fee ({PANDA_FEE_BPS / 100}%)</span>
+                <span>{t("trading.pandaFee", { pct: PANDA_FEE_BPS / 100 })}</span>
                 <span>{((parseFloat(amount) * PANDA_FEE_BPS) / 10_000).toFixed(4)} SOL</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
-                <span>You pay</span>
+                <span>{t("trading.youPay")}</span>
                 <span>{(parseFloat(amount) * (1 + PANDA_FEE_BPS / 10_000)).toFixed(4)} SOL</span>
               </div>
             </div>
@@ -255,8 +259,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
           {!!parseFloat(amount) && (
             <p className="mt-3 rounded-xl bg-ink px-3.5 py-3 text-xs text-panda-grey">
-              PANDA takes a {PANDA_FEE_BPS / 100}% fee out of the SOL you receive — the exact amount depends on the
-              price at the moment you sell, shown in your wallet before you sign.
+              {t("trading.sellFeeNote", { pct: PANDA_FEE_BPS / 100 })}
             </p>
           )}
         </div>
@@ -270,18 +273,18 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
         }`}
       >
         {!connected
-          ? "Connect wallet to trade"
+          ? t("trading.connectToTrade")
           : status === "building"
-          ? "Preparing transaction…"
+          ? t("trading.preparing")
           : status === "signing"
-          ? "Confirm in wallet…"
+          ? t("trading.confirmInWallet")
           : status === "sending"
-          ? "Sending…"
+          ? t("trading.sending")
           : status === "confirming"
-          ? "Confirming on Solana…"
+          ? t("trading.confirmingOnChain")
           : status === "done"
-          ? "Bought!"
-          : `${side === "buy" ? "Buy" : "Sell"} $${coin.ticker}`}
+          ? t("trading.bought")
+          : t(side === "buy" ? "trading.buyLabel" : "trading.sellLabel", { ticker: coin.ticker })}
       </button>
 
       {status === "error" && error && <p className="mt-3 text-center text-xs text-clay-red">{error}</p>}
@@ -292,22 +295,18 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           rel="noreferrer"
           className="mt-3 block text-center text-xs text-bamboo hover:underline"
         >
-          View transaction
+          {t("trading.viewTransaction")}
         </a>
       )}
 
       {externalDex ? (
         <p className="mt-3 text-center text-xs text-panda-grey">
-          Not a Pump.fun coin — routed via Jupiter across {dexLabel(coin.dex)} and other Solana DEXes. PANDA never holds your funds.
+          {t("trading.disclaimerExternal", { dex: dexLabel(coin.dex) })}
         </p>
       ) : graduated ? (
-        <p className="mt-3 text-center text-xs text-panda-grey">
-          Graduated to PumpSwap — real on-chain trade via Pump.fun&apos;s AMM. PANDA never holds your funds.
-        </p>
+        <p className="mt-3 text-center text-xs text-panda-grey">{t("trading.disclaimerGraduated")}</p>
       ) : (
-        <p className="mt-3 text-center text-xs text-panda-grey">
-          Real on-chain trade via Pump.fun. PANDA never holds your funds.
-        </p>
+        <p className="mt-3 text-center text-xs text-panda-grey">{t("trading.disclaimerBondingCurve")}</p>
       )}
     </div>
   );

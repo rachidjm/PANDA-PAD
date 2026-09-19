@@ -1,13 +1,14 @@
 import { Coin } from "./types";
+import { DictKey } from "./i18n/translations";
 
 export type SectionId = "graduated" | "recentlyActive" | "topGainers" | "trending" | "new";
 
-export const SECTION_TITLES: Record<SectionId, string> = {
-  new: "New",
-  trending: "Trending",
-  topGainers: "Top Gainers",
-  recentlyActive: "Recently Active",
-  graduated: "Graduated",
+export const SECTION_TITLE_KEYS: Record<SectionId, DictKey> = {
+  new: "home.section.new",
+  trending: "home.section.trending",
+  topGainers: "home.section.topGainers",
+  recentlyActive: "home.section.recentlyActive",
+  graduated: "home.section.graduated",
 };
 
 function activityCount(coin: Coin): number {

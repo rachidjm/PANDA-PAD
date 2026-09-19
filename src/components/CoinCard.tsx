@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
 import { Coin } from "@/lib/types";
 import { formatCompact, formatPct } from "@/lib/format";
 import Doodle from "@/components/doodles/Doodle";
 import Sparkline from "@/components/Sparkline";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function CoinCard({ coin }: { coin: Coin }) {
+  const { t } = useLanguage();
   const positive = coin.changePct >= 0;
 
   return (
@@ -35,11 +39,11 @@ export default function CoinCard({ coin }: { coin: Coin }) {
         <div className="mt-3 flex items-end justify-between gap-2">
           <dl className="space-y-1 text-xs">
             <div className="flex gap-2">
-              <dt className="text-panda-grey">MC</dt>
+              <dt className="text-panda-grey">{t("coinCard.mc")}</dt>
               <dd className="font-medium">{formatCompact(coin.marketCap)}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="text-panda-grey">Vol</dt>
+              <dt className="text-panda-grey">{t("coinCard.vol")}</dt>
               <dd className="font-medium">{formatCompact(coin.volume24h)}</dd>
             </div>
           </dl>

@@ -1,15 +1,20 @@
+"use client";
+
 import Link from "next/link";
 import Panda from "@/components/panda/Panda";
 import { LEGAL_PAGES, LEGAL_SLUGS } from "@/lib/legal-content";
-
-const productLinks = [
-  { href: "/discover", label: "Discover" },
-  { href: "/create", label: "Create" },
-  { href: "/rewards", label: "Rewards" },
-  { href: "/analytics", label: "Analytics" },
-];
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function Footer() {
+  const { lang, t } = useLanguage();
+
+  const productLinks = [
+    { href: "/discover", label: t("nav.discover") },
+    { href: "/create", label: t("nav.create") },
+    { href: "/rewards", label: t("nav.rewards") },
+    { href: "/analytics", label: t("nav.analytics") },
+  ];
+
   return (
     <footer className="border-t border-paper/10 bg-ink">
       <div className="mx-auto max-w-6xl px-5 py-10">
@@ -20,7 +25,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-panda-grey">Product</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-panda-grey">{t("footer.product")}</p>
             <ul className="mt-3 space-y-2">
               {productLinks.map((l) => (
                 <li key={l.href}>
@@ -33,12 +38,12 @@ export default function Footer() {
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-panda-grey">Legal</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-panda-grey">{t("footer.legal")}</p>
             <ul className="mt-3 space-y-2">
               {LEGAL_SLUGS.map((slug) => (
                 <li key={slug}>
                   <Link href={`/legal/${slug}`} className="text-sm text-paper/70 transition-colors hover:text-paper">
-                    {LEGAL_PAGES[slug].title}
+                    {LEGAL_PAGES[slug].title[lang]}
                   </Link>
                 </li>
               ))}
@@ -46,11 +51,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <p className="mt-8 border-t border-paper/10 pt-6 text-xs text-panda-grey">
-          PANDA is a non-custodial interface for launching and trading coins on Solana. It isn&apos;t a financial
-          advisor, broker, or exchange, and nothing on this site is investment advice. Memecoins are extremely
-          volatile and can lose all value.
-        </p>
+        <p className="mt-8 border-t border-paper/10 pt-6 text-xs text-panda-grey">{t("footer.disclaimer")}</p>
       </div>
     </footer>
   );

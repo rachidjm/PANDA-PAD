@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import CoinCard from "@/components/CoinCard";
 import { Coin } from "@/lib/types";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { DictKey } from "@/lib/i18n/translations";
 
 const gridVariants = {
   hidden: {},
@@ -16,7 +18,8 @@ const cardVariants = {
 
 /** Renders nothing when there are no real coins for this section — never
  * padded with placeholders just to avoid an empty look. */
-export default function HomeSection({ title, coins }: { title: string; coins: Coin[] }) {
+export default function HomeSection({ titleKey, coins }: { titleKey: DictKey; coins: Coin[] }) {
+  const { t } = useLanguage();
   if (coins.length === 0) return null;
 
   return (
@@ -28,7 +31,7 @@ export default function HomeSection({ title, coins }: { title: string; coins: Co
       className="mb-10"
     >
       <div className="mb-4 flex items-baseline gap-2.5">
-        <h2 className="font-display text-xl font-bold">{title}</h2>
+        <h2 className="font-display text-xl font-bold">{t(titleKey)}</h2>
         <span className="text-xs text-panda-grey">{coins.length}</span>
       </div>
       <motion.div

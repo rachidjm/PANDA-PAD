@@ -7,13 +7,15 @@ import LiveBadge from "@/components/LiveBadge";
 import RefreshButton from "@/components/RefreshButton";
 import Panda from "@/components/panda/Panda";
 import { Coin } from "@/lib/types";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { DictKey } from "@/lib/i18n/translations";
 
 const sorts = [
-  { id: "new", label: "New" },
-  { id: "trending", label: "Trending" },
-  { id: "mcap", label: "Market cap" },
-  { id: "volume", label: "Volume" },
-] as const;
+  { id: "new", key: "discover.sort.new" },
+  { id: "trending", key: "discover.sort.trending" },
+  { id: "mcap", key: "discover.sort.mcap" },
+  { id: "volume", key: "discover.sort.volume" },
+] as const satisfies { id: string; key: DictKey }[];
 
 type SortId = (typeof sorts)[number]["id"];
 const REFRESH_COOLDOWN_MS = 8000;
@@ -21,6 +23,7 @@ const REFRESH_COOLDOWN_MS = 8000;
 export default function DiscoverClient({ coins: initialCoins, live: initialLive }: { coins: Coin[]; live: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
   const urlQuery = searchParams.get("q") || "";
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
@@ -56,7 +59,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
         const data = await r.json();
         if (cancelled) return;
         if (!r.ok) {
-          setSearchError(data.error || "Search failed. Try again.");
+          setSearchError(data.error || t("search.failed"));
           setSearchResults([]);
         } else {
           setSearchError("");
@@ -66,14 +69,14 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
       })
       .catch(() => {
         if (cancelled) return;
-        setSearchError("Search failed. Check your connection and try again.");
+        setSearchError(t("search.failedConnection"));
         setSearchResults([]);
         setResolvedQuery(q);
       });
     return () => {
       cancelled = true;
     };
-  }, [urlQuery]);
+  }, [urlQuery, t]);
 
   function refresh() {
     if (refreshing) return;
@@ -122,14 +125,14 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
     <div className="mx-auto max-w-6xl px-5 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
-          <h1 className="font-display text-2xl font-bold">Discover</h1>
+          <h1 className="font-display text-2xl font-bold">{t("discover.title")}</h1>
           <LiveBadge live={live} />
           <RefreshButton loading={refreshing} onClick={refresh} justUpdated={justUpdated} />
         </div>
         <input
           value={inputValue}
           onChange={(e) => typeQuery(e.target.value)}
-          placeholder="Search all Solana coins"
+          placeholder={t("nav.searchPlaceholder")}
           className="w-full max-w-xs rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40 sm:hidden"
         />
       </div>
@@ -143,16 +146,12 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
               sort === s.id ? "bg-paper/10 text-paper" : "text-paper/50 hover:text-paper/80"
             }`}
           >
-            {s.label}
+            {t(s.key)}
           </button>
         ))}
       </div>
 
-      {refreshError && (
-        <p className="mt-4 text-xs text-clay-red">
-          Couldn&apos;t refresh (data source is rate-limited right now) — showing the last known prices.
-        </p>
-      )}
+      {refreshError && <p className="mt-4 text-xs text-clay-red">{t("home.refreshError")}</p>}
 
       {list.length === 0 && !searching ? (
         <EmptyState query={urlQuery} error={searchError} />
@@ -168,15 +167,16 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
 }
 
 function EmptyState({ query, error }: { query: string; error?: string }) {
+  const { t } = useLanguage();
   return (
     <div className="mt-16 flex flex-col items-center gap-4 text-center">
       <Panda pose="empty" size={140} />
       {error ? (
         <p className="text-clay-red">{error}</p>
       ) : query ? (
-        <p className="text-panda-grey">No coins match &ldquo;{query}&rdquo;. Try a different search, or create it yourself.</p>
+        <p className="text-panda-grey">{t("discover.noMatch", { query })}</p>
       ) : (
-        <p className="text-panda-grey">No coins to show right now.</p>
+        <p className="text-panda-grey">{t("discover.empty")}</p>
       )}
     </div>
   );

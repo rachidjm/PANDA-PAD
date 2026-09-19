@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import WalletProvider from "@/components/providers/WalletProvider";
 import MotionProvider from "@/components/providers/MotionProvider";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -26,16 +27,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
+    <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <PandaDefs />
-        <MotionProvider>
-          <WalletProvider>
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
-          </WalletProvider>
-        </MotionProvider>
+        <LanguageProvider>
+          <MotionProvider>
+            <WalletProvider>
+              <Navbar />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </WalletProvider>
+          </MotionProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

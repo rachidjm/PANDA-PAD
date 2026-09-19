@@ -1,4 +1,9 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+
 export default function LiveBadge({ live }: { live: boolean }) {
+  const { t } = useLanguage();
   return (
     <span
       className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -6,7 +11,7 @@ export default function LiveBadge({ live }: { live: boolean }) {
       }`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-bamboo" : "bg-panda-grey"}`} />
-      {live ? "Live from Solana" : "Demo data"}
+      {live ? t("live.live") : t("live.demo")}
     </span>
   );
 }

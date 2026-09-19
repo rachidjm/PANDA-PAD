@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Doodle from "@/components/doodles/Doodle";
 import { formatPct } from "@/lib/format";
 import { Coin } from "@/lib/types";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 /**
  * Compact live-search dropdown: results appear in a small row list right
@@ -14,6 +15,7 @@ import { Coin } from "@/lib/types";
  */
 export default function CoinSearchBox() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults] = useState<Coin[] | null>(null);
@@ -40,7 +42,7 @@ export default function CoinSearchBox() {
         const data = await r.json();
         if (cancelled) return;
         if (!r.ok) {
-          setError(data.error || "Search failed. Try again.");
+          setError(data.error || t("search.failed"));
           setResults([]);
         } else {
           setError("");
@@ -50,14 +52,14 @@ export default function CoinSearchBox() {
       })
       .catch(() => {
         if (cancelled) return;
-        setError("Search failed. Check your connection.");
+        setError(t("search.failedConnection"));
         setResults([]);
         setResolvedQuery(debouncedQuery);
       });
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery]);
+  }, [debouncedQuery, t]);
 
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
@@ -89,7 +91,7 @@ export default function CoinSearchBox() {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder="Search all Solana coins"
+          placeholder={t("nav.searchPlaceholder")}
           className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40"
         />
       </form>
@@ -97,7 +99,7 @@ export default function CoinSearchBox() {
       {showDropdown && (
         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 min-w-[280px] overflow-y-auto rounded-2xl border border-paper/10 bg-ink-raised shadow-2xl">
           {loading ? (
-            <p className="px-4 py-3 text-xs text-panda-grey">Searching…</p>
+            <p className="px-4 py-3 text-xs text-panda-grey">{t("search.searching")}</p>
           ) : error ? (
             <p className="px-4 py-3 text-xs text-clay-red">{error}</p>
           ) : results && results.length > 0 ? (
@@ -133,11 +135,11 @@ export default function CoinSearchBox() {
                 onClick={seeAll}
                 className="block w-full border-t border-paper/10 px-3 py-2 text-center text-xs text-paper/60 hover:text-paper"
               >
-                See all results
+                {t("search.seeAll")}
               </button>
             </>
           ) : (
-            <p className="px-4 py-3 text-xs text-panda-grey">No coins match &ldquo;{trimmed}&rdquo;.</p>
+            <p className="px-4 py-3 text-xs text-panda-grey">{t("search.noMatch", { query: trimmed })}</p>
           )}
         </div>
       )}

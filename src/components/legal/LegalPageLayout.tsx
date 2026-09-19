@@ -1,7 +1,12 @@
+"use client";
+
 import Link from "next/link";
 import { LEGAL_PAGES, LEGAL_SLUGS, LegalPage } from "@/lib/legal-content";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function LegalPageLayout({ page }: { page: LegalPage }) {
+  const { lang } = useLanguage();
+
   return (
     <div className="mx-auto max-w-3xl px-5 py-12">
       <nav className="mb-8 flex flex-wrap gap-1.5">
@@ -15,15 +20,15 @@ export default function LegalPageLayout({ page }: { page: LegalPage }) {
                 active ? "bg-paper/10 text-paper" : "text-paper/50 hover:text-paper/80"
               }`}
             >
-              {LEGAL_PAGES[slug].title}
+              {LEGAL_PAGES[slug].title[lang]}
             </Link>
           );
         })}
       </nav>
 
-      <h1 className="font-display text-2xl font-bold">{page.title}</h1>
+      <h1 className="font-display text-2xl font-bold">{page.title[lang]}</h1>
       <div className="mt-5 space-y-4">
-        {page.body.map((paragraph, i) => (
+        {page.body[lang].map((paragraph, i) => (
           <p key={i} className={`text-sm leading-relaxed ${i === 0 ? "text-clay-red" : "text-panda-grey"}`}>
             {paragraph}
           </p>
