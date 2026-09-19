@@ -10,6 +10,7 @@ import {
   GeckoPool,
   GeckoIncludedToken,
 } from "./gecko/client";
+import { searchDexPairs, fetchDexTokenPairs, DexPair } from "./dexscreener/client";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -68,6 +69,51 @@ export function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefine
     activity: windowMap(pool.attributes.transactions, (w) => w),
     volumeWindows: windowMap(pool.attributes.volume_usd, num),
     changeWindows: windowMap(pool.attributes.price_change_percentage, num),
+  };
+}
+
+/** Maps a Dexscreener pair into the same Coin shape poolToCoin produces, for the search/lookup fallback path. */
+function dexPairToCoin(pair: DexPair): Coin {
+  const mint = pair.baseToken.address;
+  const symbol = pair.baseToken.symbol;
+  const look = fallbackLook(mint);
+  const source = pair.dexId === "pump-fun" || pair.dexId === "pumpfun" ? "pump-fun" : pair.dexId === "pumpswap" ? "pumpswap" : "other";
+  const pick = (w?: Record<"m5" | "h1" | "h6" | "h24", number | undefined>) =>
+    w ? ({ m5: w.m5, h1: w.h1, h24: w.h24 } as Partial<Record<"m5" | "h1" | "h24", number>>) : undefined;
+  const pickTx = (w?: Record<"m5" | "h1" | "h6" | "h24", { buys: number; sells: number } | undefined>) => {
+    if (!w) return undefined;
+    const out: Partial<Record<"m5" | "h1" | "h24", { buys: number; sells: number; buyers: number; sellers: number }>> = {};
+    (["m5", "h1", "h24"] as const).forEach((k) => {
+      const v = w[k];
+      if (v) out[k] = { buys: v.buys, sells: v.sells, buyers: v.buys, sellers: v.sells };
+    });
+    return out;
+  };
+  return {
+    mint,
+    ticker: symbol.toUpperCase(),
+    name: pair.baseToken.name || symbol,
+    description: "",
+    image: pair.info?.imageUrl || undefined,
+    doodle: look.doodle,
+    bg: look.bg,
+    website: pair.info?.websites?.[0]?.url || null,
+    twitter: pair.info?.socials?.find((s) => s.type === "twitter")?.url.split("/").pop() || null,
+    telegram: pair.info?.socials?.find((s) => s.type === "telegram")?.url.split("/").pop() || null,
+    marketCap: pair.marketCap || pair.fdv || 0,
+    volume24h: pair.volume?.h24 || 0,
+    changePct: pair.priceChange?.h24 || 0,
+    priceHistory: [],
+    creator: "",
+    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : new Date().toISOString(),
+    source,
+    dex: pair.dexId,
+    poolAddress: pair.pairAddress,
+    quoteSymbol: pair.quoteToken.symbol,
+    liquidityUsd: pair.liquidity?.usd,
+    activity: pickTx(pair.txns),
+    volumeWindows: pick(pair.volume),
+    changeWindows: pick(pair.priceChange),
   };
 }
 
@@ -180,26 +226,46 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; l
   const cached = searchCache.get(q);
   if (cached && cached.expires > Date.now()) return { coins: cached.coins, live: true };
 
-  // A single page keeps this to one upstream request per search — GeckoTerminal's
-  // free public API rate-limits aggressively, and a real error here should
-  // surface (not be swallowed into a misleading "no coins found").
-  const { data, included = [] } = await searchPools(q, 1);
-
-  // The same token often has many pools (different dexes, fee tiers, quote
-  // assets) — keep only the most liquid pool per mint so each coin appears once.
-  const byMint = new Map<string, Coin>();
-  for (const pool of data) {
-    const dexId = pool.relationships.dex?.data.id || "unknown";
-    const tokenId = pool.relationships.base_token.data.id;
-    const token = included.find((t) => t.id === tokenId);
-    const coin = poolToCoin(pool, token, dexId);
-    const existing = byMint.get(coin.mint);
-    if (!existing || (coin.liquidityUsd || 0) > (existing.liquidityUsd || 0)) {
-      byMint.set(coin.mint, coin);
+  // A single page keeps this to one upstream request per search. GeckoTerminal
+  // is the primary source (richer per-window stats), but its free public API
+  // rate-limits aggressively — when it fails, fall over to Dexscreener (an
+  // independent, real, free source covering the same Solana pools) instead
+  // of surfacing a dead search box. Only if BOTH fail does the error surface.
+  let coins: Coin[];
+  try {
+    const { data, included = [] } = await searchPools(q, 1);
+    // The same token often has many pools (different dexes, fee tiers, quote
+    // assets) — keep only the most liquid pool per mint so each coin appears once.
+    const byMint = new Map<string, Coin>();
+    for (const pool of data) {
+      const dexId = pool.relationships.dex?.data.id || "unknown";
+      const tokenId = pool.relationships.base_token.data.id;
+      const token = included.find((t) => t.id === tokenId);
+      const coin = poolToCoin(pool, token, dexId);
+      const existing = byMint.get(coin.mint);
+      if (!existing || (coin.liquidityUsd || 0) > (existing.liquidityUsd || 0)) {
+        byMint.set(coin.mint, coin);
+      }
+    }
+    coins = [...byMint.values()];
+  } catch (geckoErr) {
+    try {
+      const pairs = await searchDexPairs(q);
+      const byMint = new Map<string, Coin>();
+      for (const pair of pairs) {
+        const coin = dexPairToCoin(pair);
+        const existing = byMint.get(coin.mint);
+        if (!existing || (coin.liquidityUsd || 0) > (existing.liquidityUsd || 0)) {
+          byMint.set(coin.mint, coin);
+        }
+      }
+      coins = [...byMint.values()];
+    } catch {
+      throw geckoErr;
     }
   }
 
-  const coins = [...byMint.values()].sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40);
+  coins = coins.sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40);
   searchCache.set(q, { coins, expires: Date.now() + 15_000 });
   return { coins, live: true };
 }
@@ -210,6 +276,9 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
 
   // Not in the cached pump-fun/pumpswap top-60 — look it up directly by mint
   // across every dex, so any coin found via search still has a working page.
+  // fetchTokenPools already swallows its own errors and returns an empty
+  // list, so a GeckoTerminal outage looks the same as "no pools" here — fall
+  // back to Dexscreener (independent real source) before giving up.
   if (!coin) {
     const { data, included = [] } = await fetchTokenPools(mint);
     const best = [...data].sort(
@@ -220,6 +289,10 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
       const token = included.find((t) => t.id === tokenId);
       const dexId = best.relationships.dex?.data.id || "unknown";
       coin = poolToCoin(best, token, dexId);
+    } else {
+      const pairs = await fetchDexTokenPairs(mint);
+      const bestPair = [...pairs].sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+      if (bestPair) coin = dexPairToCoin(bestPair);
     }
   }
 
