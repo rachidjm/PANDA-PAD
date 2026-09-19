@@ -7,6 +7,7 @@ import RefreshButton from "@/components/RefreshButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import HomeSection from "@/components/home/HomeSection";
 import PandaEcosystemCard from "@/components/home/PandaEcosystemCard";
+import ActivitySidebar from "@/components/home/ActivitySidebar";
 import { buildHomeSections, SECTION_TITLE_KEYS, SectionId } from "@/lib/home-sections";
 import { ActivityEvent, Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -63,25 +64,31 @@ export default function HomeFeed({
         <PandaEcosystemCard />
       </div>
 
-      <div className="mb-5 flex items-end justify-between">
-        <div className="flex items-center gap-2.5">
-          <h2 className="font-display text-xl font-bold">{t("home.liveCoins")}</h2>
-          <LiveBadge live={live} />
-          <RefreshButton loading={refreshing} onClick={refresh} justUpdated={justUpdated} />
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div>
+          <div className="mb-5 flex items-end justify-between">
+            <div className="flex items-center gap-2.5">
+              <h2 className="font-display text-xl font-bold">{t("home.liveCoins")}</h2>
+              <LiveBadge live={live} />
+              <RefreshButton loading={refreshing} onClick={refresh} justUpdated={justUpdated} />
+            </div>
+            <Link href="/discover" className="text-sm font-medium text-paper/60 hover:text-paper transition-colors">
+              {t("home.viewAll")}
+            </Link>
+          </div>
+          {refreshError && <p className="mb-4 text-xs text-clay-red">{t("home.refreshError")}</p>}
+
+          {SECTION_ORDER.map((id) => (
+            <HomeSection key={id} titleKey={SECTION_TITLE_KEYS[id]} coins={sections[id]} />
+          ))}
+
+          <div className="mt-2">
+            <h2 className="mb-4 font-display text-xl font-bold">{t("home.recentActivity")}</h2>
+            <ActivityFeed initialEvents={activityEvents} limit={8} />
+          </div>
         </div>
-        <Link href="/discover" className="text-sm font-medium text-paper/60 hover:text-paper transition-colors">
-          {t("home.viewAll")}
-        </Link>
-      </div>
-      {refreshError && <p className="mb-4 text-xs text-clay-red">{t("home.refreshError")}</p>}
 
-      {SECTION_ORDER.map((id) => (
-        <HomeSection key={id} titleKey={SECTION_TITLE_KEYS[id]} coins={sections[id]} />
-      ))}
-
-      <div className="mt-2">
-        <h2 className="mb-4 font-display text-xl font-bold">{t("home.recentActivity")}</h2>
-        <ActivityFeed initialEvents={activityEvents} limit={8} />
+        <ActivitySidebar />
       </div>
     </section>
   );

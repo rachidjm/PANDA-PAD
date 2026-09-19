@@ -61,6 +61,33 @@ export const dict = {
   "home.section.recentlyActive": { en: "Recently Active", es: "Activas recientemente" },
   "home.section.graduated": { en: "Graduated", es: "Graduadas" },
 
+  // Home sidebar
+  "side.topTrades": { en: "Your Top Trades", es: "Tus mejores operaciones" },
+  "side.sortedNote": { en: "Sorted by profit, biggest winners first", es: "Ordenadas por beneficio, las más rentables primero" },
+  "side.connect": {
+    en: "Connect your wallet to see your trades ranked by profit and loss — read from what you've traded through PANDA.",
+    es: "Conecta tu wallet para ver tus operaciones ordenadas por beneficio y pérdida — a partir de lo que has operado en PANDA.",
+  },
+  "side.empty": {
+    en: "No trades yet — after your first real buy on PANDA, your positions show up here.",
+    es: "Aún no hay operaciones — tras tu primera compra real en PANDA, tus posiciones aparecerán aquí.",
+  },
+  "side.error": { en: "Couldn't load your trades — try again in a moment.", es: "No se pudieron cargar tus operaciones — inténtalo de nuevo en un momento." },
+  "side.open": { en: "Open", es: "Abierta" },
+  "side.closed": { en: "Closed", es: "Cerrada" },
+  "side.held": { en: "Held", es: "En cartera" },
+  "side.avgCost": { en: "Avg cost", es: "Coste medio" },
+  "side.fullyClosed": { en: "Fully sold", es: "Vendida por completo" },
+  "side.pnl": { en: "P&L", es: "Resultado" },
+  "side.launches": { en: "Latest Launches", es: "Últimos lanzamientos" },
+  "side.launchesNote": {
+    en: "Newest real coins, with the X profile each project published itself.",
+    es: "Las monedas más nuevas, con el perfil de X que cada proyecto publicó.",
+  },
+  "side.noX": { en: "No X profile published", es: "Sin perfil de X publicado" },
+  "side.prev": { en: "Previous page", es: "Página anterior" },
+  "side.next": { en: "Next page", es: "Página siguiente" },
+
   // Discover
   "discover.title": { en: "Discover", es: "Descubrir" },
   "discover.sort.new": { en: "New", es: "Nuevas" },

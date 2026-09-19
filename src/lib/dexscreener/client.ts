@@ -43,6 +43,13 @@ export async function searchDexPairs(query: string): Promise<DexPair[]> {
   return (res.pairs || []).filter((p) => p.chainId === CHAIN);
 }
 
+/** One request for up to 30 tokens' best-known pairs (socials included) — Dexscreener's batch endpoint. */
+export async function fetchDexTokensBatch(tokenAddresses: string[]): Promise<DexPair[]> {
+  if (tokenAddresses.length === 0) return [];
+  const res = await dexGet<DexPair[] | null>(`/tokens/v1/${CHAIN}/${tokenAddresses.slice(0, 30).join(",")}`);
+  return (res || []).filter((p) => p.chainId === CHAIN);
+}
+
 /** All Solana pairs trading a given token, across every dex. */
 export async function fetchDexTokenPairs(tokenAddress: string): Promise<DexPair[]> {
   try {

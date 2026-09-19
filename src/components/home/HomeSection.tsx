@@ -39,7 +39,7 @@ export default function HomeSection({ titleKey, coins }: { titleKey: DictKey; co
         whileInView="show"
         viewport={{ once: true, margin: "-80px" }}
         variants={gridVariants}
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
       >
         {coins.map((coin) => (
           <motion.div key={coin.mint} variants={cardVariants}>
