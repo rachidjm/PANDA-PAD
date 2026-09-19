@@ -7,8 +7,10 @@ import { PublicKey } from "@solana/web3.js";
 import Panda from "@/components/panda/Panda";
 import Doodle from "@/components/doodles/Doodle";
 import { getWalletPortfolio } from "@/lib/solana/portfolio";
-import { computeRewardSource } from "@/lib/rewards";
+import { computeRewardSource, meetsRewardsThreshold, MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
+import { fetchTokenPools } from "@/lib/gecko/client";
 import { Coin, RewardSource } from "@/lib/types";
+import { formatUsd } from "@/lib/format";
 
 const REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL || null;
 
@@ -57,6 +59,20 @@ export default function RewardsDashboard() {
               ]);
               const holders = configRes.shareholders?.find((s) => s.address === REWARDS_POOL);
               if (!holders || holders.shareBps <= 0) return null;
+
+              // Real per-coin price (not the portfolio's top-12-by-amount-capped
+              // one, since a small pile of a reward coin could otherwise miss
+              // that cutoff) — needed to enforce the real $MIN_HOLDING_USD_FOR_REWARDS
+              // eligibility bar, the same one Create tells the creator about.
+              const { data } = await fetchTokenPools(h.mint);
+              const best = [...data].sort(
+                (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
+              )[0];
+              const priceUsd = best?.attributes.base_token_price_usd ? Number(best.attributes.base_token_price_usd) : undefined;
+              const holderValueUsd = priceUsd !== undefined ? priceUsd * h.amount : undefined;
+
+              if (!meetsRewardsThreshold(holderValueUsd)) return null;
+
               return computeRewardSource({
                 coinMint: coin.mint,
                 coinTicker: coin.ticker,
@@ -66,6 +82,7 @@ export default function RewardsDashboard() {
                 holderBalance: h.amount,
                 circulatingSupply: supply.value.uiAmount || 0,
                 holdersFeeBps: holders.shareBps,
+                holderValueUsd,
               });
             } catch {
               return null;
@@ -162,6 +179,10 @@ export default function RewardsDashboard() {
           amount column: same shared-pool limitation as the stats above. */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-sm font-medium">Your coins</p>
+        <p className="mt-1 text-xs text-panda-grey">
+          Coins with Holders fee distribution turned on, where you hold more than {formatUsd(MIN_HOLDING_USD_FOR_REWARDS)} —
+          same real eligibility bar shown at Create.
+        </p>
         {state === "loading" && (
           <div className="mt-3 space-y-1.5">
             {[0, 1].map((i) => (
@@ -172,8 +193,8 @@ export default function RewardsDashboard() {
         {state === "error" && <p className="mt-3 text-sm text-clay-red">Couldn&apos;t load your rewards — try again in a moment.</p>}
         {state === "ready" && sources.length === 0 && (
           <p className="mt-3 text-sm text-panda-grey">
-            You don&apos;t currently hold any coin with fee distribution turned on. Coins that route creator fees to
-            holders will show up here.
+            You don&apos;t currently hold more than {formatUsd(MIN_HOLDING_USD_FOR_REWARDS)} of any coin with fee
+            distribution turned on. Coins that route creator fees to holders will show up here once you do.
           </p>
         )}
         {state === "ready" && sources.length > 0 && (
@@ -191,7 +212,7 @@ export default function RewardsDashboard() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">${s.coinTicker}</p>
                   <p className="text-xs text-panda-grey">
-                    {s.holderBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} held — {s.holderSharePct.toFixed(3)}%
+                    {s.holderValueUsd !== undefined ? formatUsd(s.holderValueUsd) : "—"} held — {s.holderSharePct.toFixed(3)}%
                     of supply
                   </p>
                 </div>

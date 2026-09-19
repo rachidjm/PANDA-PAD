@@ -1,173 +1,60 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Tooltip from "@/components/Tooltip";
-import { validateShareholders } from "@/lib/pump/fee-shares-validation";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
-import { truncateAddress } from "@/lib/format";
+import { MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
 
-type Recipient = { id: string; label: string; address: string; pct: string; locked?: boolean };
+type Mode = "creator" | "holders";
 type Shareholder = { address: string; shareBps: number };
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
 
-function makeDefaultRecipients(creator: string): Recipient[] {
-  const rows: Recipient[] = [{ id: "creator", label: "Creator", address: creator, pct: REWARDS_POOL ? "80" : "100", locked: true }];
-  if (REWARDS_POOL) {
-    rows.push({ id: "holders", label: "Holders", address: REWARDS_POOL, pct: "20", locked: true });
-  }
-  return rows;
-}
-
 /**
- * A real, optional part of the Create form: decides who receives this coin's
- * Pump.fun creator fees, wired on-chain via `@pump-fun/pump-sdk`'s
- * fee-sharing config (see `src/lib/pump/fee-sharing.ts` and `create.ts`,
- * which bundle it into the same transaction as the coin itself) — not a
- * PANDA-side setting. Fully controlled: reports its current resolved value
- * up via `onChange` (`null` while disabled or invalid) so the Launch button
- * can gate on it, same as every other required field.
+ * Real, optional part of the Create form: decides whether this coin's real
+ * Pump.fun creator fees go to the creator (default — no on-chain config
+ * needed, nothing to build) or entirely to PANDA's Holders Rewards Pool —
+ * set up via `@pump-fun/pump-sdk`'s fee-sharing config, bundled into the
+ * same transaction as the coin itself (see `src/lib/pump/create.ts`). Always
+ * valid either way, so it never blocks Launch.
  */
-export default function FeeDistributionStep({
-  creator,
-  onChange,
-}: {
-  creator: string;
-  /** `shareholders` is the valid, ready-to-submit list, or `null` while disabled OR invalid —
-   *  `enabled` tells the parent which of those two `null` means, so it can block Launch only
-   *  when the creator turned this on but left it in a broken state, not when they skipped it. */
-  onChange: (state: { enabled: boolean; shareholders: Shareholder[] | null }) => void;
-}) {
-  const [enabled, setEnabled] = useState(false);
-  const [recipients, setRecipients] = useState<Recipient[]>(() => makeDefaultRecipients(creator));
-
-  const totalPct = recipients.reduce((sum, r) => sum + (parseFloat(r.pct) || 0), 0);
-  const shareholders: Shareholder[] = recipients.map((r) => ({
-    address: r.address.trim(),
-    shareBps: Math.round((parseFloat(r.pct) || 0) * 100),
-  }));
-  const validationError = enabled ? validateShareholders(shareholders) : null;
+export default function FeeDistributionStep({ onChange }: { onChange: (shareholders: Shareholder[] | null) => void }) {
+  const [mode, setMode] = useState<Mode>("creator");
 
   useEffect(() => {
-    onChange({ enabled, shareholders: enabled && !validationError ? shareholders : null });
-    // Only the resolved value matters here, not the callback identity or the raw
-    // pre-validation pieces — re-deriving those on every keystroke is the point.
+    onChange(mode === "holders" && REWARDS_POOL ? [{ address: REWARDS_POOL, shareBps: 10_000 }] : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, validationError, JSON.stringify(shareholders)]);
-
-  function updateRecipient(id: string, patch: Partial<Recipient>) {
-    setRecipients((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  }
-
-  function addRecipient() {
-    if (recipients.length >= 10) return;
-    setRecipients((rows) => [...rows, { id: crypto.randomUUID(), label: "Recipient", address: "", pct: "0" }]);
-  }
-
-  function removeRecipient(id: string) {
-    setRecipients((rows) => rows.filter((r) => r.id !== id));
-  }
-
-  if (!enabled) {
-    return (
-      <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-        <p className="font-medium">Fee distribution</p>
-        <p className="mt-1 text-sm text-panda-grey">
-          By default you keep 100% of this coin&apos;s Pump.fun creator fees. You can instead split them, real and
-          on-chain, between yourself and your holders — set up now, in the same transaction as launch.
-        </p>
-        <button
-          type="button"
-          onClick={() => setEnabled(true)}
-          className="mt-4 rounded-full border border-paper/20 px-4 py-2 text-sm font-semibold hover:border-paper/40 transition"
-        >
-          Set up fee distribution
-        </button>
-      </div>
-    );
-  }
+  }, [mode]);
 
   return (
-    <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <p className="font-medium">Fee distribution</p>
-          <Tooltip label="Sets a real on-chain Pump.fun fee-sharing config for this coin, bundled into the same transaction you sign to launch it.">
-            <span className="cursor-help text-xs text-panda-grey/70">ⓘ</span>
-          </Tooltip>
-        </div>
+    <div>
+      <span className="mb-1.5 block text-sm font-medium text-paper/80">Send creator rewards to</span>
+      <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-ink p-1.5">
         <button
           type="button"
-          onClick={() => setEnabled(false)}
-          className="text-xs font-medium text-panda-grey hover:text-paper transition-colors"
+          onClick={() => setMode("creator")}
+          className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors ${
+            mode === "creator" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
+          }`}
         >
-          Cancel
+          <span aria-hidden>👑</span> Creator
         </button>
-      </div>
-      <p className="mt-1 text-sm text-panda-grey">Who receives the creator fees generated by this coin?</p>
-
-      <div className="mt-4 space-y-2">
-        {recipients.map((r) => (
-          <div key={r.id} className="flex items-center gap-2 rounded-xl bg-ink px-3 py-2.5">
-            <div className="min-w-0 flex-1">
-              {r.locked ? (
-                <>
-                  <p className="text-sm font-medium">{r.label}</p>
-                  <p className="truncate text-xs text-panda-grey">{truncateAddress(r.address)}</p>
-                </>
-              ) : (
-                <input
-                  value={r.address}
-                  onChange={(e) => updateRecipient(r.id, { address: e.target.value.trim() })}
-                  placeholder="Recipient wallet address"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-panda-grey"
-                />
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <input
-                value={r.pct}
-                onChange={(e) => updateRecipient(r.id, { pct: e.target.value.replace(/[^0-9.]/g, "") })}
-                inputMode="decimal"
-                className="w-14 rounded-lg bg-paper/5 px-2 py-1.5 text-right text-sm outline-none"
-              />
-              <span className="text-xs text-panda-grey">%</span>
-            </div>
-            {!r.locked && (
-              <button
-                type="button"
-                onClick={() => removeRecipient(r.id)}
-                className="shrink-0 text-panda-grey hover:text-clay-red transition-colors"
-                aria-label="Remove recipient"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {recipients.length < 10 && (
         <button
           type="button"
-          onClick={addRecipient}
-          className="mt-3 text-sm font-medium text-paper/70 hover:text-paper transition-colors"
+          onClick={() => REWARDS_POOL && setMode("holders")}
+          disabled={!REWARDS_POOL}
+          className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            mode === "holders" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
+          }`}
         >
-          + Add recipient
+          <span aria-hidden>👥</span> Holders
         </button>
-      )}
-
-      <div className="mt-4 flex items-center justify-between border-t border-paper/10 pt-3 text-sm">
-        <span className="text-panda-grey">Total allocation</span>
-        <span className={`font-semibold ${totalPct === 100 ? "text-bamboo" : "text-clay-red"}`}>{totalPct.toFixed(2)}%</span>
       </div>
-      {validationError && <p className="mt-2 text-xs text-clay-red">{validationError}</p>}
-      {!REWARDS_POOL && (
-        <p className="mt-2 text-xs text-panda-grey">
-          Holder rewards routing isn&apos;t configured on PANDA yet — add a holders wallet manually, or route entirely
-          to yourself/other recipients for now.
-        </p>
-      )}
+      <p className="mt-2 text-xs text-panda-grey">
+        {mode === "creator"
+          ? "100% of creator rewards go to you."
+          : `100% of creator rewards go to holders. Anyone holding more than $${MIN_HOLDING_USD_FOR_REWARDS} of your coin qualifies.`}
+        {!REWARDS_POOL && " Holders routing isn't configured on PANDA yet."}
+      </p>
     </div>
   );
 }

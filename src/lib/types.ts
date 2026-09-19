@@ -97,4 +97,7 @@ export type RewardSource = {
   holderSharePct: number;
   /** This coin's real on-chain "Holders" allocation, in basis points. */
   holdersFeeBps: number;
+  /** Real USD value of the held balance, when a price was found — used to enforce the real
+   *  MIN_HOLDING_USD_FOR_REWARDS eligibility threshold, not just display it. */
+  holderValueUsd?: number;
 };

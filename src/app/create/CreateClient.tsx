@@ -30,10 +30,7 @@ export default function CreateClient() {
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
   const [buyError, setBuyError] = useState("");
-  const [feeState, setFeeState] = useState<{ enabled: boolean; shareholders: Shareholder[] | null }>({
-    enabled: false,
-    shareholders: null,
-  });
+  const [feeShareholders, setFeeShareholders] = useState<Shareholder[] | null>(null);
   const [feeDistributionUsed, setFeeDistributionUsed] = useState(false);
   const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -49,10 +46,7 @@ export default function CreateClient() {
     setImagePreview(URL.createObjectURL(file));
   }
 
-  // Blocked if fee distribution is turned on but left invalid (e.g. not summing to 100%) —
-  // not blocked just because it's off, since it's entirely optional.
-  const feeDistributionBlocked = feeState.enabled && feeState.shareholders === null;
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && !feeDistributionBlocked;
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected;
 
   // Buys the just-created coin as a second, separate transaction — the
   // bonding curve doesn't exist until the create transaction has confirmed,
@@ -97,7 +91,7 @@ export default function CreateClient() {
 
       setStage("building");
       const mint = Keypair.generate();
-      const shareholders = feeState.enabled ? feeState.shareholders : null;
+      const shareholders = feeShareholders;
       const buildRes = await fetch("/api/pump/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -161,7 +155,7 @@ export default function CreateClient() {
     setTwitter("");
     setFirstBuyAmount("");
     setBuyError("");
-    setFeeState({ enabled: false, shareholders: null });
+    setFeeShareholders(null);
     setFeeDistributionUsed(false);
     setResult(null);
     setError("");
@@ -404,14 +398,7 @@ export default function CreateClient() {
           </div>
         </div>
 
-        {connected && publicKey ? (
-          <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeState} />
-        ) : (
-          <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-            <p className="font-medium">Fee distribution</p>
-            <p className="mt-1 text-sm text-panda-grey">Connect your wallet to optionally split this coin&apos;s creator fees with holders.</p>
-          </div>
-        )}
+        <FeeDistributionStep onChange={setFeeShareholders} />
 
         <button
           onClick={launch}
