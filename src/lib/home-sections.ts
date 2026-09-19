@@ -24,7 +24,7 @@ function activityCount(coin: Coin): number {
  * qualifying coins is simply left empty (see HomeSection, which renders
  * nothing for an empty list) rather than backfilled with anything fake.
  */
-export function buildHomeSections(coins: Coin[], perSection = 8): Record<SectionId, Coin[]> {
+export function buildHomeSections(coins: Coin[], perSection = 6): Record<SectionId, Coin[]> {
   const graduated = [...coins].filter((c) => c.source === "pumpswap");
   const recentlyActive = [...coins].sort((a, b) => activityCount(b) - activityCount(a));
   const topGainers = [...coins].filter((c) => c.changePct > 0).sort((a, b) => b.changePct - a.changePct);

@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
+import CoinAge from "@/components/CoinAge";
 import type { Position } from "@/lib/portfolio/positions";
 import type { Launch } from "@/app/api/launches/route";
 import { formatCompact, formatPct, formatUsd } from "@/lib/format";
@@ -150,14 +151,7 @@ function TradeCard({ position: p }: { position: Position }) {
       </div>
       <div className="px-4 pb-4">
         <div className="-mt-7 h-14 w-14 overflow-hidden rounded-full border-4 border-ink-raised bg-ink">
-          {p.coinImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={p.coinImage} alt="" className="h-full w-full object-cover" />
-          ) : p.coinDoodle ? (
-            <Doodle kind={p.coinDoodle} className="h-full w-full" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs font-bold text-paper/60">{p.ticker.slice(0, 2)}</div>
-          )}
+          <CoinAvatar image={p.coinImage} ticker={p.ticker} />
         </div>
         <p className="mt-2 font-display text-lg font-bold">${p.ticker}</p>
 
@@ -187,21 +181,13 @@ function TradeCard({ position: p }: { position: Position }) {
 }
 
 function LaunchRow({ launch: l }: { launch: Launch }) {
-  const { lang, t } = useLanguage();
-  const [now] = useState(() => Date.now());
-  const minutes = Math.max(1, Math.round((now - new Date(l.createdAt).getTime()) / 60_000));
-  const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto", style: "narrow" });
-  const age =
-    minutes < 60 ? rtf.format(-minutes, "minute") : minutes < 1440 ? rtf.format(-Math.round(minutes / 60), "hour") : rtf.format(-Math.round(minutes / 1440), "day");
+  const { t } = useLanguage();
   const handle = l.twitterUrl ? l.twitterUrl.split("?")[0].split("/").filter(Boolean).pop() : undefined;
 
   return (
     <div className="flex items-center gap-3 p-3.5">
-      <Link href={`/coin/${l.mint}`} className="h-10 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: l.image ? undefined : l.bg }}>
-        {l.image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={l.image} alt="" className="h-full w-full object-cover" />
-        )}
+      <Link href={`/coin/${l.mint}`} className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+        <CoinAvatar image={l.image} ticker={l.ticker} />
       </Link>
       <div className="min-w-0 flex-1">
         <Link href={`/coin/${l.mint}`} className="block truncate text-sm font-semibold hover:underline">
@@ -217,7 +203,7 @@ function LaunchRow({ launch: l }: { launch: Launch }) {
       </div>
       <div className="shrink-0 text-right">
         <p className="text-sm font-medium">{formatCompact(l.marketCap)}</p>
-        <p className="text-xs text-panda-grey">{age}</p>
+        <CoinAge createdAt={l.createdAt} source={l.source} className="text-xs text-panda-grey" />
       </div>
     </div>
   );

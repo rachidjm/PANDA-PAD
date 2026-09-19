@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
 import { Position } from "@/lib/portfolio/positions";
@@ -119,16 +119,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
             holdings.map((h) => (
               <div key={h.mint} className="flex items-center gap-3 p-4">
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  {h.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={h.image} alt="" className="h-full w-full object-cover" />
-                  ) : h.doodle ? (
-                    <Doodle kind={h.doodle} className="h-full w-full" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-paper/60">
-                      {(h.symbol || "?").slice(0, 2)}
-                    </div>
-                  )}
+                  <CoinAvatar image={h.image} ticker={h.symbol || "?"} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{h.symbol ? `$${h.symbol}` : truncateAddress(h.mint)}</p>
@@ -211,16 +202,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
             sortedPositions.map((p) => (
               <div key={p.mint} className="flex items-center gap-3 p-4">
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  {p.coinImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.coinImage} alt="" className="h-full w-full object-cover" />
-                  ) : p.coinDoodle ? (
-                    <Doodle kind={p.coinDoodle} className="h-full w-full" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-paper/60">
-                      {p.ticker.slice(0, 2)}
-                    </div>
-                  )}
+                  <CoinAvatar image={p.coinImage} ticker={p.ticker} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">${p.ticker}</p>

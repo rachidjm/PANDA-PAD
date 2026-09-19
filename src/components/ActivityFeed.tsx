@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import { ActivityEvent } from "@/lib/types";
 
 const POLL_MS = 30_000;
@@ -51,16 +51,8 @@ export default function ActivityFeed({ initialEvents, limit }: { initialEvents: 
               href={`/coin/${e.coinMint}`}
               className="flex items-center gap-3 border-b border-paper/10 bg-ink-raised px-4 py-3 transition-colors last:border-b-0 hover:bg-paper/5"
             >
-              <div
-                className="h-8 w-8 shrink-0 overflow-hidden rounded-full"
-                style={{ backgroundColor: e.coinImage ? undefined : e.coinBg }}
-              >
-                {e.coinImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={e.coinImage} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <Doodle kind={e.coinDoodle} className="h-full w-full" />
-                )}
+              <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full">
+                <CoinAvatar image={e.coinImage} ticker={e.coinTicker} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">

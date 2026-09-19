@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Coin, Trade } from "@/lib/types";
 import { formatCompact, formatNumber, formatPct } from "@/lib/format";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
+import CoinAge from "@/components/CoinAge";
 import Panda from "@/components/panda/Panda";
 import LiveBadge from "@/components/LiveBadge";
 import TradingPanel from "@/components/coin/TradingPanel";
@@ -35,21 +36,14 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
         <div>
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3.5">
-              <div
-                className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-paper/10"
-                style={{ backgroundColor: coin.image ? "#171512" : coin.bg }}
-              >
-                {coin.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={coin.image} alt={coin.name} className="h-full w-full object-cover" />
-                ) : (
-                  <Doodle kind={coin.doodle} className="h-full w-full p-1.5" />
-                )}
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-paper/10 bg-[#171512]">
+                <CoinAvatar image={coin.image} ticker={coin.ticker} />
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-display text-2xl font-bold">${coin.ticker}</h1>
                   <LiveBadge live={live} />
+                  <CoinAge createdAt={coin.createdAt} source={coin.source} className="rounded-full bg-paper/10 px-2.5 py-1 text-xs font-medium text-paper/70" />
                 </div>
                 <p className="text-sm text-panda-grey">{coin.name}</p>
                 <SocialLinks coin={coin} />

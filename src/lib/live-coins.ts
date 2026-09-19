@@ -10,7 +10,7 @@ import {
   GeckoPool,
   GeckoIncludedToken,
 } from "./gecko/client";
-import { searchDexPairs, fetchDexTokenPairs, DexPair } from "./dexscreener/client";
+import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -24,6 +24,11 @@ function hashSeed(s: string): number {
 function fallbackLook(seed: string) {
   const h = hashSeed(seed);
   return { bg: CARD_COLORS[h % CARD_COLORS.length], doodle: CARD_DOODLES[h % CARD_DOODLES.length] };
+}
+
+/** Upstream feeds sometimes hand back HTML-escaped names ("TED&AMP;TERRY") — show them as typed. */
+function decodeEntities(v: string): string {
+  return v.replace(/&(amp|lt|gt|quot|#39);/gi, (_, e: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[e.toLowerCase()] as string);
 }
 
 function num(v: string | null | undefined): number {
@@ -49,8 +54,8 @@ export function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefine
   const source = dexId === "pump-fun" || dexId === "pumpswap" ? dexId : "other";
   return {
     mint,
-    ticker: symbol.toUpperCase(),
-    name: token?.attributes.name || symbol,
+    ticker: decodeEntities(symbol).toUpperCase(),
+    name: decodeEntities(token?.attributes.name || symbol),
     description: "",
     image: token?.attributes.image_url || undefined,
     doodle: look.doodle,
@@ -91,8 +96,8 @@ function dexPairToCoin(pair: DexPair): Coin {
   };
   return {
     mint,
-    ticker: symbol.toUpperCase(),
-    name: pair.baseToken.name || symbol,
+    ticker: decodeEntities(symbol).toUpperCase(),
+    name: decodeEntities(pair.baseToken.name || symbol),
     description: "",
     image: pair.info?.imageUrl || undefined,
     doodle: look.doodle,
@@ -103,7 +108,14 @@ function dexPairToCoin(pair: DexPair): Coin {
     marketCap: pair.marketCap || pair.fdv || 0,
     volume24h: pair.volume?.h24 || 0,
     changePct: pair.priceChange?.h24 || 0,
-    priceHistory: [],
+    priceHistory: pair.priceChange
+      ? buildApproxTrend({
+          h24: String(pair.priceChange.h24 ?? 0),
+          h6: String(pair.priceChange.h6 ?? 0),
+          h1: String(pair.priceChange.h1 ?? 0),
+          m5: String(pair.priceChange.m5 ?? 0),
+        })
+      : [],
     creator: "",
     createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : new Date().toISOString(),
     source,
@@ -172,9 +184,50 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
   }
 
   lastFetchAt = Date.now();
+
+  let coins: Coin[] = [];
+  if (Date.now() >= geckoCooldownUntil) {
+    coins = await fetchListFromGecko(opts.force);
+    // A rate-limited GeckoTerminal returns nothing (or only a stray page) —
+    // stop hammering it for a minute instead of burning more of its budget.
+    if (coins.length < MIN_HEALTHY_LIST) {
+      geckoCooldownUntil = Date.now() + GECKO_COOLDOWN_MS;
+      coins = [];
+    }
+  }
+
+  // GeckoTerminal unavailable: refresh the last known list's prices through
+  // Dexscreener (an independent source), or — cold start with nothing cached —
+  // discover the list there. Either way the numbers are fresh, so this counts as live.
+  if (coins.length === 0) {
+    coins = lastGood ? (await requoteViaDexscreener(lastGood)) ?? [] : await discoverViaDexscreener();
+  }
+
+  // Rugged / abandoned pools that quote a few cents of market cap aren't worth a slot.
+  coins = coins.filter((c) => c.marketCap >= MIN_LISTED_MARKET_CAP);
+
+  if (coins.length > 0) {
+    coins = await fillMissingImages(coins);
+    cache = { coins, expires: Date.now() + 60_000 };
+    lastGood = coins;
+    return { coins, live: true };
+  }
+
+  // Every source failed — serve the last known-good list rather than an empty
+  // grid, but mark it as not live so the UI can be honest that this isn't fresh.
+  if (lastGood) return { coins: lastGood, live: false };
+  return { coins: [], live: false };
+}
+
+let geckoCooldownUntil = 0;
+const GECKO_COOLDOWN_MS = 60_000;
+const MIN_HEALTHY_LIST = 15;
+const MIN_LISTED_MARKET_CAP = 500;
+
+async function fetchListFromGecko(force?: boolean): Promise<Coin[]> {
   const [pumpFun, pumpSwap] = await Promise.all([
-    fetchDexPoolsPages("pump-fun", 4, opts.force),
-    fetchDexPoolsPages("pumpswap", 3, opts.force),
+    fetchDexPoolsPages("pump-fun", 4, force),
+    fetchDexPoolsPages("pumpswap", 3, force),
   ]);
 
   const map = (res: typeof pumpFun, source: "pump-fun" | "pumpswap") =>
@@ -189,23 +242,77 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
     if (coin.marketCap > 0 && !byMint.has(coin.mint)) byMint.set(coin.mint, coin);
   }
   // No social enrichment here — it's only ever shown on the individual coin
-  // page, never on these list cards, and it used to cost up to 18 extra
-  // upstream requests on every single refresh (on top of the 7 above) for
-  // data nothing on this screen displays. getLiveCoin() enriches lazily,
-  // one request, only for the specific coin someone actually opens.
-  const coins = [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
+  // page, never on these list cards. getLiveCoin() enriches lazily, one
+  // request, only for the specific coin someone actually opens.
+  return [...byMint.values()].sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
+}
 
-  if (coins.length > 0) {
-    cache = { coins, expires: Date.now() + 60_000 };
-    lastGood = coins;
-    return { coins, live: true };
+/** Best pair per token from a Dexscreener batch result — the coin's own pool when it's there, else the most liquid. */
+function bestPairs(pairs: DexPair[], preferredPool?: Map<string, string | undefined>): Map<string, DexPair> {
+  const best = new Map<string, DexPair>();
+  for (const p of pairs) {
+    const mint = p.baseToken.address;
+    const cur = best.get(mint);
+    const preferred = preferredPool?.get(mint);
+    if (!cur) best.set(mint, p);
+    else if (cur.pairAddress !== preferred && (p.pairAddress === preferred || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0))) {
+      best.set(mint, p);
+    }
   }
+  return best;
+}
 
-  // Upstream failed (usually GeckoTerminal's rate limit) — serve the last
-  // known-good list rather than an empty grid, but mark it as not live so
-  // the UI can be honest that this isn't a fresh fetch.
-  if (lastGood) return { coins: lastGood, live: false };
-  return { coins: [], live: false };
+/** Re-quotes an already-known list with Dexscreener's batch endpoint: 30 tokens per request, so 60 coins cost 2 calls. */
+async function requoteViaDexscreener(coins: Coin[]): Promise<Coin[] | null> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < coins.length; i += 30) chunks.push(coins.slice(i, i + 30).map((c) => c.mint));
+  const results = await Promise.all(chunks.map((c) => fetchDexTokensBatch(c).catch(() => [] as DexPair[])));
+  const pairs = results.flat();
+  if (pairs.length === 0) return null;
+
+  const best = bestPairs(pairs, new Map(coins.map((c) => [c.mint, c.poolAddress])));
+  return coins
+    .map((coin) => {
+      const pair = best.get(coin.mint);
+      if (!pair) return coin;
+      const fresh = dexPairToCoin(pair);
+      return {
+        ...coin,
+        marketCap: fresh.marketCap || coin.marketCap,
+        volume24h: fresh.volume24h,
+        changePct: fresh.changePct,
+        priceHistory: fresh.priceHistory.length ? fresh.priceHistory : coin.priceHistory,
+        liquidityUsd: fresh.liquidityUsd ?? coin.liquidityUsd,
+        activity: fresh.activity ?? coin.activity,
+        volumeWindows: fresh.volumeWindows ?? coin.volumeWindows,
+        changeWindows: fresh.changeWindows ?? coin.changeWindows,
+        image: coin.image || fresh.image,
+      };
+    })
+    .sort((a, b) => b.volume24h - a.volume24h);
+}
+
+/** Cold-start discovery when GeckoTerminal is down and nothing is cached yet. */
+async function discoverViaDexscreener(): Promise<Coin[]> {
+  const results = await Promise.all(["pumpswap", "pump.fun"].map((q) => searchDexPairs(q).catch(() => [] as DexPair[])));
+  const pairs = results.flat().filter((p) => ["pumpswap", "pumpfun", "pump-fun"].includes(p.dexId));
+  const coins = [...bestPairs(pairs).values()].map(dexPairToCoin).filter((c) => c.marketCap > 0);
+  return coins.sort((a, b) => b.volume24h - a.volume24h).slice(0, 60);
+}
+
+/** Coins GeckoTerminal has no logo for get their real one from Dexscreener (one batch call) — never a drawn stand-in. */
+async function fillMissingImages(coins: Coin[]): Promise<Coin[]> {
+  const missing = coins.filter((c) => !c.image).map((c) => c.mint);
+  if (missing.length === 0) return coins;
+  try {
+    const images = new Map<string, string>();
+    for (const p of await fetchDexTokensBatch(missing)) {
+      if (p.info?.imageUrl && !images.has(p.baseToken.address)) images.set(p.baseToken.address, p.info.imageUrl);
+    }
+    return coins.map((c) => (c.image ? c : { ...c, image: images.get(c.mint) }));
+  } catch {
+    return coins;
+  }
 }
 
 /**

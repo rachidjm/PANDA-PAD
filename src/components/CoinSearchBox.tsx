@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import { formatPct } from "@/lib/format";
 import { Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -111,16 +111,8 @@ export default function CoinSearchBox() {
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-paper/5"
                 >
-                  <div
-                    className="h-7 w-7 shrink-0 overflow-hidden rounded-full"
-                    style={{ backgroundColor: c.image ? undefined : c.bg }}
-                  >
-                    {c.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.image} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <Doodle kind={c.doodle} className="h-full w-full" />
-                    )}
+                  <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full">
+                    <CoinAvatar image={c.image} ticker={c.ticker} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">${c.ticker}</p>

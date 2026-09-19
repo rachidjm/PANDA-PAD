@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getLiveCoins } from "@/lib/live-coins";
 import { fetchDexTokensBatch } from "@/lib/dexscreener/client";
+import type { CoinSource } from "@/lib/types";
 
 export type Launch = {
   mint: string;
@@ -10,6 +11,7 @@ export type Launch = {
   bg: string;
   marketCap: number;
   createdAt: string;
+  source: CoinSource;
   /** Full X/Twitter profile URL the project itself published — never guessed. */
   twitterUrl?: string;
 };
@@ -47,6 +49,7 @@ export async function GET() {
     bg: c.bg,
     marketCap: c.marketCap,
     createdAt: c.createdAt,
+    source: c.source,
     twitterUrl: socials.get(c.mint),
   }));
 

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { Coin } from "@/lib/types";
 import { formatCompact, formatPct } from "@/lib/format";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
+import CoinAge from "@/components/CoinAge";
 import Sparkline from "@/components/Sparkline";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
@@ -16,16 +17,13 @@ export default function CoinCard({ coin }: { coin: Coin }) {
       href={`/coin/${coin.mint}`}
       className="sticker-card group block overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised"
     >
-      <div
-        className="relative flex aspect-[4/3] items-center justify-center overflow-hidden p-8"
-        style={{ backgroundColor: coin.image ? "#171512" : coin.bg }}
-      >
-        {coin.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={coin.image} alt={coin.name} className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <Doodle kind={coin.doodle} className="h-full w-full" />
-        )}
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-[#171512] p-8">
+        <div className="h-full w-full overflow-hidden">
+          <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" />
+        </div>
+        <span className="absolute right-3 top-3 rounded-full bg-ink/75 px-2.5 py-1 text-[11px] font-semibold text-paper/80 backdrop-blur">
+          <CoinAge createdAt={coin.createdAt} source={coin.source} />
+        </span>
       </div>
       <div className="p-4">
         <div className="flex items-baseline justify-between gap-2">

@@ -11,7 +11,11 @@ const BASE = "https://api.dexscreener.com";
 const CHAIN = "solana";
 
 async function dexGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(6000),
+  });
   if (!res.ok) throw new Error(`Dexscreener ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }

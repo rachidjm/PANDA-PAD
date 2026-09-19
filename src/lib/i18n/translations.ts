@@ -61,6 +61,14 @@ export const dict = {
   "home.section.recentlyActive": { en: "Recently Active", es: "Activas recientemente" },
   "home.section.graduated": { en: "Graduated", es: "Graduadas" },
 
+  // Coin age
+  "age.graduated": { en: "Grad.", es: "Grad." },
+  "age.createdHint": { en: "Time since this coin's pool was created", es: "Tiempo desde que se creó el pool de esta moneda" },
+  "age.graduatedHint": {
+    en: "Time since this coin graduated to PumpSwap (when its AMM pool was created)",
+    es: "Tiempo desde que esta moneda se graduó a PumpSwap (cuando se creó su pool AMM)",
+  },
+
   // Home sidebar
   "side.topTrades": { en: "Your Top Trades", es: "Tus mejores operaciones" },
   "side.sortedNote": { en: "Sorted by profit, biggest winners first", es: "Ordenadas por beneficio, las más rentables primero" },

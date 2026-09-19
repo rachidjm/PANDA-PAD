@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
 import { formatUsd, truncateAddress } from "@/lib/format";
@@ -73,16 +73,7 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
             top.map((h) => (
               <div key={h.mint} className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  {h.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={h.image} alt="" className="h-full w-full object-cover" />
-                  ) : h.doodle ? (
-                    <Doodle kind={h.doodle} className="h-full w-full" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-paper/60">
-                      {(h.symbol || "?").slice(0, 2)}
-                    </div>
-                  )}
+                  <CoinAvatar image={h.image} ticker={h.symbol || "?"} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{h.symbol ? `$${h.symbol}` : truncateAddress(h.mint)}</p>

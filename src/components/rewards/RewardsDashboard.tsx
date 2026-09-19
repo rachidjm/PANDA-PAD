@@ -5,7 +5,7 @@ import Tooltip from "@/components/Tooltip";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import Panda from "@/components/panda/Panda";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio } from "@/lib/solana/portfolio";
 import { computeRewardSource, meetsRewardsThreshold, MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
 import { fetchTokenPools } from "@/lib/gecko/client";
@@ -287,12 +287,7 @@ export default function RewardsDashboard() {
             {sources.map((s) => (
               <div key={s.coinMint} className="flex items-center gap-3 py-3">
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  {s.coinImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={s.coinImage} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <Doodle kind={s.coinDoodle} className="h-full w-full" />
-                  )}
+                  <CoinAvatar image={s.coinImage} ticker={s.coinTicker} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">${s.coinTicker}</p>

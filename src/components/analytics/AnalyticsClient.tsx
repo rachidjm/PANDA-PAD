@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import Doodle from "@/components/doodles/Doodle";
+import CoinAvatar from "@/components/CoinAvatar";
 import Panda from "@/components/panda/Panda";
 import ActivityFeed from "@/components/ActivityFeed";
 import StatCard from "@/components/analytics/StatCard";
@@ -134,12 +134,7 @@ function TrendingRow({ coin }: { coin: Coin }) {
         className="h-8 w-8 shrink-0 overflow-hidden rounded-full"
         style={{ backgroundColor: coin.image ? undefined : coin.bg }}
       >
-        {coin.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={coin.image} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <Doodle kind={coin.doodle} className="h-full w-full" />
-        )}
+        <CoinAvatar image={coin.image} ticker={coin.ticker} />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">${coin.ticker}</p>
