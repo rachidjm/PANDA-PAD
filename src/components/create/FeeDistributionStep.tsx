@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY, PANDA_PROTOCOL_FEE_BPS } from "@/lib/pump/constants";
 import { MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type Mode = "creator" | "holders";
 type Shareholder = { address: string; shareBps: number };
@@ -28,6 +29,7 @@ export default function FeeDistributionStep({
   creator: string;
   onChange: (shareholders: Shareholder[]) => void;
 }) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState<Mode>("creator");
   const remainingRecipient = mode === "holders" && REWARDS_POOL ? REWARDS_POOL : creator;
 
@@ -41,15 +43,15 @@ export default function FeeDistributionStep({
 
   return (
     <div>
-      <span className="mb-1.5 block text-sm font-medium text-paper/80">Fee distribution</span>
+      <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("fd.title")}</span>
 
       <div className="flex items-center justify-between rounded-xl bg-ink px-3.5 py-2.5">
-        <span className="text-sm">PANDA Protocol</span>
-        <span className="text-xs text-panda-grey">{PANDA_PROTOCOL_FEE_BPS / 100}% · fixed</span>
+        <span className="text-sm">{t("fd.protocol")}</span>
+        <span className="text-xs text-panda-grey">{t("fd.fixed", { pct: PANDA_PROTOCOL_FEE_BPS / 100 })}</span>
       </div>
 
       <span className="mb-1.5 mt-3 block text-xs text-panda-grey">
-        Send the remaining {REMAINING_BPS / 100}% to
+        {t("fd.sendRemaining", { pct: REMAINING_BPS / 100 })}
       </span>
       <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-ink p-1.5">
         <button
@@ -59,7 +61,7 @@ export default function FeeDistributionStep({
             mode === "creator" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
           }`}
         >
-          <CrownIcon /> Creator
+          <CrownIcon /> {t("fd.creator")}
         </button>
         <button
           type="button"
@@ -69,14 +71,14 @@ export default function FeeDistributionStep({
             mode === "holders" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
           }`}
         >
-          <PeopleIcon /> Holders
+          <PeopleIcon /> {t("fd.holders")}
         </button>
       </div>
       <p className="mt-2 text-xs text-panda-grey">
         {mode === "creator"
-          ? `${REMAINING_BPS / 100}% of creator rewards go to you. PANDA takes a fixed ${PANDA_PROTOCOL_FEE_BPS / 100}% protocol fee.`
-          : `${REMAINING_BPS / 100}% of creator rewards go to holders. Anyone holding more than $${MIN_HOLDING_USD_FOR_REWARDS} of your coin qualifies. PANDA takes a fixed ${PANDA_PROTOCOL_FEE_BPS / 100}% protocol fee.`}
-        {!REWARDS_POOL && " Holders routing isn't configured on PANDA yet."}
+          ? t("fd.creatorNote", { pct: REMAINING_BPS / 100, fee: PANDA_PROTOCOL_FEE_BPS / 100 })
+          : t("fd.holdersNote", { pct: REMAINING_BPS / 100, min: MIN_HOLDING_USD_FOR_REWARDS, fee: PANDA_PROTOCOL_FEE_BPS / 100 })}
+        {!REWARDS_POOL && ` ${t("fd.notConfigured")}`}
       </p>
     </div>
   );

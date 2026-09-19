@@ -1,19 +1,23 @@
-import RewardsDashboard from "@/components/rewards/RewardsDashboard";
+"use client";
 
-const steps = [
-  { label: "Trade", detail: "You buy or sell a coin." },
-  { label: "Fees", detail: "A small fee is taken from the trade." },
-  { label: "Fee Distribution", detail: "The creator routes a share of it to holders." },
-  { label: "Rewards", detail: "Your real share becomes claimable in your wallet." },
+import RewardsDashboard from "@/components/rewards/RewardsDashboard";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { DictKey } from "@/lib/i18n/translations";
+
+const steps: { label: DictKey; detail: DictKey }[] = [
+  { label: "rw.step1", detail: "rw.step1d" },
+  { label: "rw.step2", detail: "rw.step2d" },
+  { label: "rw.step3", detail: "rw.step3d" },
+  { label: "rw.step4", detail: "rw.step4d" },
 ];
 
 export default function RewardsPage() {
+  const { t } = useLanguage();
+
   return (
     <div className="mx-auto max-w-2xl px-5 py-12">
-      <h1 className="font-display text-3xl font-bold">Earn with PANDA</h1>
-      <p className="mt-2 max-w-md text-paper/70">
-        Every trade on PANDA pays a fee. Instead of disappearing, it flows back to the people holding the coin.
-      </p>
+      <h1 className="font-display text-3xl font-bold">{t("rw.title")}</h1>
+      <p className="mt-2 max-w-md text-paper/70">{t("rw.intro")}</p>
 
       <ol className="mt-10 space-y-0">
         {steps.map((step, i) => (
@@ -25,8 +29,8 @@ export default function RewardsPage() {
               {i + 1}
             </span>
             <div className="pt-0.5">
-              <p className="font-display font-semibold">{step.label}</p>
-              <p className="text-sm text-panda-grey">{step.detail}</p>
+              <p className="font-display font-semibold">{t(step.label)}</p>
+              <p className="text-sm text-panda-grey">{t(step.detail)}</p>
             </div>
           </li>
         ))}

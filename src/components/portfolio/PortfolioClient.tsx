@@ -8,6 +8,7 @@ import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfol
 import { Coin, PortfolioHolding } from "@/lib/types";
 import { Position } from "@/lib/portfolio/positions";
 import { formatPct, formatUsd, truncateAddress } from "@/lib/format";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type State = "loading" | "ready" | "error";
 type PositionsState = "loading" | "ready" | "error";
@@ -16,6 +17,7 @@ type SortMode = "recent" | "profit";
 export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
+  const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [positionsState, setPositionsState] = useState<PositionsState>("loading");
@@ -78,8 +80,8 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <div className="flex items-center justify-between gap-6">
           <div>
-            <h1 className="font-display text-xl font-bold">Portfolio</h1>
-            <p className="mt-1 text-sm text-panda-grey">Connect your wallet to see what you really hold — PANDA never custodies it.</p>
+            <h1 className="font-display text-xl font-bold">{t("pf.title")}</h1>
+            <p className="mt-1 text-sm text-panda-grey">{t("pf.connectPrompt")}</p>
           </div>
           <Panda pose="empty" size={80} />
         </div>
@@ -93,28 +95,28 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
     <div>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold">Portfolio</h1>
-          <p className="mt-1 text-sm text-panda-grey">{truncateAddress(publicKey.toBase58())} — read directly from Solana.</p>
+          <h1 className="font-display text-2xl font-bold">{t("pf.title")}</h1>
+          <p className="mt-1 text-sm text-panda-grey">{t("pf.subtitle", { addr: truncateAddress(publicKey.toBase58()) })}</p>
         </div>
         <Panda pose={state === "ready" ? "success" : "idle"} size={72} />
       </div>
 
       <div className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-        <p className="text-xs text-panda-grey">Total value</p>
+        <p className="text-xs text-panda-grey">{t("pf.totalValue")}</p>
         <p className="mt-1 font-display text-3xl font-bold">
           {state === "loading" ? "…" : total !== null ? formatUsd(total) : "—"}
         </p>
-        {state === "loading" && <p className="mt-2 text-xs text-panda-grey">Reading your wallet…</p>}
-        {state === "error" && <p className="mt-2 text-xs text-clay-red">Couldn&apos;t read your wallet — try again in a moment.</p>}
+        {state === "loading" && <p className="mt-2 text-xs text-panda-grey">{t("pf.reading")}</p>}
+        {state === "error" && <p className="mt-2 text-xs text-clay-red">{t("pf.readError")}</p>}
         {total === null && state === "ready" && (
-          <p className="mt-2 text-xs text-panda-grey">No priced holdings found — balances below may still be real and unpriced.</p>
+          <p className="mt-2 text-xs text-panda-grey">{t("pf.noPriced")}</p>
         )}
       </div>
 
       {state === "ready" && (
         <div className="mt-4 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
           {holdings.length === 0 ? (
-            <p className="p-6 text-center text-sm text-panda-grey">No balances found in this wallet.</p>
+            <p className="p-6 text-center text-sm text-panda-grey">{t("pf.noBalances")}</p>
           ) : (
             holdings.map((h) => (
               <div key={h.mint} className="flex items-center gap-3 p-4">
@@ -149,7 +151,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                 positionsTab === "open" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
               }`}
             >
-              Open positions
+              {t("pf.tabOpen")}
             </button>
             <button
               onClick={() => setPositionsTab("closed")}
@@ -157,7 +159,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                 positionsTab === "closed" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
               }`}
             >
-              Closed positions
+              {t("pf.tabClosed")}
             </button>
           </div>
           <div className="flex gap-1.5 text-xs">
@@ -167,7 +169,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                 sortMode === "recent" ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"
               }`}
             >
-              Recent
+              {t("pf.sortRecent")}
             </button>
             <button
               onClick={() => setSortMode("profit")}
@@ -175,7 +177,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                 sortMode === "profit" ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"
               }`}
             >
-              Profit
+              {t("pf.sortProfit")}
             </button>
           </div>
         </div>
@@ -189,13 +191,13 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
             </div>
           )}
           {positionsState === "error" && (
-            <p className="p-6 text-center text-sm text-clay-red">Couldn&apos;t load your trade history — try again in a moment.</p>
+            <p className="p-6 text-center text-sm text-clay-red">{t("pf.tradesError")}</p>
           )}
           {positionsState === "ready" && sortedPositions.length === 0 && (
             <p className="p-6 text-center text-sm text-panda-grey">
               {positionsTab === "open"
-                ? "No open positions yet — they show up here after your first real buy on PANDA."
-                : "No closed positions yet."}
+                ? t("pf.emptyOpen")
+                : t("pf.emptyClosed")}
             </p>
           )}
           {positionsState === "ready" &&
@@ -208,8 +210,8 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                   <p className="truncate font-medium">${p.ticker}</p>
                   <p className="text-xs text-panda-grey">
                     {positionsTab === "open"
-                      ? `${p.remainingTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })} held · avg ${formatUsd(p.avgCostUsd)}`
-                      : "Fully closed"}
+                      ? t("pf.heldAvg", { amount: p.remainingTokens.toLocaleString(undefined, { maximumFractionDigits: 2 }), avg: formatUsd(p.avgCostUsd) })
+                      : t("pf.fullyClosed")}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">

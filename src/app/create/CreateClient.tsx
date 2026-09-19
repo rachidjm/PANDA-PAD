@@ -8,6 +8,8 @@ import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import FeeDistributionStep from "@/components/create/FeeDistributionStep";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { DictKey } from "@/lib/i18n/translations";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
 type Shareholder = { address: string; shareBps: number };
@@ -20,6 +22,7 @@ const firstBuyPresets = [0.5, 1, 2, 5];
 export default function CreateClient() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
+  const { t } = useLanguage();
   const [stage, setStage] = useState<Stage>("form");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -41,7 +44,7 @@ export default function CreateClient() {
   function handleFile(file: File | undefined) {
     if (!file) return;
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      setImageError("Please upload a GIF, PNG, JPG or WEBP image.");
+      setImageError(t("cr.imageType"));
       return;
     }
     setImageError("");
@@ -55,21 +58,21 @@ export default function CreateClient() {
   // bonding curve doesn't exist until the create transaction has confirmed,
   // so this can't be bundled into the same one. You sign it too.
   async function buyFirst(mint: string, solAmount: number): Promise<string> {
-    if (!publicKey) throw new Error("Wallet not connected.");
+    if (!publicKey) throw new Error(t("cr.err.buyWallet"));
     const res = await fetch("/api/pump/buy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mint, user: publicKey.toBase58(), solAmount }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to build the first-buy transaction.");
+    if (!res.ok) throw new Error(data.error || t("cr.err.buyBuild"));
 
     const tx = base64ToTransaction(data.transaction);
     const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
     const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-    if (confirmation.value.err) throw new Error("First buy failed to confirm.");
+    if (confirmation.value.err) throw new Error(t("cr.err.buyConfirm"));
 
     return signature;
   }
@@ -90,7 +93,7 @@ export default function CreateClient() {
 
       const uploadRes = await fetch("/api/upload-metadata", { method: "POST", body: form });
       const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadData.error || "Upload failed.");
+      if (!uploadRes.ok) throw new Error(uploadData.error || t("cr.err.upload"));
 
       setStage("building");
       const mint = Keypair.generate();
@@ -108,7 +111,7 @@ export default function CreateClient() {
         }),
       });
       const buildData = await buildRes.json();
-      if (!buildRes.ok) throw new Error(buildData.error || "Failed to build transaction.");
+      if (!buildRes.ok) throw new Error(buildData.error || t("cr.err.build"));
 
       const transaction = base64ToTransaction(buildData.transaction);
 
@@ -122,7 +125,7 @@ export default function CreateClient() {
       setStage("confirming");
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-      if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
+      if (confirmation.value.err) throw new Error(t("cr.err.confirm"));
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
       setFeeDistributionUsed(shareholders.some((s) => s.address === REWARDS_POOL_ADDRESS));
@@ -147,14 +150,14 @@ export default function CreateClient() {
         } catch (buyErr) {
           // The coin itself launched fine — only the optional first buy failed.
           // That's not a launch failure, just a separate note on the success screen.
-          setBuyError(explainError(buyErr));
+          setBuyError(explainError(buyErr, t));
         }
       }
 
       setStage("done");
     } catch (err) {
       setStage("error");
-      setError(explainError(err));
+      setError(explainError(err, t));
     }
   }
 
@@ -177,16 +180,16 @@ export default function CreateClient() {
 
   if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming" || stage === "buying") {
     const labels: Record<string, string> = {
-      uploading: "Uploading image…",
-      building: "Preparing transaction…",
-      signing: "Confirm in wallet…",
-      confirming: "Confirming on Solana…",
-      buying: `Buying your first $${ticker || "COIN"}…`,
+      uploading: t("cr.stageUploading"),
+      building: t("cr.stageBuilding"),
+      signing: t("cr.stageSigning"),
+      confirming: t("cr.stageConfirming"),
+      buying: t("cr.stageBuying", { ticker: ticker || "COIN" }),
     };
     return (
       <div className="flex flex-col items-center gap-5 py-16 text-center">
         <Panda pose="loading" size={160} />
-        <p className="font-display text-lg font-semibold">Launching ${ticker || "COIN"}…</p>
+        <p className="font-display text-lg font-semibold">{t("cr.launching", { ticker: ticker || "COIN" })}</p>
         <p className="text-sm text-panda-grey">{labels[stage]}</p>
       </div>
     );
@@ -196,13 +199,13 @@ export default function CreateClient() {
     return (
       <div className="flex flex-col items-center gap-5 py-16 text-center">
         <Panda pose="error" size={150} />
-        <p className="font-display text-lg font-semibold">Launch failed</p>
+        <p className="font-display text-lg font-semibold">{t("cr.failed")}</p>
         <p className="max-w-xs text-sm text-panda-grey">{error}</p>
         <button
           onClick={() => setStage("form")}
           className="rounded-full border border-paper/20 px-5 py-2.5 text-sm font-semibold hover:border-paper/40 transition"
         >
-          Back to form
+          {t("cr.backToForm")}
         </button>
       </div>
     );
@@ -213,8 +216,8 @@ export default function CreateClient() {
       <div className="flex flex-col items-center gap-6 py-12 text-center">
         <Panda pose="success" size={170} />
         <div>
-          <p className="font-display text-2xl font-bold">${ticker} is live</p>
-          <p className="mt-1 text-sm text-panda-grey">{name} was created for real, on-chain.</p>
+          <p className="font-display text-2xl font-bold">{t("cr.isLive", { ticker })}</p>
+          <p className="mt-1 text-sm text-panda-grey">{t("cr.createdReal", { name })}</p>
         </div>
         {imagePreview && (
           <div className="w-full max-w-[220px] overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised">
@@ -223,19 +226,18 @@ export default function CreateClient() {
           </div>
         )}
         <p className="max-w-xs text-xs text-panda-grey">
-          It can take a few minutes to show up in Discover while our data source indexes the new pool.
+          {t("cr.indexNote")}
         </p>
         {result.buySignature && (
-          <p className="text-sm text-bamboo">Your first buy of ${ticker} went through too.</p>
+          <p className="text-sm text-bamboo">{t("cr.firstBuyOk", { ticker })}</p>
         )}
         {buyError && (
           <p className="max-w-xs text-xs text-clay-red">
-            The coin launched fine, but your first buy didn&apos;t go through: {buyError} You can still buy it from
-            its page below.
+            {t("cr.firstBuyFail", { error: buyError })}
           </p>
         )}
         <p className="text-sm text-bamboo">
-          Fee distribution is set, real and on-chain — PANDA 5%, {feeDistributionUsed ? "holders 95%" : "you 95%"}.
+          {t("cr.feeSet", { who: feeDistributionUsed ? t("cr.holders95") : t("cr.you95") })}
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
@@ -244,19 +246,19 @@ export default function CreateClient() {
             rel="noreferrer"
             className="rounded-full border border-paper/20 px-5 py-2.5 text-sm font-semibold hover:border-paper/40 transition"
           >
-            View transaction
+            {t("cr.viewTx")}
           </a>
           <button
             onClick={reset}
             className="rounded-full border border-paper/20 px-5 py-2.5 text-sm font-semibold hover:border-paper/40 transition"
           >
-            Create another
+            {t("cr.createAnother")}
           </button>
           <Link
             href={`/coin/${result.mint}`}
             className="rounded-full bg-paper px-5 py-2.5 text-sm font-semibold text-ink hover:brightness-90 transition"
           >
-            View coin page
+            {t("cr.viewCoin")}
           </Link>
         </div>
       </div>
@@ -268,14 +270,14 @@ export default function CreateClient() {
       <div className="flex items-center gap-4">
         <Panda pose="create" size={84} />
         <div>
-          <h1 className="font-display text-2xl font-bold">Create your coin</h1>
-          <p className="text-sm text-panda-grey">Upload an image or GIF, name it, launch it — for real, on Solana.</p>
+          <h1 className="font-display text-2xl font-bold">{t("cr.heading")}</h1>
+          <p className="text-sm text-panda-grey">{t("cr.sub")}</p>
         </div>
       </div>
 
       <div className="mt-8 space-y-5">
         <div>
-          <span className="mb-1.5 block text-sm font-medium text-paper/80">Launch on</span>
+          <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.launchOn")}</span>
           <div className="flex items-center gap-2.5 rounded-2xl border border-bamboo/50 bg-bamboo/10 px-4 py-3">
             <PumpFunIcon />
             <span className="text-sm font-semibold">Pump.fun</span>
@@ -302,12 +304,12 @@ export default function CreateClient() {
           >
             {imagePreview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={imagePreview} alt="Uploaded image preview" className="max-h-48 rounded-2xl" />
+              <img src={imagePreview} alt={t("cr.previewAlt")} className="max-h-48 rounded-2xl" />
             ) : (
               <>
                 <span className="text-3xl">🖼️</span>
-                <span className="font-medium">Upload image</span>
-                <span className="text-xs text-panda-grey">GIF, PNG, JPG or WEBP — or drag and drop</span>
+                <span className="font-medium">{t("cr.uploadImage")}</span>
+                <span className="text-xs text-panda-grey">{t("cr.uploadHint")}</span>
               </>
             )}
           </button>
@@ -321,17 +323,17 @@ export default function CreateClient() {
           {imageError && <p className="mt-2 text-sm text-clay-red">{imageError}</p>}
         </div>
 
-        <Field label="Token name">
+        <Field label={t("cr.tokenName")}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Dancing Cat"
+            placeholder={t("cr.namePh")}
             maxLength={32}
             className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
           />
         </Field>
 
-        <Field label="Ticker">
+        <Field label={t("cr.ticker")}>
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 focus-within:border-paper/40">
             <span className="text-panda-grey">$</span>
             <input
@@ -343,11 +345,11 @@ export default function CreateClient() {
           </div>
         </Field>
 
-        <Field label="Description">
+        <Field label={t("cr.description")}>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What's the story behind this coin?"
+            placeholder={t("cr.descPh")}
             rows={3}
             maxLength={280}
             className="w-full resize-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
@@ -355,7 +357,7 @@ export default function CreateClient() {
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Website (optional)">
+          <Field label={t("cr.website")}>
             <input
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
@@ -363,7 +365,7 @@ export default function CreateClient() {
               className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
             />
           </Field>
-          <Field label="X (optional)">
+          <Field label={t("cr.xOpt")}>
             <input
               value={twitter}
               onChange={(e) => setTwitter(e.target.value)}
@@ -374,10 +376,9 @@ export default function CreateClient() {
         </div>
 
         <div>
-          <span className="mb-1.5 block text-sm font-medium text-paper/80">Your first buy (optional)</span>
+          <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.firstBuy")}</span>
           <p className="mb-2 text-xs text-panda-grey">
-            Buy some of ${ticker || "your coin"} the moment it launches, paid in SOL — as its very first trade.
-            This is a second transaction right after creation, so you sign it separately.
+            {t("cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
           </p>
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
             <input
@@ -397,7 +398,7 @@ export default function CreateClient() {
                 !firstBuyAmount ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
               }`}
             >
-              None
+              {t("cr.none")}
             </button>
             {firstBuyPresets.map((p) => (
               <button
@@ -418,8 +419,8 @@ export default function CreateClient() {
           <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeShareholders} />
         ) : (
           <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-            <p className="font-medium">Fee distribution</p>
-            <p className="mt-1 text-sm text-panda-grey">Connect your wallet to see how this coin&apos;s creator fees are split.</p>
+            <p className="font-medium">{t("cr.feeDistribution")}</p>
+            <p className="mt-1 text-sm text-panda-grey">{t("cr.feeConnect")}</p>
           </div>
         )}
 
@@ -428,13 +429,13 @@ export default function CreateClient() {
           disabled={!canLaunch}
           className="w-full rounded-full bg-paper py-3.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Launch
+          {t("cr.launch")}
         </button>
         {!connected && imageFile && name.trim() && ticker.trim() && (
-          <p className="text-center text-sm text-panda-grey">Connect your wallet to launch.</p>
+          <p className="text-center text-sm text-panda-grey">{t("cr.connectToLaunch")}</p>
         )}
         <p className="text-center text-xs text-panda-grey">
-          This mints a real coin on Solana mainnet — you sign it in your own wallet, and you&apos;re the coin&apos;s creator.
+          {t("cr.mintNote")}
         </p>
       </div>
     </div>
@@ -474,13 +475,13 @@ function PumpFunIcon() {
   );
 }
 
-function explainError(err: unknown): string {
+function explainError(err: unknown, t: (key: DictKey) => string): string {
   const message = err instanceof Error ? err.message : String(err);
-  if (/reject|cancel/i.test(message)) return "You rejected the transaction.";
-  if (/insufficient/i.test(message)) return "Insufficient SOL to cover the network fee.";
+  if (/reject|cancel/i.test(message)) return t("cr.err.rejected");
+  if (/insufficient/i.test(message)) return t("cr.err.insufficient");
   if (/hosting isn't configured/i.test(message)) return message;
-  if (/429|too many requests/i.test(message)) return "The Solana RPC is rate-limiting us — wait a moment and retry.";
-  if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return "Network error — check your connection and retry.";
-  if (/blockhash|expired/i.test(message)) return "Transaction expired — try again.";
-  return message || "Launch failed. Please try again.";
+  if (/429|too many requests/i.test(message)) return t("cr.err.rateLimit");
+  if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return t("cr.err.network");
+  if (/blockhash|expired/i.test(message)) return t("cr.err.expired");
+  return message || t("cr.err.generic");
 }

@@ -11,6 +11,7 @@ import { computeRewardSource, meetsRewardsThreshold, MIN_HOLDING_USD_FOR_REWARDS
 import { fetchTokenPools } from "@/lib/gecko/client";
 import { Coin, RewardSource } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL || null;
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -25,6 +26,7 @@ function solStr(lamports: number): string {
 export default function RewardsDashboard() {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
+  const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
   const [sources, setSources] = useState<RewardSource[]>([]);
   const [claimInfo, setClaimInfo] = useState<Record<string, ClaimInfo>>({});
@@ -142,7 +144,7 @@ export default function RewardsDashboard() {
           body: JSON.stringify({ mint: s.coinMint, holder: publicKey.toBase58() }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `Claim failed for $${s.coinTicker}.`);
+        if (!res.ok) throw new Error(data.error || t("rd.claimFailedFor", { ticker: s.coinTicker }));
         signatures.push(data.signature);
       }
       setLastClaimSignatures(signatures);
@@ -158,7 +160,7 @@ export default function RewardsDashboard() {
       );
       setClaimInfo(Object.fromEntries(entries));
     } catch (err) {
-      setClaimError(err instanceof Error ? err.message : "Claim failed.");
+      setClaimError(err instanceof Error ? err.message : t("rd.claimFailed"));
     } finally {
       setClaiming(false);
     }
@@ -172,10 +174,9 @@ export default function RewardsDashboard() {
       <div className="mt-12 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <div className="flex items-center justify-between gap-6">
           <div>
-            <p className="font-medium">Rewards Pool isn&apos;t set up yet</p>
+            <p className="font-medium">{t("rd.poolMissingTitle")}</p>
             <p className="mt-1 text-sm text-panda-grey">
-              Once PANDA&apos;s Holder Rewards pool is configured, coins with fee distribution enabled will show up
-              here — not before.
+              {t("rd.poolMissingBody")}
             </p>
           </div>
           <Panda pose="empty" size={80} />
@@ -189,8 +190,8 @@ export default function RewardsDashboard() {
       <div className="mt-12 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <div className="flex items-center justify-between gap-6">
           <div>
-            <p className="font-medium">Connect your wallet to see your rewards</p>
-            <p className="mt-1 text-sm text-panda-grey">Hold a coin with fee distribution enabled to start earning.</p>
+            <p className="font-medium">{t("rd.connectTitle")}</p>
+            <p className="mt-1 text-sm text-panda-grey">{t("rd.connectBody")}</p>
           </div>
           <Panda pose="empty" size={80} />
         </div>
@@ -205,24 +206,24 @@ export default function RewardsDashboard() {
           "not tracked" — it would mean fees accrued in Pump's vault but not yet distributed,
           which isn't cheaply checkable per-coin from here yet. */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-        <p className="text-sm font-medium">Your rewards</p>
+        <p className="text-sm font-medium">{t("rd.yourRewards")}</p>
         <div className="mt-3 grid grid-cols-3 gap-3">
           <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
-            <p className="text-[11px] text-panda-grey">Total earned</p>
+            <p className="text-[11px] text-panda-grey">{t("rd.totalEarned")}</p>
             <p className="mt-1 font-display text-lg font-bold">{solStr(totalEntitled)}</p>
           </div>
           <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
-            <p className="text-[11px] text-panda-grey">Available to claim</p>
+            <p className="text-[11px] text-panda-grey">{t("rd.available")}</p>
             <p className="mt-1 font-display text-lg font-bold">{solStr(totalUnclaimed)}</p>
           </div>
           <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
             <div className="flex items-center justify-center gap-1 text-[11px] text-panda-grey">
-              <span>Pending</span>
-              <Tooltip label="Fees that may have accrued in Pump.fun's own vault but haven't been distributed by PANDA's daily collector yet — not tracked here.">
+              <span>{t("rd.pending")}</span>
+              <Tooltip label={t("rd.pendingHint")}>
                 <span className="cursor-help text-panda-grey/60">ⓘ</span>
               </Tooltip>
             </div>
-            <p className="mt-1 font-display text-lg font-bold text-paper/40">Not tracked</p>
+            <p className="mt-1 font-display text-lg font-bold text-paper/40">{t("rd.notTracked")}</p>
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between gap-4 border-t border-paper/10 pt-4">
@@ -230,32 +231,32 @@ export default function RewardsDashboard() {
             {claimError && <p className="text-clay-red">{claimError}</p>}
             {!claimError && lastClaimSignatures.length > 0 && (
               <p className="text-bamboo">
-                Claimed —{" "}
+                {t("rd.claimed")}{" "}
                 {lastClaimSignatures.map((sig, i) => (
                   <span key={sig}>
                     {i > 0 && ", "}
                     <a href={`https://solscan.io/tx/${sig}`} target="_blank" rel="noreferrer" className="underline hover:text-paper">
-                      view tx
+                      {t("rd.viewTx")}
                     </a>
                   </span>
                 ))}
               </p>
             )}
-            {!claimError && lastClaimSignatures.length === 0 && <p>Real, on-chain payouts — signed and sent the moment you claim.</p>}
+            {!claimError && lastClaimSignatures.length === 0 && <p>{t("rd.onChainNote")}</p>}
           </div>
           <button
             onClick={claimAll}
             disabled={claiming || totalUnclaimed <= 0}
             className="shrink-0 rounded-full bg-bamboo px-5 py-2.5 text-sm font-bold text-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-paper/10 disabled:text-paper/40"
           >
-            {claiming ? "Claiming…" : "Claim all"}
+            {claiming ? t("rd.claiming") : t("rd.claimAll")}
           </button>
         </div>
       </div>
 
       {poolBalance !== null && (
         <div className="rounded-2xl border border-paper/10 bg-ink-raised p-5">
-          <p className="text-xs text-panda-grey">PANDA Rewards Pool — total balance (all coins combined)</p>
+          <p className="text-xs text-panda-grey">{t("rd.poolTotal")}</p>
           <p className="mt-1 font-display text-xl font-bold">{poolBalance.toFixed(4)} SOL</p>
         </div>
       )}
@@ -263,10 +264,9 @@ export default function RewardsDashboard() {
       {/* YOUR COINS — ticker, real holdings, real share of supply, and real unclaimed amount
           from the ledger (src/lib/rewards/ledger.ts). */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-        <p className="text-sm font-medium">Your coins</p>
+        <p className="text-sm font-medium">{t("rd.yourCoins")}</p>
         <p className="mt-1 text-xs text-panda-grey">
-          Coins with Holders fee distribution turned on, where you hold more than {formatUsd(MIN_HOLDING_USD_FOR_REWARDS)} —
-          same real eligibility bar shown at Create.
+          {t("rd.yourCoinsDesc", { min: formatUsd(MIN_HOLDING_USD_FOR_REWARDS) })}
         </p>
         {state === "loading" && (
           <div className="mt-3 space-y-1.5">
@@ -275,11 +275,10 @@ export default function RewardsDashboard() {
             ))}
           </div>
         )}
-        {state === "error" && <p className="mt-3 text-sm text-clay-red">Couldn&apos;t load your rewards — try again in a moment.</p>}
+        {state === "error" && <p className="mt-3 text-sm text-clay-red">{t("rd.loadError")}</p>}
         {state === "ready" && sources.length === 0 && (
           <p className="mt-3 text-sm text-panda-grey">
-            You don&apos;t currently hold more than {formatUsd(MIN_HOLDING_USD_FOR_REWARDS)} of any coin with fee
-            distribution turned on. Coins that route creator fees to holders will show up here once you do.
+            {t("rd.noneHeld", { min: formatUsd(MIN_HOLDING_USD_FOR_REWARDS) })}
           </p>
         )}
         {state === "ready" && sources.length > 0 && (
@@ -292,12 +291,11 @@ export default function RewardsDashboard() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">${s.coinTicker}</p>
                   <p className="text-xs text-panda-grey">
-                    {s.holderValueUsd !== undefined ? formatUsd(s.holderValueUsd) : "—"} held — {s.holderSharePct.toFixed(3)}%
-                    of supply
+                    {t("rd.heldOfSupply", { value: s.holderValueUsd !== undefined ? formatUsd(s.holderValueUsd) : "—", pct: s.holderSharePct.toFixed(3) })}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-xs text-panda-grey">Unclaimed</p>
+                  <p className="text-xs text-panda-grey">{t("rd.unclaimed")}</p>
                   <p className="text-sm font-medium">{solStr(claimInfo[s.coinMint]?.unclaimedLamports || 0)}</p>
                 </div>
               </div>
@@ -310,7 +308,7 @@ export default function RewardsDashboard() {
           honest empty state rather than a chart drawn from invented numbers. */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <div className="flex items-center justify-between gap-4">
-          <p className="text-sm font-medium">Earnings</p>
+          <p className="text-sm font-medium">{t("rd.earnings")}</p>
           <div className="flex gap-1">
             {["7D", "30D", "ALL"].map((range) => (
               <span key={range} className="rounded-full bg-paper/5 px-2.5 py-1 text-xs font-semibold text-panda-grey/60">
@@ -321,15 +319,15 @@ export default function RewardsDashboard() {
         </div>
         <div className="mt-4 flex h-28 items-center justify-center rounded-2xl bg-ink text-center">
           <p className="max-w-xs text-xs text-panda-grey">
-            Not enough reward history to chart yet — this fills in once the payout distributor is live.
+            {t("rd.earningsEmpty")}
           </p>
         </div>
       </div>
 
       {/* REWARD HISTORY — same reasoning: epochs don't exist yet. */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-        <p className="text-sm font-medium">Reward history</p>
-        <p className="mt-3 text-sm text-panda-grey">No epochs yet — this fills in once PANDA starts running reward epochs.</p>
+        <p className="text-sm font-medium">{t("rd.history")}</p>
+        <p className="mt-3 text-sm text-panda-grey">{t("rd.historyEmpty")}</p>
       </div>
     </div>
   );
