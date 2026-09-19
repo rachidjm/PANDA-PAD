@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
+import { serverRpcUrl } from "@/lib/solana/rpc";
 import {
   Connection,
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionExpiredBlockheightExceededError,
-  clusterApiUrl,
 } from "@solana/web3.js";
 import { getLedger, unclaimedLamports, reserveClaim, releaseClaim } from "@/lib/rewards/ledger";
 import { DAILY_CAP_LAMPORTS, MAX_CLAIM_LAMPORTS, reserveDailyPayout, releaseDailyPayout } from "@/lib/rewards/limits";
@@ -20,7 +20,7 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 const POOL_RESERVE_LAMPORTS = 10_000_000;
 
 function connection() {
-  return new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+  return new Connection(serverRpcUrl(), "confirmed");
 }
 
 /** Real current USD value of `holder`'s balance of `mint` — same pricing approach as src/lib/solana/portfolio.ts. */

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useConnection } from "@solana/wallet-adapter-react";
+import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
@@ -14,7 +14,7 @@ type State = "loading" | "ready" | "error";
 
 /** The dropdown body shown under the connected wallet button — a quick real read of what's in the wallet, never PANDA's own data. */
 export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: PublicKey; onDisconnect: () => void }) {
-  const { connection } = useConnection();
+  const connection = useReadConnection();
   const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);

@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
+import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { Connection, clusterApiUrl } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
 import { recordTrade } from "@/lib/portfolio/trade-log";
-import { fetchTokenPools } from "@/lib/gecko/client";
+import { solPriceUsd } from "@/lib/solana/prices";
 
-const SOL_MINT = "So11111111111111111111111111111111111111112";
 const LAMPORTS_PER_SOL = 1_000_000_000;
-
-async function realSolPriceUsd(): Promise<number> {
-  const { data } = await fetchTokenPools(SOL_MINT);
-  const best = [...data].sort(
-    (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
-  )[0];
-  return best?.attributes.base_token_price_usd ? Number(best.attributes.base_token_price_usd) : 0;
-}
 
 /**
  * Logs one real trade to the wallet's trade history (src/lib/portfolio/trade-log.ts).
@@ -31,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing wallet, mint, ticker, side or signature." }, { status: 400 });
     }
 
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const tx = await connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 });
     if (!tx || tx.meta?.err) {
       return NextResponse.json({ error: "That signature isn't a real, confirmed transaction." }, { status: 400 });
@@ -67,7 +59,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Couldn't find a real balance change for this wallet in that transaction." }, { status: 400 });
     }
 
-    const solPriceUsdAtTrade = await realSolPriceUsd();
+    const solPriceUsdAtTrade = await solPriceUsd();
+    if (solPriceUsdAtTrade <= 0) {
+      return NextResponse.json({ error: "No SOL price available right now to value this trade — try again shortly." }, { status: 503 });
+    }
 
     await recordTrade(wallet, {
       mint,

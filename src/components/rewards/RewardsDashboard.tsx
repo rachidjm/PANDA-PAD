@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Tooltip from "@/components/Tooltip";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
@@ -24,7 +25,7 @@ function solStr(lamports: number): string {
 }
 
 export default function RewardsDashboard() {
-  const { connection } = useConnection();
+  const connection = useReadConnection();
   const { connected, publicKey } = useWallet();
   const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");

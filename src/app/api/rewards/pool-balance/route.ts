@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { Connection, LAMPORTS_PER_SOL, clusterApiUrl } from "@solana/web3.js";
+import { serverRpcUrl } from "@/lib/solana/rpc";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 
 /**
@@ -14,7 +15,7 @@ export async function GET() {
     return NextResponse.json({ configured: false });
   }
   try {
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const lamports = await connection.getBalance(PANDA_REWARDS_POOL);
     return NextResponse.json({ configured: true, solBalance: lamports / LAMPORTS_PER_SOL });
   } catch {

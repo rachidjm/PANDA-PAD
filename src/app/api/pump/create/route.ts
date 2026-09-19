@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { buildCreateTransaction } from "@/lib/pump/create";
 import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
 
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
       if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const userKey = new PublicKey(user);
 
     const tx = await buildCreateTransaction({

@@ -15,6 +15,8 @@ export type Position = {
   pnlUsd: number;
   pnlPct: number;
   lastTradeTs: number;
+  /** True when any of this position's trades were read back from on-chain history (approximate). */
+  estimated?: boolean;
 };
 
 /**
@@ -44,6 +46,7 @@ export function computePositions(
     let realizedPnlUsd = 0;
     let realizedCostUsd = 0; // sum of cost-of-sold, for a closed position's % P&L
     let lastTradeTs = 0;
+    const estimated = sorted.some((t) => t.estimated);
 
     for (const t of sorted) {
       lastTradeTs = Math.max(lastTradeTs, t.ts);
@@ -54,8 +57,10 @@ export function computePositions(
       } else {
         const avgCost = totalTokens > 0 ? totalCostUsd / totalTokens : 0;
         const sold = Math.min(t.tokenAmount, totalTokens);
+        if (sold <= 0) continue; // a sale of tokens we never saw bought (e.g. before the scanned history) has no known cost basis
         const costOfSold = avgCost * sold;
-        realizedPnlUsd += usdAmount - costOfSold;
+        // Only the part of the sale we can match to known purchases counts, along with its share of the proceeds.
+        realizedPnlUsd += usdAmount * (sold / t.tokenAmount) - costOfSold;
         realizedCostUsd += costOfSold;
         totalTokens = Math.max(0, totalTokens - sold);
         totalCostUsd = Math.max(0, totalCostUsd - costOfSold);
@@ -81,6 +86,7 @@ export function computePositions(
         pnlUsd,
         pnlPct: totalCostUsd > 0 ? (pnlUsd / totalCostUsd) * 100 : 0,
         lastTradeTs,
+        estimated,
       });
     } else if (sorted.length > 0) {
       closed.push({
@@ -94,6 +100,7 @@ export function computePositions(
         pnlUsd: realizedPnlUsd,
         pnlPct: realizedCostUsd > 0 ? (realizedPnlUsd / realizedCostUsd) * 100 : 0,
         lastTradeTs,
+        estimated,
       });
     }
   }

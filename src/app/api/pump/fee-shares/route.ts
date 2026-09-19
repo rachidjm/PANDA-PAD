@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { serverRpcUrl } from "@/lib/solana/rpc";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 
 /**
@@ -13,7 +14,7 @@ export async function GET(req: Request) {
   const mint = new URL(req.url).searchParams.get("mint");
   if (!mint) return NextResponse.json({ error: "Missing mint." }, { status: 400 });
   try {
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const shareholders = await getFeeSharingConfig(connection, new PublicKey(mint));
     return NextResponse.json({ shareholders });
   } catch (err) {

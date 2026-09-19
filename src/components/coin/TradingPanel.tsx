@@ -7,6 +7,7 @@ import { Coin } from "@/lib/types";
 import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { dexLabel } from "@/lib/dex-labels";
+import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const buyPresets = [0.1, 0.5, 1];
@@ -17,6 +18,7 @@ type Status = "idle" | "building" | "signing" | "sending" | "confirming" | "done
 export default function TradingPanel({ coin }: { coin: Coin }) {
   const quote = coin.quoteSymbol || "SOL";
   const { connection } = useConnection();
+  const readConnection = useReadConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -34,7 +36,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   useEffect(() => {
     if (!connected || !publicKey) return;
     let cancelled = false;
-    connection
+    readConnection
       .getBalance(publicKey)
       .then((lamports) => {
         if (!cancelled) setSolBalance(lamports / LAMPORTS_PER_SOL);
@@ -45,13 +47,13 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, connection, status]);
+  }, [connected, publicKey, readConnection, status]);
 
   // Real on-chain balance of this specific token, used for the Sell % presets.
   useEffect(() => {
     if (!connected || !publicKey) return;
     let cancelled = false;
-    connection
+    readConnection
       .getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(coin.mint) })
       .then((res) => {
         if (cancelled) return;
@@ -65,7 +67,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, connection, coin.mint, status]);
+  }, [connected, publicKey, readConnection, coin.mint, status]);
 
   const displaySol = connected ? solBalance : null;
   const displayTokens = connected ? tokenBalance : null;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { Connection, clusterApiUrl } from "@solana/web3.js";
+import { serverRpcUrl } from "@/lib/solana/rpc";
+import { Connection } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
 import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
 
   try {
     const started = Date.now();
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
 
     const mints = await getRegisteredMints();
     const results: { mint: string; distributedLamports: number | null; holdersCredited: number; error?: string }[] = [];

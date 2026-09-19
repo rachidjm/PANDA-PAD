@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 import { registerMint } from "@/lib/rewards/registry";
 
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
     const { mint } = await req.json();
     if (!mint) return NextResponse.json({ error: "Missing mint." }, { status: 400 });
 
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const shareholders = await getFeeSharingConfig(connection, new PublicKey(mint));
     if (!shareholders) {
       return NextResponse.json({ error: "No real on-chain fee-sharing config found for this mint." }, { status: 400 });

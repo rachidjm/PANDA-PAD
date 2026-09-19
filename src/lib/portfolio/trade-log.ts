@@ -13,6 +13,8 @@ export type LoggedTrade = {
   solPriceUsdAtTrade: number;
   signature: string;
   ts: number;
+  /** True when read back from on-chain history (approximate) rather than logged live by PANDA. */
+  estimated?: boolean;
 };
 
 function tradeLogPath(wallet: string): string {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { Coin } from "@/lib/types";
@@ -9,6 +9,7 @@ import type { Position } from "@/lib/portfolio/positions";
 import type { TriggerOrder } from "@/lib/jupiter/trigger";
 import { base64ToVersionedTransaction, versionedTransactionToBase64 } from "@/lib/pump/wire";
 import { formatUsd } from "@/lib/format";
+import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -25,7 +26,7 @@ type Status =
 type CancelStatus = "idle" | "cancelling" | "error";
 
 export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
-  const { connection } = useConnection();
+  const connection = useReadConnection();
   const { connected, publicKey, signMessage, signTransaction } = useWallet();
   const { t } = useLanguage();
 

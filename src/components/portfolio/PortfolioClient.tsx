@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useReadConnection } from "@/lib/solana/useReadConnection";
 import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
@@ -15,7 +16,7 @@ type PositionsState = "loading" | "ready" | "error";
 type SortMode = "recent" | "profit";
 
 export default function PortfolioClient({ coins }: { coins: Coin[] }) {
-  const { connection } = useConnection();
+  const connection = useReadConnection();
   const { connected, publicKey } = useWallet();
   const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
@@ -23,6 +24,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   const [positionsState, setPositionsState] = useState<PositionsState>("loading");
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [closedPositions, setClosedPositions] = useState<Position[]>([]);
+  const [historyError, setHistoryError] = useState(false);
   const [positionsTab, setPositionsTab] = useState<"open" | "closed">("open");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
 
@@ -35,8 +37,9 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
       })
       .then(() => fetch(`/api/portfolio/positions?wallet=${publicKey.toBase58()}`))
       .then((r) => r.json())
-      .then((data: { open?: Position[]; closed?: Position[] }) => {
+      .then((data: { open?: Position[]; closed?: Position[]; historyError?: boolean }) => {
         if (cancelled) return;
+        setHistoryError(!!data.historyError);
         setOpenPositions(data.open || []);
         setClosedPositions(data.closed || []);
         setPositionsState("ready");
@@ -181,6 +184,11 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
             </button>
           </div>
         </div>
+
+        {positionsState === "ready" && historyError && <p className="mt-3 text-xs text-panda-grey">{t("pf.historyError")}</p>}
+        {positionsState === "ready" && [...openPositions, ...closedPositions].some((p) => p.estimated) && (
+          <p className="mt-3 text-xs text-panda-grey">{t("pf.estimatedNote")}</p>
+        )}
 
         <div className="mt-4 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
           {positionsState === "loading" && (

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { serverRpcUrl } from "@/lib/solana/rpc";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { buildJupiterSwapTransaction } from "@/lib/jupiter/swap";
 
 export async function POST(req: Request) {
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing tokenAmount." }, { status: 400 });
     }
 
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
+    const connection = new Connection(serverRpcUrl(), "confirmed");
 
     const tx = await buildJupiterSwapTransaction({
       connection,

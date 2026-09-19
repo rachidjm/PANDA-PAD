@@ -126,6 +126,14 @@ export const dict = {
   },
   "pf.emptyClosed": { en: "No closed positions yet.", es: "Aún no hay posiciones cerradas." },
   "pf.heldAvg": { en: "{amount} held · avg {avg}", es: "{amount} en cartera · medio {avg}" },
+  "pf.estimatedNote": {
+    en: "Some positions include trades read back from your on-chain history. Those are estimates: only your latest ~80 transactions are scanned, and USD uses today's SOL price.",
+    es: "Algunas posiciones incluyen operaciones leídas de tu historial on-chain. Son estimaciones: solo se escanean tus últimas ~80 transacciones y el USD usa el precio de SOL de hoy.",
+  },
+  "pf.historyError": {
+    en: "Couldn't read your on-chain history right now, so older trades made outside PANDA may be missing.",
+    es: "Ahora mismo no se pudo leer tu historial on-chain, así que pueden faltar operaciones antiguas hechas fuera de PANDA.",
+  },
   "pf.fullyClosed": { en: "Fully closed", es: "Cerrada por completo" },
 
   // Wallet dropdown
