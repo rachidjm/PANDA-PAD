@@ -36,7 +36,7 @@ export default function FeeDistributionStep({ onChange }: { onChange: (sharehold
             mode === "creator" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
           }`}
         >
-          <span aria-hidden>👑</span> Creator
+          <CrownIcon /> Creator
         </button>
         <button
           type="button"
@@ -46,7 +46,7 @@ export default function FeeDistributionStep({ onChange }: { onChange: (sharehold
             mode === "holders" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
           }`}
         >
-          <span aria-hidden>👥</span> Holders
+          <PeopleIcon /> Holders
         </button>
       </div>
       <p className="mt-2 text-xs text-panda-grey">
@@ -56,5 +56,25 @@ export default function FeeDistributionStep({ onChange }: { onChange: (sharehold
         {!REWARDS_POOL && " Holders routing isn't configured on PANDA yet."}
       </p>
     </div>
+  );
+}
+
+function CrownIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 18h18" />
+      <path d="M4 18 3 8l5 4 4-7 4 7 5-4-1 10" />
+    </svg>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <path d="M16 6.2a3 3 0 0 1 0 5.6" />
+      <path d="M21 20c0-2.8-1.9-5.1-4.5-5.8" />
+    </svg>
   );
 }
