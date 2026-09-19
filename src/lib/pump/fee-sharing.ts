@@ -1,5 +1,5 @@
 import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { feeSharingConfigPda } from "@pump-fun/pump-sdk";
+import { feeSharingConfigPda, SharingConfig } from "@pump-fun/pump-sdk";
 import { getPumpSdk } from "./client";
 import { FeeShareholderInput } from "./fee-shares-validation";
 
@@ -46,10 +46,21 @@ export async function getFeeSharingConfig(
   connection: Connection,
   mint: PublicKey
 ): Promise<{ address: string; shareBps: number }[] | null> {
+  const raw = await getRawSharingConfig(connection, mint);
+  if (!raw) return null;
+  return raw.config.shareholders.map((s) => ({ address: s.address.toBase58(), shareBps: s.shareBps }));
+}
+
+/** Same as `getFeeSharingConfig` but returns the raw decoded account (PublicKey fields, not strings) and its PDA
+ *  address — used by the distributor (src/lib/pump/distribute.ts), which needs both to call `distributeCreatorFees`. */
+export async function getRawSharingConfig(
+  connection: Connection,
+  mint: PublicKey
+): Promise<{ config: SharingConfig; address: PublicKey } | null> {
   const pda = feeSharingConfigPda(mint);
   const accountInfo = await connection.getAccountInfo(pda);
   if (!accountInfo) return null;
   const offline = getPumpSdk();
   const config = offline.decodeSharingConfig(accountInfo);
-  return config.shareholders.map((s) => ({ address: s.address.toBase58(), shareBps: s.shareBps }));
+  return { config, address: pda };
 }

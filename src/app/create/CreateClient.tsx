@@ -6,10 +6,13 @@ import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
+import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import FeeDistributionStep from "@/components/create/FeeDistributionStep";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
 type Shareholder = { address: string; shareBps: number };
+
+const REWARDS_POOL_ADDRESS = PANDA_REWARDS_POOL?.toBase58() || null;
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const firstBuyPresets = [0.5, 1, 2, 5];
@@ -30,7 +33,7 @@ export default function CreateClient() {
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
   const [buyError, setBuyError] = useState("");
-  const [feeShareholders, setFeeShareholders] = useState<Shareholder[] | null>(null);
+  const [feeShareholders, setFeeShareholders] = useState<Shareholder[]>([]);
   const [feeDistributionUsed, setFeeDistributionUsed] = useState(false);
   const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -101,7 +104,7 @@ export default function CreateClient() {
           name: name.trim(),
           symbol: ticker.trim(),
           uri: uploadData.uri,
-          shareholders: shareholders || undefined,
+          shareholders: shareholders.length ? shareholders : undefined,
         }),
       });
       const buildData = await buildRes.json();
@@ -122,7 +125,18 @@ export default function CreateClient() {
       if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
-      setFeeDistributionUsed(!!shareholders);
+      setFeeDistributionUsed(shareholders.some((s) => s.address === REWARDS_POOL_ADDRESS));
+
+      if (shareholders.length) {
+        // Best-effort — the coin and its real on-chain fee split are already
+        // live either way; this just adds the mint to PANDA's own registry
+        // of coins whose fees the rewards distributor should collect.
+        fetch("/api/pump/register-fee-distribution", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mint: mint.publicKey.toBase58() }),
+        }).catch(() => {});
+      }
 
       const buyAmount = parseFloat(firstBuyAmount);
       if (buyAmount > 0) {
@@ -155,7 +169,7 @@ export default function CreateClient() {
     setTwitter("");
     setFirstBuyAmount("");
     setBuyError("");
-    setFeeShareholders(null);
+    setFeeShareholders([]);
     setFeeDistributionUsed(false);
     setResult(null);
     setError("");
@@ -220,7 +234,9 @@ export default function CreateClient() {
             its page below.
           </p>
         )}
-        {feeDistributionUsed && <p className="text-sm text-bamboo">Fee distribution is set, real and on-chain.</p>}
+        <p className="text-sm text-bamboo">
+          Fee distribution is set, real and on-chain — PANDA 5%, {feeDistributionUsed ? "holders 95%" : "you 95%"}.
+        </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
             href={`https://solscan.io/tx/${result.signature}`}
@@ -398,7 +414,14 @@ export default function CreateClient() {
           </div>
         </div>
 
-        <FeeDistributionStep onChange={setFeeShareholders} />
+        {connected && publicKey ? (
+          <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeShareholders} />
+        ) : (
+          <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
+            <p className="font-medium">Fee distribution</p>
+            <p className="mt-1 text-sm text-panda-grey">Connect your wallet to see how this coin&apos;s creator fees are split.</p>
+          </div>
+        )}
 
         <button
           onClick={launch}

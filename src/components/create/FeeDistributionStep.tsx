@@ -1,33 +1,56 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
+import { PANDA_REWARDS_POOL, PANDA_TREASURY, PANDA_PROTOCOL_FEE_BPS } from "@/lib/pump/constants";
 import { MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
 
 type Mode = "creator" | "holders";
 type Shareholder = { address: string; shareBps: number };
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
+const REMAINING_BPS = 10_000 - PANDA_PROTOCOL_FEE_BPS;
 
 /**
- * Real, optional part of the Create form: decides whether this coin's real
- * Pump.fun creator fees go to the creator (default — no on-chain config
- * needed, nothing to build) or entirely to PANDA's Holders Rewards Pool —
- * set up via `@pump-fun/pump-sdk`'s fee-sharing config, bundled into the
- * same transaction as the coin itself (see `src/lib/pump/create.ts`). Always
- * valid either way, so it never blocks Launch.
+ * Real, always-on part of the Create form: PANDA takes a fixed 5% of this
+ * coin's Pump.fun creator fees (not configurable, not skippable — see
+ * PANDA_PROTOCOL_FEE_BPS in constants.ts); the creator only chooses where
+ * the remaining 95% goes — to themselves (default) or to PANDA's Holders
+ * Rewards Pool. Set up via `@pump-fun/pump-sdk`'s fee-sharing config,
+ * bundled into the same transaction as the coin itself (see
+ * `src/lib/pump/create.ts`) — every coin created through PANDA gets a real
+ * on-chain `SharingConfig`, since PANDA's cut has to exist on-chain to be
+ * real.
  */
-export default function FeeDistributionStep({ onChange }: { onChange: (shareholders: Shareholder[] | null) => void }) {
+export default function FeeDistributionStep({
+  creator,
+  onChange,
+}: {
+  creator: string;
+  onChange: (shareholders: Shareholder[]) => void;
+}) {
   const [mode, setMode] = useState<Mode>("creator");
+  const remainingRecipient = mode === "holders" && REWARDS_POOL ? REWARDS_POOL : creator;
 
   useEffect(() => {
-    onChange(mode === "holders" && REWARDS_POOL ? [{ address: REWARDS_POOL, shareBps: 10_000 }] : null);
+    onChange([
+      { address: PANDA_TREASURY.toBase58(), shareBps: PANDA_PROTOCOL_FEE_BPS },
+      { address: remainingRecipient, shareBps: REMAINING_BPS },
+    ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [remainingRecipient]);
 
   return (
     <div>
-      <span className="mb-1.5 block text-sm font-medium text-paper/80">Send creator rewards to</span>
+      <span className="mb-1.5 block text-sm font-medium text-paper/80">Fee distribution</span>
+
+      <div className="flex items-center justify-between rounded-xl bg-ink px-3.5 py-2.5">
+        <span className="text-sm">PANDA Protocol</span>
+        <span className="text-xs text-panda-grey">{PANDA_PROTOCOL_FEE_BPS / 100}% · fixed</span>
+      </div>
+
+      <span className="mb-1.5 mt-3 block text-xs text-panda-grey">
+        Send the remaining {REMAINING_BPS / 100}% to
+      </span>
       <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-ink p-1.5">
         <button
           type="button"
@@ -51,8 +74,8 @@ export default function FeeDistributionStep({ onChange }: { onChange: (sharehold
       </div>
       <p className="mt-2 text-xs text-panda-grey">
         {mode === "creator"
-          ? "100% of creator rewards go to you."
-          : `100% of creator rewards go to holders. Anyone holding more than $${MIN_HOLDING_USD_FOR_REWARDS} of your coin qualifies.`}
+          ? `${REMAINING_BPS / 100}% of creator rewards go to you. PANDA takes a fixed ${PANDA_PROTOCOL_FEE_BPS / 100}% protocol fee.`
+          : `${REMAINING_BPS / 100}% of creator rewards go to holders. Anyone holding more than $${MIN_HOLDING_USD_FOR_REWARDS} of your coin qualifies. PANDA takes a fixed ${PANDA_PROTOCOL_FEE_BPS / 100}% protocol fee.`}
         {!REWARDS_POOL && " Holders routing isn't configured on PANDA yet."}
       </p>
     </div>

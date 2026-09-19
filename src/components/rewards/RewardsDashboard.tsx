@@ -13,15 +13,25 @@ import { Coin, RewardSource } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 
 const REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL || null;
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 type State = "loading" | "ready" | "error";
+type ClaimInfo = { entitledLamports: number; claimedLamports: number; unclaimedLamports: number };
+
+function solStr(lamports: number): string {
+  return `${(lamports / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
+}
 
 export default function RewardsDashboard() {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
   const [state, setState] = useState<State>("loading");
   const [sources, setSources] = useState<RewardSource[]>([]);
+  const [claimInfo, setClaimInfo] = useState<Record<string, ClaimInfo>>({});
   const [poolBalance, setPoolBalance] = useState<number | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState("");
+  const [lastClaimSignatures, setLastClaimSignatures] = useState<string[]>([]);
 
   useEffect(() => {
     if (!REWARDS_POOL) return;
@@ -91,7 +101,19 @@ export default function RewardsDashboard() {
         );
 
         if (cancelled) return;
-        setSources(found.filter((s): s is RewardSource => s !== null));
+        const realSources = found.filter((s): s is RewardSource => s !== null);
+        setSources(realSources);
+
+        const entries = await Promise.all(
+          realSources.map(async (s) => {
+            const info = (await fetch(`/api/rewards/claim?mint=${s.coinMint}&holder=${publicKey.toBase58()}`)
+              .then((r) => r.json())
+              .catch(() => null)) as ClaimInfo | null;
+            return [s.coinMint, info || { entitledLamports: 0, claimedLamports: 0, unclaimedLamports: 0 }] as const;
+          })
+        );
+        if (cancelled) return;
+        setClaimInfo(Object.fromEntries(entries));
         setState("ready");
       })
       .catch(() => {
@@ -102,6 +124,48 @@ export default function RewardsDashboard() {
       cancelled = true;
     };
   }, [connected, publicKey, connection]);
+
+  async function claimAll() {
+    if (!publicKey || claiming) return;
+    setClaiming(true);
+    setClaimError("");
+    const signatures: string[] = [];
+    try {
+      // Sequential — every claim is signed by the same server-side Rewards
+      // Pool key, so running them one at a time avoids blockhash/nonce races.
+      for (const s of sources) {
+        const unclaimed = claimInfo[s.coinMint]?.unclaimedLamports || 0;
+        if (unclaimed <= 0) continue;
+        const res = await fetch("/api/rewards/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mint: s.coinMint, holder: publicKey.toBase58() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Claim failed for $${s.coinTicker}.`);
+        signatures.push(data.signature);
+      }
+      setLastClaimSignatures(signatures);
+
+      // Refresh real claim state from the ledger rather than assuming success locally.
+      const entries = await Promise.all(
+        sources.map(async (s) => {
+          const info = (await fetch(`/api/rewards/claim?mint=${s.coinMint}&holder=${publicKey.toBase58()}`)
+            .then((r) => r.json())
+            .catch(() => null)) as ClaimInfo | null;
+          return [s.coinMint, info || { entitledLamports: 0, claimedLamports: 0, unclaimedLamports: 0 }] as const;
+        })
+      );
+      setClaimInfo(Object.fromEntries(entries));
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : "Claim failed.");
+    } finally {
+      setClaiming(false);
+    }
+  }
+
+  const totalEntitled = Object.values(claimInfo).reduce((sum, c) => sum + c.entitledLamports, 0);
+  const totalUnclaimed = Object.values(claimInfo).reduce((sum, c) => sum + c.unclaimedLamports, 0);
 
   if (!REWARDS_POOL) {
     return (
@@ -136,34 +200,55 @@ export default function RewardsDashboard() {
 
   return (
     <div className="mt-12 space-y-4">
-      {/* YOUR REWARDS — totals stay honest "not tracked yet" instead of a fabricated 0 or amount:
-          see RewardSource's comment in types.ts for why a per-coin amount can't be derived yet. */}
+      {/* YOUR REWARDS — real numbers from the ledger (src/lib/rewards/ledger.ts), credited by the
+          daily collect-fees cron from real on-chain distributions. "Pending" stays honest as
+          "not tracked" — it would mean fees accrued in Pump's vault but not yet distributed,
+          which isn't cheaply checkable per-coin from here yet. */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-sm font-medium">Your rewards</p>
         <div className="mt-3 grid grid-cols-3 gap-3">
-          {[
-            { label: "Total earned", tooltip: "Needs per-coin distribution history, which PANDA doesn't track on-chain yet." },
-            { label: "Available to claim", tooltip: "Nothing is claimable yet — the payout distributor isn't live." },
-            { label: "Pending", tooltip: "Same limitation as Total earned." },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-2xl bg-ink px-3 py-3.5 text-center">
-              <div className="flex items-center justify-center gap-1 text-[11px] text-panda-grey">
-                <span>{stat.label}</span>
-                <Tooltip label={stat.tooltip}>
-                  <span className="cursor-help text-panda-grey/60">ⓘ</span>
-                </Tooltip>
-              </div>
-              <p className="mt-1 font-display text-lg font-bold text-paper/40">Not tracked yet</p>
+          <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
+            <p className="text-[11px] text-panda-grey">Total earned</p>
+            <p className="mt-1 font-display text-lg font-bold">{solStr(totalEntitled)}</p>
+          </div>
+          <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
+            <p className="text-[11px] text-panda-grey">Available to claim</p>
+            <p className="mt-1 font-display text-lg font-bold">{solStr(totalUnclaimed)}</p>
+          </div>
+          <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[11px] text-panda-grey">
+              <span>Pending</span>
+              <Tooltip label="Fees that may have accrued in Pump.fun's own vault but haven't been distributed by PANDA's daily collector yet — not tracked here.">
+                <span className="cursor-help text-panda-grey/60">ⓘ</span>
+              </Tooltip>
             </div>
-          ))}
+            <p className="mt-1 font-display text-lg font-bold text-paper/40">Not tracked</p>
+          </div>
         </div>
         <div className="mt-4 flex items-center justify-between gap-4 border-t border-paper/10 pt-4">
-          <p className="text-xs text-panda-grey">
-            Claim payouts require a funded, PANDA-operated distributor that hasn&apos;t been set up yet — coming soon.
-            Your real eligibility is shown below in the meantime.
-          </p>
-          <button disabled className="shrink-0 cursor-not-allowed rounded-full bg-paper/10 px-5 py-2.5 text-sm font-semibold text-paper/40">
-            Claim all
+          <div className="text-xs text-panda-grey">
+            {claimError && <p className="text-clay-red">{claimError}</p>}
+            {!claimError && lastClaimSignatures.length > 0 && (
+              <p className="text-bamboo">
+                Claimed —{" "}
+                {lastClaimSignatures.map((sig, i) => (
+                  <span key={sig}>
+                    {i > 0 && ", "}
+                    <a href={`https://solscan.io/tx/${sig}`} target="_blank" rel="noreferrer" className="underline hover:text-paper">
+                      view tx
+                    </a>
+                  </span>
+                ))}
+              </p>
+            )}
+            {!claimError && lastClaimSignatures.length === 0 && <p>Real, on-chain payouts — signed and sent the moment you claim.</p>}
+          </div>
+          <button
+            onClick={claimAll}
+            disabled={claiming || totalUnclaimed <= 0}
+            className="shrink-0 rounded-full bg-bamboo px-5 py-2.5 text-sm font-bold text-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-paper/10 disabled:text-paper/40"
+          >
+            {claiming ? "Claiming…" : "Claim all"}
           </button>
         </div>
       </div>
@@ -175,8 +260,8 @@ export default function RewardsDashboard() {
         </div>
       )}
 
-      {/* YOUR COINS — ticker, real holdings, real share of supply. No "rewards generated"
-          amount column: same shared-pool limitation as the stats above. */}
+      {/* YOUR COINS — ticker, real holdings, real share of supply, and real unclaimed amount
+          from the ledger (src/lib/rewards/ledger.ts). */}
       <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-sm font-medium">Your coins</p>
         <p className="mt-1 text-xs text-panda-grey">
@@ -217,8 +302,8 @@ export default function RewardsDashboard() {
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-xs text-panda-grey">Holders get</p>
-                  <p className="text-sm font-medium">{(s.holdersFeeBps / 100).toFixed(1)}%</p>
+                  <p className="text-xs text-panda-grey">Unclaimed</p>
+                  <p className="text-sm font-medium">{solStr(claimInfo[s.coinMint]?.unclaimedLamports || 0)}</p>
                 </div>
               </div>
             ))}

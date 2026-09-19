@@ -23,13 +23,23 @@ export const PANDA_TREASURY = new PublicKey(
 );
 
 /**
+ * PANDA's fixed cut of every coin's Fee Distribution — not configurable by
+ * the creator, not skippable. Paid to PANDA_TREASURY, same wallet as the 1%
+ * trading fee above (a second, distinct real revenue stream into it). See
+ * FeeDistributionStep.tsx: the creator only ever chooses how the *remaining*
+ * 9500 bps is split (Creator vs Holders).
+ */
+export const PANDA_PROTOCOL_FEE_BPS = 500; // 5%
+
+/**
  * Where a coin's "Holders" creator-fee share lands, when a creator opts into
  * Fee Distribution — a real Solana address, public key only. PANDA never
  * holds this wallet's private key in the frontend/repo; the server-side
- * signer needed to actually pay individual holders out of it is separate,
- * operational infrastructure that isn't wired up yet (see RewardsDashboard's
- * "coming soon" claim state). `null` when unset, so callers can render an
- * honest "not configured" state instead of a fake address.
+ * signer that pays individual holders out of it (see src/lib/rewards/,
+ * src/app/api/rewards/claim, src/app/api/cron/collect-fees) reads a
+ * server-only PANDA_REWARDS_POOL_SECRET_KEY that's never in this file or any
+ * NEXT_PUBLIC_* variable. `null` when unset, so callers can render an honest
+ * "not configured" state instead of a fake address.
  */
 export const PANDA_REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL
   ? new PublicKey(process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL)
