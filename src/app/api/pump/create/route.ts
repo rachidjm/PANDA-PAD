@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import { buildCreateTransaction } from "@/lib/pump/create";
+import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
 
 export async function POST(req: Request) {
   try {
-    const { mint, user, name, symbol, uri } = await req.json();
+    const { mint, user, name, symbol, uri, shareholders } = await req.json();
     if (!mint || !user || !name || !symbol || !uri) {
       return NextResponse.json({ error: "Missing mint, user, name, symbol or uri." }, { status: 400 });
+    }
+
+    // Fee Distribution is optional — only validate it if the creator actually set it up.
+    // Never trust the client's own 100% check alone.
+    if (shareholders !== undefined) {
+      if (!Array.isArray(shareholders)) {
+        return NextResponse.json({ error: "Invalid shareholders." }, { status: 400 });
+      }
+      const validationError = validateShareholders(shareholders as FeeShareholderInput[]);
+      if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
@@ -18,6 +29,7 @@ export async function POST(req: Request) {
       name: String(name),
       symbol: String(symbol),
       uri: String(uri),
+      shareholders: shareholders?.length ? shareholders : undefined,
     });
 
     const { blockhash } = await connection.getLatestBlockhash("confirmed");

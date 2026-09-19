@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Tooltip from "@/components/Tooltip";
 import { validateShareholders } from "@/lib/pump/fee-shares-validation";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import { truncateAddress } from "@/lib/format";
 
 type Recipient = { id: string; label: string; address: string; pct: string; locked?: boolean };
+type Shareholder = { address: string; shareBps: number };
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
 
@@ -19,26 +20,40 @@ function makeDefaultRecipients(creator: string): Recipient[] {
 }
 
 /**
- * A real, optional step in Create: decides who receives this coin's Pump.fun
- * creator fees, wired on-chain via `@pump-fun/pump-sdk`'s fee-sharing config
- * (see `src/lib/pump/fee-sharing.ts`) — not a PANDA-side setting. Skippable:
- * a creator can launch without it and keep 100% of fees the default way.
+ * A real, optional part of the Create form: decides who receives this coin's
+ * Pump.fun creator fees, wired on-chain via `@pump-fun/pump-sdk`'s
+ * fee-sharing config (see `src/lib/pump/fee-sharing.ts` and `create.ts`,
+ * which bundle it into the same transaction as the coin itself) — not a
+ * PANDA-side setting. Fully controlled: reports its current resolved value
+ * up via `onChange` (`null` while disabled or invalid) so the Launch button
+ * can gate on it, same as every other required field.
  */
 export default function FeeDistributionStep({
   creator,
-  onSkip,
-  onContinue,
-  submitting,
+  onChange,
 }: {
   creator: string;
-  onSkip: () => void;
-  onContinue: (shareholders: { address: string; shareBps: number }[]) => void;
-  submitting?: boolean;
+  /** `shareholders` is the valid, ready-to-submit list, or `null` while disabled OR invalid —
+   *  `enabled` tells the parent which of those two `null` means, so it can block Launch only
+   *  when the creator turned this on but left it in a broken state, not when they skipped it. */
+  onChange: (state: { enabled: boolean; shareholders: Shareholder[] | null }) => void;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [recipients, setRecipients] = useState<Recipient[]>(() => makeDefaultRecipients(creator));
 
   const totalPct = recipients.reduce((sum, r) => sum + (parseFloat(r.pct) || 0), 0);
+  const shareholders: Shareholder[] = recipients.map((r) => ({
+    address: r.address.trim(),
+    shareBps: Math.round((parseFloat(r.pct) || 0) * 100),
+  }));
+  const validationError = enabled ? validateShareholders(shareholders) : null;
+
+  useEffect(() => {
+    onChange({ enabled, shareholders: enabled && !validationError ? shareholders : null });
+    // Only the resolved value matters here, not the callback identity or the raw
+    // pre-validation pieces — re-deriving those on every keystroke is the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, validationError, JSON.stringify(shareholders)]);
 
   function updateRecipient(id: string, patch: Partial<Recipient>) {
     setRecipients((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -53,48 +68,41 @@ export default function FeeDistributionStep({
     setRecipients((rows) => rows.filter((r) => r.id !== id));
   }
 
-  const shareholders = recipients.map((r) => ({ address: r.address.trim(), shareBps: Math.round((parseFloat(r.pct) || 0) * 100) }));
-  const validationError = enabled ? validateShareholders(shareholders) : null;
-
   if (!enabled) {
     return (
       <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="font-medium">Fee Distribution</p>
-            <p className="mt-1 text-sm text-panda-grey">
-              By default you keep 100% of this coin&apos;s Pump.fun creator fees. You can instead split them, real and
-              on-chain, between yourself and your holders.
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setEnabled(true)}
-            className="rounded-full border border-paper/20 px-4 py-2 text-sm font-semibold hover:border-paper/40 transition"
-          >
-            Set up fee distribution
-          </button>
-          <button
-            type="button"
-            onClick={onSkip}
-            className="rounded-full px-4 py-2 text-sm font-medium text-panda-grey hover:text-paper transition-colors"
-          >
-            Skip — keep 100%
-          </button>
-        </div>
+        <p className="font-medium">Fee distribution</p>
+        <p className="mt-1 text-sm text-panda-grey">
+          By default you keep 100% of this coin&apos;s Pump.fun creator fees. You can instead split them, real and
+          on-chain, between yourself and your holders — set up now, in the same transaction as launch.
+        </p>
+        <button
+          type="button"
+          onClick={() => setEnabled(true)}
+          className="mt-4 rounded-full border border-paper/20 px-4 py-2 text-sm font-semibold hover:border-paper/40 transition"
+        >
+          Set up fee distribution
+        </button>
       </div>
     );
   }
 
   return (
     <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-      <div className="flex items-center gap-1.5">
-        <p className="font-medium">Fee Distribution</p>
-        <Tooltip label="Sets a real on-chain Pump.fun fee-sharing config for this coin. Once submitted, this is a second transaction you sign after the coin itself is created.">
-          <span className="cursor-help text-xs text-panda-grey/70">ⓘ</span>
-        </Tooltip>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <p className="font-medium">Fee distribution</p>
+          <Tooltip label="Sets a real on-chain Pump.fun fee-sharing config for this coin, bundled into the same transaction you sign to launch it.">
+            <span className="cursor-help text-xs text-panda-grey/70">ⓘ</span>
+          </Tooltip>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEnabled(false)}
+          className="text-xs font-medium text-panda-grey hover:text-paper transition-colors"
+        >
+          Cancel
+        </button>
       </div>
       <p className="mt-1 text-sm text-panda-grey">Who receives the creator fees generated by this coin?</p>
 
@@ -160,25 +168,6 @@ export default function FeeDistributionStep({
           to yourself/other recipients for now.
         </p>
       )}
-
-      <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          disabled={!!validationError || submitting}
-          onClick={() => onContinue(shareholders)}
-          className="rounded-full bg-paper px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {submitting ? "Confirm in wallet…" : "Save fee distribution"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setEnabled(false)}
-          disabled={submitting}
-          className="rounded-full px-4 py-2 text-sm font-medium text-panda-grey hover:text-paper transition-colors disabled:opacity-40"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   );
 }
