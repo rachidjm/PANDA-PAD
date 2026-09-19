@@ -20,6 +20,8 @@ export type Coin = {
   priceHistory: number[];
   creator: string;
   createdAt: string;
+  /** True when `createdAt` is the coin's real Pump.fun launch time (otherwise it's when its pool was created). */
+  launchVerified?: boolean;
   source: CoinSource;
   /** Raw dex id from the data source (e.g. "raydium", "orca") when source is "other". */
   dex?: string;

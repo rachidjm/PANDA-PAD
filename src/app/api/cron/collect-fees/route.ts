@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { Connection, clusterApiUrl } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
-import { creditHolders } from "@/lib/rewards/ledger";
+import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
+import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
+import { alertOps } from "@/lib/alerts";
 import { collectFeesForMint } from "@/lib/pump/distribute";
 import { getTokenHolders, totalHolderAmount } from "@/lib/solana/holders";
 
@@ -52,18 +54,39 @@ export async function GET(req: Request) {
         await creditHolders(mint, distributed, credits);
         results.push({ mint, distributedLamports: distributed, holdersCredited: credits.length });
       } catch (err) {
-        results.push({
-          mint,
-          distributedLamports: null,
-          holdersCredited: 0,
-          error: err instanceof Error ? err.message : "Unknown error.",
-        });
+        const error = err instanceof Error ? err.message : "Unknown error.";
+        results.push({ mint, distributedLamports: null, holdersCredited: 0, error });
+        await alertOps("Fee collection failed for a coin — fees may sit unattributed until it's fixed", { mint, error });
+      }
+    }
+
+    // Solvency check: what the pool owes holders vs what it holds. Cheap (one ledger read per coin), skipped if out of time.
+    const pool = getRewardsPoolSigner();
+    if (pool && Date.now() - started < TIME_BUDGET_MS) {
+      try {
+        let owedLamports = 0;
+        for (const mint of mints) {
+          const ledger = await getLedger(mint);
+          for (const holder of Object.keys(ledger.holders)) owedLamports += unclaimedLamports(ledger, holder);
+        }
+        const balance = await connection.getBalance(pool.publicKey);
+        if (balance < owedLamports) {
+          await alertOps("Rewards Pool holds LESS than it owes holders", {
+            poolSol: balance / 1e9,
+            owedSol: owedLamports / 1e9,
+          });
+        } else if (balance < 50_000_000) {
+          await alertOps("Rewards Pool is nearly empty (under 0.05 SOL)", { poolSol: balance / 1e9 });
+        }
+      } catch (err) {
+        console.error("Solvency check failed", err);
       }
     }
 
     return NextResponse.json({ processed: results.length, ofRegistered: mints.length, results });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Cron run failed.";
+    await alertOps("collect-fees cron run failed", { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -11,7 +11,18 @@ import type { CoinSource } from "@/lib/types";
  * was created — so those are labelled "Grad." rather than passed off as the
  * coin's birth.
  */
-export default function CoinAge({ createdAt, source, className = "" }: { createdAt: string; source?: CoinSource; className?: string }) {
+export default function CoinAge({
+  createdAt,
+  source,
+  verified,
+  className = "",
+}: {
+  createdAt: string;
+  source?: CoinSource;
+  /** True when `createdAt` is the coin's real Pump.fun launch time, so no "Grad." qualifier is needed. */
+  verified?: boolean;
+  className?: string;
+}) {
   const { lang, t } = useLanguage();
   const [now, setNow] = useState(() => Date.now());
 
@@ -32,8 +43,11 @@ export default function CoinAge({ createdAt, source, className = "" }: { created
       : rtf.format(-Math.floor(seconds / 86400), "day");
 
   return (
-    <span className={className} title={source === "pumpswap" ? t("age.graduatedHint") : t("age.createdHint")}>
-      {source === "pumpswap" ? `${t("age.graduated")} ` : ""}
+    <span
+      className={className}
+      title={verified ? t("age.launchedHint") : source === "pumpswap" ? t("age.graduatedHint") : t("age.createdHint")}
+    >
+      {!verified && source === "pumpswap" ? `${t("age.graduated")} ` : ""}
       {label}
     </span>
   );

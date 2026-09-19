@@ -22,7 +22,7 @@ export default function CoinCard({ coin }: { coin: Coin }) {
           <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" />
         </div>
         <span className="absolute right-3 top-3 rounded-full bg-ink/75 px-2.5 py-1 text-[11px] font-semibold text-paper/80 backdrop-blur">
-          <CoinAge createdAt={coin.createdAt} source={coin.source} />
+          <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />
         </span>
       </div>
       <div className="p-4">

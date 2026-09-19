@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, clusterApiUrl } from "@solana/web3.js";
 import { recordTrade } from "@/lib/portfolio/trade-log";
 import { fetchTokenPools } from "@/lib/gecko/client";
@@ -21,6 +22,9 @@ async function realSolPriceUsd(): Promise<number> {
  * own real pre/post balance deltas, not from what the client claims it sent or received.
  */
 export async function POST(req: Request) {
+  if (rateLimited(`record-trade:${clientIp(req)}`, 30, 60_000)) {
+    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  }
   try {
     const { wallet, mint, ticker, side, signature } = await req.json();
     if (!wallet || !mint || !ticker || (side !== "buy" && side !== "sell") || !signature) {
@@ -52,6 +56,12 @@ export async function POST(req: Request) {
     const preAmount = pre?.uiTokenAmount.uiAmount || 0;
     const postAmount = post?.uiTokenAmount.uiAmount || 0;
     const tokenAmount = Math.abs(postAmount - preAmount);
+
+    // Buy or sell is what the chain says (did the wallet's token balance go up?), not what the client claims.
+    const realSide = postAmount > preAmount ? "buy" : "sell";
+    if (realSide !== side) {
+      return NextResponse.json({ error: "That transaction wasn't a " + side + " of this coin for the claimed wallet." }, { status: 400 });
+    }
 
     if (solAmount <= 0 || tokenAmount <= 0) {
       return NextResponse.json({ error: "Couldn't find a real balance change for this wallet in that transaction." }, { status: 400 });

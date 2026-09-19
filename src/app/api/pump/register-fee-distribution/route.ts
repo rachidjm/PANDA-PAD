@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 import { registerMint } from "@/lib/rewards/registry";
@@ -10,6 +11,9 @@ import { registerMint } from "@/lib/rewards/registry";
  * (the same discipline every other write path in this app follows).
  */
 export async function POST(req: Request) {
+  if (rateLimited(`register-fee:${clientIp(req)}`, 10, 60_000)) {
+    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  }
   try {
     const { mint } = await req.json();
     if (!mint) return NextResponse.json({ error: "Missing mint." }, { status: 400 });

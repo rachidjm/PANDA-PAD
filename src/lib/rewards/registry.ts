@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "./blob-store";
+import { readJson, updateJson } from "./blob-store";
 
 const REGISTRY_PATH = "rewards/registry.json";
 
@@ -17,8 +17,8 @@ export async function getRegisteredMints(): Promise<string[]> {
 }
 
 export async function registerMint(mint: string): Promise<void> {
-  const registry = await readJson<Registry>(REGISTRY_PATH, { mints: [] });
-  if (registry.mints.includes(mint)) return;
-  registry.mints.push(mint);
-  await writeJson(REGISTRY_PATH, registry);
+  await updateJson<Registry, void>(REGISTRY_PATH, { mints: [] }, (registry) => {
+    if (!registry.mints.includes(mint)) registry.mints.push(mint);
+    return { next: registry, result: undefined };
+  });
 }

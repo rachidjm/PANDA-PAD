@@ -180,9 +180,18 @@ function TradeCard({ position: p }: { position: Position }) {
   );
 }
 
+/** "https://x.com/handle/status/123?s=1" → "handle". */
+function xHandle(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean)[0];
+  } catch {
+    return undefined;
+  }
+}
+
 function LaunchRow({ launch: l }: { launch: Launch }) {
   const { t } = useLanguage();
-  const handle = l.twitterUrl ? l.twitterUrl.split("?")[0].split("/").filter(Boolean).pop() : undefined;
+  const handle = l.twitterUrl ? xHandle(l.twitterUrl) : undefined;
 
   return (
     <div className="flex items-center gap-3 p-3.5">
@@ -203,7 +212,7 @@ function LaunchRow({ launch: l }: { launch: Launch }) {
       </div>
       <div className="shrink-0 text-right">
         <p className="text-sm font-medium">{formatCompact(l.marketCap)}</p>
-        <CoinAge createdAt={l.createdAt} source={l.source} className="text-xs text-panda-grey" />
+        <CoinAge createdAt={l.createdAt} source={l.source} verified={l.verified} className="text-xs text-panda-grey" />
       </div>
     </div>
   );

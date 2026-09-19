@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import { buildCreateTransaction } from "@/lib/pump/create";
 import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
 
 export async function POST(req: Request) {
+  if (rateLimited(`pump-create:${clientIp(req)}`, 20, 60_000)) {
+    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  }
   try {
     const { mint, user, name, symbol, uri, shareholders } = await req.json();
     if (!mint || !user || !name || !symbol || !uri) {

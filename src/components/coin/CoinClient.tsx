@@ -43,7 +43,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-display text-2xl font-bold">${coin.ticker}</h1>
                   <LiveBadge live={live} />
-                  <CoinAge createdAt={coin.createdAt} source={coin.source} className="rounded-full bg-paper/10 px-2.5 py-1 text-xs font-medium text-paper/70" />
+                  <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} className="rounded-full bg-paper/10 px-2.5 py-1 text-xs font-medium text-paper/70" />
                 </div>
                 <p className="text-sm text-panda-grey">{coin.name}</p>
                 <SocialLinks coin={coin} />

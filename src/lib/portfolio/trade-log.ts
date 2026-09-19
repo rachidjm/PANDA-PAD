@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "@/lib/rewards/blob-store";
+import { readJson, updateJson } from "@/lib/rewards/blob-store";
 
 export type LoggedTrade = {
   mint: string;
@@ -26,8 +26,8 @@ export async function getTrades(wallet: string): Promise<LoggedTrade[]> {
 /** Appends one real, already-confirmed trade — see src/app/api/portfolio/record-trade/route.ts for the
  *  on-chain verification that happens before this is ever called. */
 export async function recordTrade(wallet: string, trade: LoggedTrade): Promise<void> {
-  const trades = await getTrades(wallet);
-  if (trades.some((t) => t.signature === trade.signature)) return; // already recorded
-  trades.push(trade);
-  await writeJson(tradeLogPath(wallet), trades);
+  await updateJson<LoggedTrade[], void>(tradeLogPath(wallet), [], (trades) => {
+    if (!trades.some((t) => t.signature === trade.signature)) trades.push(trade); // else already recorded
+    return { next: trades, result: undefined };
+  });
 }

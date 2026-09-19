@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
-import { Connection, PublicKey, SystemProgram, Transaction, clusterApiUrl } from "@solana/web3.js";
-import { getLedger, unclaimedLamports, markClaimed } from "@/lib/rewards/ledger";
+import {
+  Connection,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionExpiredBlockheightExceededError,
+  clusterApiUrl,
+} from "@solana/web3.js";
+import { getLedger, unclaimedLamports, reserveClaim, releaseClaim } from "@/lib/rewards/ledger";
+import { DAILY_CAP_LAMPORTS, MAX_CLAIM_LAMPORTS, reserveDailyPayout, releaseDailyPayout } from "@/lib/rewards/limits";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { fetchTokenPools } from "@/lib/gecko/client";
 import { meetsRewardsThreshold } from "@/lib/rewards";
+import { alertOps } from "@/lib/alerts";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
+
+const LAMPORTS_PER_SOL = 1_000_000_000;
+// Never let a payout drain the pool below what it needs to keep signing (fees + rent headroom).
+const POOL_RESERVE_LAMPORTS = 10_000_000;
 
 function connection() {
   return new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"), "confirmed");
@@ -21,6 +35,16 @@ async function realHolderValueUsd(conn: Connection, mint: string, holder: string
   )[0];
   const priceUsd = best?.attributes.base_token_price_usd ? Number(best.attributes.base_token_price_usd) : 0;
   return amount * priceUsd;
+}
+
+function isValidAddress(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    new PublicKey(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(req: Request) {
@@ -43,19 +67,41 @@ export async function GET(req: Request) {
   }
 }
 
+/**
+ * Pays a holder's unclaimed rewards. Order matters for safety:
+ *   1. Book the payout against today's cap and RESERVE it in the ledger
+ *      (both atomic) — so concurrent requests can't double-spend one balance.
+ *   2. Only then send SOL from the Rewards Pool.
+ *   3. If the payout definitely didn't land, release the reservations; if the
+ *      outcome is unknown, keep them (a stuck claim is recoverable, a double
+ *      payout isn't) and raise an alert.
+ */
 export async function POST(req: Request) {
+  if (rateLimited(`claim:ip:${clientIp(req)}`, 10, 60_000)) {
+    return NextResponse.json({ error: "Too many claim attempts — wait a minute and try again." }, { status: 429 });
+  }
+
+  let reserved = 0;
+  let mint = "";
+  let holder = "";
   try {
-    const { mint, holder } = await req.json();
-    if (!mint || !holder) return NextResponse.json({ error: "Missing mint or holder." }, { status: 400 });
+    const body = await req.json();
+    mint = body.mint;
+    holder = body.holder;
+    if (!isValidAddress(mint) || !isValidAddress(holder)) {
+      return NextResponse.json({ error: "Missing or invalid mint or holder." }, { status: 400 });
+    }
+    if (rateLimited(`claim:holder:${holder}`, 3, 60_000)) {
+      return NextResponse.json({ error: "Too many claim attempts for this wallet — wait a minute." }, { status: 429 });
+    }
 
     const signer = getRewardsPoolSigner();
     if (!signer) return NextResponse.json({ error: "Rewards Pool isn't configured yet." }, { status: 503 });
 
     const conn = connection();
 
-    const ledger = await getLedger(mint);
-    const amount = unclaimedLamports(ledger, holder);
-    if (amount <= 0) return NextResponse.json({ error: "Nothing to claim." }, { status: 400 });
+    const estimate = unclaimedLamports(await getLedger(mint), holder);
+    if (estimate <= 0) return NextResponse.json({ error: "Nothing to claim." }, { status: 400 });
 
     // Eligibility is re-checked live, against the holder's real current
     // balance — not frozen at whatever it was when the entitlement accrued.
@@ -64,27 +110,92 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "This wallet's current holding is below the minimum to claim." }, { status: 400 });
     }
 
-    const holderKey = new PublicKey(holder);
-    const tx = new Transaction();
-    tx.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: holderKey, lamports: amount }));
+    const wanted = Math.min(estimate, MAX_CLAIM_LAMPORTS);
+    if (!(await reserveDailyPayout(wanted))) {
+      await alertOps("Daily payout cap reached — claims are paused until 00:00 UTC", {
+        capSol: DAILY_CAP_LAMPORTS / LAMPORTS_PER_SOL,
+        mint,
+        holder,
+      });
+      return NextResponse.json({ error: "Rewards payouts are paused for today — try again tomorrow." }, { status: 503 });
+    }
 
+    reserved = await reserveClaim(mint, holder, wanted);
+    if (reserved < wanted) await releaseDailyPayout(wanted - reserved);
+    if (reserved <= 0) return NextResponse.json({ error: "Nothing to claim." }, { status: 400 });
+
+    const poolBalance = await conn.getBalance(signer.publicKey);
+    if (poolBalance < reserved + POOL_RESERVE_LAMPORTS) {
+      await releaseClaim(mint, holder, reserved);
+      await releaseDailyPayout(reserved);
+      await alertOps("Rewards Pool balance too low to pay a claim", {
+        poolSol: poolBalance / LAMPORTS_PER_SOL,
+        neededSol: reserved / LAMPORTS_PER_SOL,
+        mint,
+      });
+      reserved = 0;
+      return NextResponse.json({ error: "Payouts are temporarily unavailable — please try again later." }, { status: 503 });
+    }
+
+    const tx = new Transaction();
+    tx.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: new PublicKey(holder), lamports: reserved }));
     const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
     tx.feePayer = signer.publicKey;
     tx.recentBlockhash = blockhash;
     tx.sign(signer);
 
-    const signature = await conn.sendRawTransaction(tx.serialize());
-    const confirmation = await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-    if (confirmation.value.err) {
-      return NextResponse.json({ error: "Claim transaction failed to confirm." }, { status: 500 });
+    const rollback = async () => {
+      await releaseClaim(mint, holder, reserved);
+      await releaseDailyPayout(reserved);
+      reserved = 0;
+    };
+
+    let signature: string;
+    try {
+      signature = await conn.sendRawTransaction(tx.serialize());
+    } catch (err) {
+      await rollback();
+      await alertOps("Claim transaction could not be sent", { mint, holder, error: String(err) });
+      return NextResponse.json({ error: "Couldn't send the payout — nothing was paid, please try again." }, { status: 502 });
     }
 
-    // Only mark claimed after real on-chain confirmation — never before.
-    await markClaimed(mint, holder, amount);
+    try {
+      const confirmation = await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+      if (confirmation.value.err) {
+        await rollback();
+        await alertOps("Claim transaction failed on-chain", { mint, holder, signature, err: confirmation.value.err });
+        return NextResponse.json({ error: "The payout failed on-chain — nothing was paid, please try again." }, { status: 500 });
+      }
+    } catch (err) {
+      if (err instanceof TransactionExpiredBlockheightExceededError) {
+        await rollback();
+        return NextResponse.json({ error: "The payout expired before confirming — nothing was paid, please try again." }, { status: 500 });
+      }
+      // Unknown outcome: it may still land. Keep the reservation so it can't be paid twice.
+      await alertOps("Claim outcome UNKNOWN — reservation kept, check the signature manually", {
+        mint,
+        holder,
+        signature,
+        lamports: reserved,
+      });
+      reserved = 0;
+      return NextResponse.json(
+        { error: `Your claim was submitted but not confirmed yet. Check your wallet before retrying (tx ${signature}).` },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ signature, lamports: amount });
+    const paid = reserved;
+    reserved = 0;
+    return NextResponse.json({ signature, lamports: paid });
   } catch (err) {
+    // Anything unexpected after a reservation was booked and before the send: undo it.
+    if (reserved > 0) {
+      await releaseClaim(mint, holder, reserved).catch(() => {});
+      await releaseDailyPayout(reserved).catch(() => {});
+    }
     const message = err instanceof Error ? err.message : "Claim failed.";
+    await alertOps("Claim request crashed", { mint, holder, error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

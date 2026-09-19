@@ -63,6 +63,7 @@ export const dict = {
 
   // Coin age
   "age.graduated": { en: "Grad.", es: "Grad." },
+  "age.launchedHint": { en: "Time since this coin launched on Pump.fun", es: "Tiempo desde que esta moneda se lanzó en Pump.fun" },
   "age.createdHint": { en: "Time since this coin's pool was created", es: "Tiempo desde que se creó el pool de esta moneda" },
   "age.graduatedHint": {
     en: "Time since this coin graduated to PumpSwap (when its AMM pool was created)",

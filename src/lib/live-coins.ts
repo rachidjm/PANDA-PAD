@@ -10,6 +10,7 @@ import {
   GeckoPool,
   GeckoIncludedToken,
 } from "./gecko/client";
+import { fetchPumpCoins, PumpCoin } from "./pump/frontend-api";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
@@ -205,6 +206,7 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
 
   // Rugged / abandoned pools that quote a few cents of market cap aren't worth a slot.
   coins = coins.filter((c) => c.marketCap >= MIN_LISTED_MARKET_CAP);
+  coins = await enrichWithPump(coins);
 
   if (coins.length > 0) {
     coins = await fillMissingImages(coins);
@@ -217,6 +219,46 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
   // grid, but mark it as not live so the UI can be honest that this isn't fresh.
   if (lastGood) return { coins: lastGood, live: false };
   return { coins: [], live: false };
+}
+
+/** "https://x.com/handle/status/1" → "handle". Coin.twitter/telegram hold bare handles. */
+function handleFromUrl(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Overlays what Pump.fun itself knows: the real launch time, creator, and the socials/logo the creator set. */
+function applyPump(coin: Coin, p: PumpCoin): Coin {
+  return {
+    ...coin,
+    createdAt: p.createdAt,
+    launchVerified: true,
+    creator: p.creator || coin.creator,
+    image: coin.image || p.image,
+    description: coin.description || p.description || "",
+    twitter: coin.twitter || handleFromUrl(p.twitter),
+    website: coin.website || p.website || null,
+    telegram: coin.telegram || handleFromUrl(p.telegram),
+  };
+}
+
+/** Real launch times for every Pump.fun coin in the list; coins Pump.fun flags NSFW or banned are dropped. Optional — no-ops if the API is down. */
+async function enrichWithPump(coins: Coin[]): Promise<Coin[]> {
+  const info = await fetchPumpCoins(coins.map((c) => c.mint));
+  if (info.size === 0) return coins;
+  return coins
+    .filter((c) => {
+      const p = info.get(c.mint);
+      return !(p && (p.nsfw || p.banned));
+    })
+    .map((c) => {
+      const p = info.get(c.mint);
+      return p ? applyPump(c, p) : c;
+    });
 }
 
 let geckoCooldownUntil = 0;
@@ -413,6 +455,10 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
   // Description/website/socials only matter on this page, so fetch them
   // lazily here (one request) instead of eagerly for every coin in a list.
   if (coin) coin = await enrichSocials(coin).catch(() => coin as Coin);
+  if (coin) {
+    const p = (await fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>())).get(coin.mint);
+    if (p) coin = applyPump(coin, p);
+  }
   return { coin, live };
 }
 
