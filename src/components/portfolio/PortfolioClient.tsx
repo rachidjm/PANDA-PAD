@@ -1,20 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import Doodle from "@/components/doodles/Doodle";
 import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
+import { Position } from "@/lib/portfolio/positions";
 import { formatPct, formatUsd, truncateAddress } from "@/lib/format";
 
 type State = "loading" | "ready" | "error";
+type PositionsState = "loading" | "ready" | "error";
+type SortMode = "recent" | "profit";
 
 export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
   const [state, setState] = useState<State>("loading");
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
+  const [positionsState, setPositionsState] = useState<PositionsState>("loading");
+  const [openPositions, setOpenPositions] = useState<Position[]>([]);
+  const [closedPositions, setClosedPositions] = useState<Position[]>([]);
+  const [positionsTab, setPositionsTab] = useState<"open" | "closed">("open");
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
+
+  useEffect(() => {
+    if (!connected || !publicKey) return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => {
+        if (!cancelled) setPositionsState("loading");
+      })
+      .then(() => fetch(`/api/portfolio/positions?wallet=${publicKey.toBase58()}`))
+      .then((r) => r.json())
+      .then((data: { open?: Position[]; closed?: Position[] }) => {
+        if (cancelled) return;
+        setOpenPositions(data.open || []);
+        setClosedPositions(data.closed || []);
+        setPositionsState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setPositionsState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, publicKey]);
+
+  const sortedPositions = useMemo(() => {
+    const list = positionsTab === "open" ? openPositions : closedPositions;
+    return [...list].sort((a, b) => (sortMode === "recent" ? b.lastTradeTs - a.lastTradeTs : b.pnlUsd - a.pnlUsd));
+  }, [positionsTab, openPositions, closedPositions, sortMode]);
 
   useEffect(() => {
     if (!connected || !publicKey) return;
@@ -112,6 +148,99 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
           )}
         </div>
       )}
+
+      <div className="mt-8">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-1.5 rounded-full bg-ink-raised p-1">
+            <button
+              onClick={() => setPositionsTab("open")}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                positionsTab === "open" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
+              }`}
+            >
+              Open positions
+            </button>
+            <button
+              onClick={() => setPositionsTab("closed")}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                positionsTab === "closed" ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"
+              }`}
+            >
+              Closed positions
+            </button>
+          </div>
+          <div className="flex gap-1.5 text-xs">
+            <button
+              onClick={() => setSortMode("recent")}
+              className={`rounded-full px-3 py-1.5 font-medium transition-colors ${
+                sortMode === "recent" ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"
+              }`}
+            >
+              Recent
+            </button>
+            <button
+              onClick={() => setSortMode("profit")}
+              className={`rounded-full px-3 py-1.5 font-medium transition-colors ${
+                sortMode === "profit" ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"
+              }`}
+            >
+              Profit
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
+          {positionsState === "loading" && (
+            <div className="space-y-1.5 p-4">
+              {[0, 1].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-xl bg-paper/5" />
+              ))}
+            </div>
+          )}
+          {positionsState === "error" && (
+            <p className="p-6 text-center text-sm text-clay-red">Couldn&apos;t load your trade history — try again in a moment.</p>
+          )}
+          {positionsState === "ready" && sortedPositions.length === 0 && (
+            <p className="p-6 text-center text-sm text-panda-grey">
+              {positionsTab === "open"
+                ? "No open positions yet — they show up here after your first real buy on PANDA."
+                : "No closed positions yet."}
+            </p>
+          )}
+          {positionsState === "ready" &&
+            sortedPositions.map((p) => (
+              <div key={p.mint} className="flex items-center gap-3 p-4">
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
+                  {p.coinImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.coinImage} alt="" className="h-full w-full object-cover" />
+                  ) : p.coinDoodle ? (
+                    <Doodle kind={p.coinDoodle} className="h-full w-full" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-paper/60">
+                      {p.ticker.slice(0, 2)}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">${p.ticker}</p>
+                  <p className="text-xs text-panda-grey">
+                    {positionsTab === "open"
+                      ? `${p.remainingTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })} held · avg ${formatUsd(p.avgCostUsd)}`
+                      : "Fully closed"}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className={`font-medium ${p.pnlUsd >= 0 ? "text-bamboo" : "text-clay-red"}`}>
+                    {p.pnlUsd >= 0 ? "+" : ""}
+                    {formatUsd(p.pnlUsd)}
+                  </p>
+                  <p className={`text-xs ${p.pnlUsd >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(p.pnlPct)}</p>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -89,6 +89,13 @@ export default function BuyPandaWidget() {
 
       setSignature(sig);
       setStatus("done");
+
+      // Best-effort — same real trade-history logging TradingPanel does.
+      fetch("/api/portfolio/record-trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet: publicKey.toBase58(), mint: PANDA_MINT, ticker: "PANDA", side: "buy", signature: sig }),
+      }).catch(() => {});
     } catch (err) {
       setStatus("error");
       setError(explainError(err));

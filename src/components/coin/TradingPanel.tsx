@@ -111,6 +111,18 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
       setSignature(sig);
       setStatus("done");
+
+      // Best-effort — the trade itself already succeeded either way; this
+      // just adds it to the wallet's real trade history for Portfolio's
+      // open/closed positions view.
+      if (publicKey) {
+        fetch("/api/portfolio/record-trade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ wallet: publicKey.toBase58(), mint: coin.mint, ticker: coin.ticker, side, signature: sig }),
+        }).catch(() => {});
+      }
+
       setTimeout(() => {
         setStatus("idle");
         setAmount("");
