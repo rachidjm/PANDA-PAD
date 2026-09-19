@@ -7,6 +7,7 @@ import Doodle from "@/components/doodles/Doodle";
 import Panda from "@/components/panda/Panda";
 import LiveBadge from "@/components/LiveBadge";
 import TradingPanel from "@/components/coin/TradingPanel";
+import StopLossTakeProfit from "@/components/coin/StopLossTakeProfit";
 import PriceChart from "@/components/coin/PriceChart";
 import { dexLabel } from "@/lib/dex-labels";
 
@@ -87,6 +88,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
 
         <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
           <TradingPanel coin={coin} />
+          <StopLossTakeProfit coin={coin} />
           <MarketActivityCard coin={coin} />
           <PoolInfoCard coin={coin} />
         </div>
