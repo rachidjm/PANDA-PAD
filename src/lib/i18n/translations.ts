@@ -145,6 +145,8 @@ export const dict = {
   "chart.low": { en: "Low {value}", es: "Mínimo {value}" },
   "chart.high": { en: "High {value}", es: "Máximo {value}" },
   "chart.noData": { en: "No chart data yet", es: "Aún no hay datos del gráfico" },
+  "chart.price": { en: "Price", es: "Precio" },
+  "chart.mc": { en: "Market cap", es: "Cap. de mercado" },
 
   // Trading panel
   "trading.buy": { en: "Buy", es: "Comprar" },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatPct, formatPrice } from "@/lib/format";
+import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const timeframes = ["1m", "5m", "1h", "4h", "1d"] as const;
@@ -13,18 +13,26 @@ export default function PriceChart({
   poolAddress,
   initialCloses,
   changePct,
+  marketCap,
 }: {
   poolAddress?: string;
   initialCloses: number[];
   changePct: number;
+  /** Real, current market cap (from the same live snapshot as `initialCloses`) — used to
+   * derive a market cap for every point on the chart via a constant supply ratio, since
+   * GeckoTerminal's OHLCV endpoint only returns price, never a market-cap history. */
+  marketCap?: number;
 }) {
   const { t } = useLanguage();
   // Minute candles by default — the richest, most "alive" view of a coin
-  // that's actually trading. `initialCloses` (server-rendered) is hourly, so
-  // this fires once on mount to swap in real 1-minute data right away.
+  // that's actually trading. `initialCloses` (server-rendered) is hourly and
+  // has no real per-point timestamps, so this fires once on mount to swap in
+  // real, timestamped 1-minute data right away.
   const [tf, setTf] = useState<Timeframe>("1m");
-  const [closes, setCloses] = useState<number[]>(initialCloses);
+  const [candles, setCandles] = useState<Candle[]>(initialCloses.map((close) => ({ time: 0, close })));
+  const [hasRealTimes, setHasRealTimes] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const requestId = useRef(0);
   const mounted = useRef(false);
 
@@ -36,8 +44,11 @@ export default function PriceChart({
       .then((r) => r.json())
       .then((data: { candles?: Candle[] }) => {
         if (requestId.current !== id) return;
-        const points = (data.candles || []).map((c) => c.close);
-        if (points.length > 1) setCloses(points);
+        const points = data.candles || [];
+        if (points.length > 1) {
+          setCandles(points);
+          setHasRealTimes(true);
+        }
       })
       .finally(() => {
         if (requestId.current === id) setLoading(false);
@@ -53,24 +64,44 @@ export default function PriceChart({
 
   function selectTimeframe(next: Timeframe) {
     setTf(next);
+    setHoverIndex(null);
     if (!poolAddress || next === tf) return;
     loadTimeframe(next);
   }
 
-  const price = closes[closes.length - 1] ?? 0;
+  const closes = candles.map((c) => c.close);
+  const lastClose = closes[closes.length - 1] ?? 0;
+  // Constant-supply ratio, anchored to the real current price/market cap this
+  // page loaded with — not refetched per candle, since none of GeckoTerminal,
+  // Dexscreener, or the OHLCV endpoint expose a market-cap history.
+  const supply = marketCap && lastClose > 0 ? marketCap / lastClose : undefined;
+
+  const shown = hoverIndex !== null ? hoverIndex : closes.length - 1;
+  const shownPrice = closes[shown] ?? 0;
+  const shownMarketCap = supply !== undefined ? shownPrice * supply : undefined;
+  const shownTime = hasRealTimes ? candles[shown]?.time : undefined;
+
   const windowChangePct = closes.length > 1 ? ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100 : changePct;
   const positive = windowChangePct >= 0;
-  const low = Math.min(...closes);
-  const high = Math.max(...closes);
+  const low = closes.length ? Math.min(...closes) : 0;
+  const high = closes.length ? Math.max(...closes) : 0;
 
   return (
     <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-display text-2xl font-bold sm:text-3xl">{formatPrice(price)}</p>
+          <p className="font-display text-2xl font-bold sm:text-3xl">{formatPrice(shownPrice)}</p>
           <p className={`text-sm font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
             {formatPct(windowChangePct)} <span className="text-panda-grey font-normal">· {tf.toUpperCase()}</span>
           </p>
+          {shownMarketCap !== undefined && (
+            <p className="mt-0.5 text-xs text-panda-grey">
+              {t("chart.mc")}: <span className="font-medium text-paper/80">{formatCompact(shownMarketCap)}</span>
+              {hoverIndex !== null && shownTime ? (
+                <span> · {formatAxisTime(shownTime, tf, true)}</span>
+              ) : null}
+            </p>
+          )}
         </div>
         <div className="flex gap-1 rounded-full bg-ink p-1">
           {timeframes.map((tfOption) => (
@@ -89,7 +120,15 @@ export default function PriceChart({
       </div>
 
       <div className={`mt-6 transition-opacity duration-500 ${loading ? "opacity-40" : "opacity-100"}`}>
-        <AreaChart data={closes} positive={positive} noDataLabel={t("chart.noData")} />
+        <AreaChart
+          candles={candles}
+          positive={positive}
+          noDataLabel={t("chart.noData")}
+          hasRealTimes={hasRealTimes}
+          tf={tf}
+          hoverIndex={hoverIndex}
+          onHover={setHoverIndex}
+        />
       </div>
 
       {closes.length > 1 && (
@@ -123,10 +162,40 @@ function smoothPath(points: { x: number; y: number }[]): string {
   return d;
 }
 
-function AreaChart({ data, positive, noDataLabel }: { data: number[]; positive: boolean; noDataLabel: string }) {
+/** `real` picks a fuller "day, HH:MM" format for the small inline caption; the x-axis ticks stay short. */
+function formatAxisTime(epochSeconds: number, tf: Timeframe, real = false): string {
+  const d = new Date(epochSeconds * 1000);
+  if (tf === "1d") {
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (!real) return time;
+  const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${day}, ${time}`;
+}
+
+function AreaChart({
+  candles,
+  positive,
+  noDataLabel,
+  hasRealTimes,
+  tf,
+  hoverIndex,
+  onHover,
+}: {
+  candles: Candle[];
+  positive: boolean;
+  noDataLabel: string;
+  hasRealTimes: boolean;
+  tf: Timeframe;
+  hoverIndex: number | null;
+  onHover: (index: number | null) => void;
+}) {
   const width = 720;
   const height = 260;
   const padding = 8;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const data = candles.map((c) => c.close);
 
   if (data.length < 2) {
     return <div className="flex h-[260px] items-center justify-center text-sm text-panda-grey">{noDataLabel}</div>;
@@ -147,49 +216,105 @@ function AreaChart({ data, positive, noDataLabel }: { data: number[]; positive: 
   const line = smoothPath(points);
   const area = `${line} L${points[points.length - 1].x.toFixed(1)},${height - padding} L${points[0].x.toFixed(1)},${height - padding} Z`;
   const gradientId = `chart-fill-${positive ? "up" : "down"}`;
-  const last = points[points.length - 1];
+  const activeIndex = hoverIndex !== null ? hoverIndex : points.length - 1;
+  const active = points[activeIndex];
+
+  function handleMove(e: React.PointerEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width;
+    const idx = Math.round(relX * (points.length - 1));
+    onHover(Math.max(0, Math.min(points.length - 1, idx)));
+  }
+
+  // Up to 5 evenly-spaced real timestamps along the bottom, so the timeline
+  // itself is visible, not just implied by the curve's shape.
+  const axisTicks =
+    hasRealTimes && candles.length > 1
+      ? [0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const idx = Math.round(f * (candles.length - 1));
+          return { x: points[idx].x, label: formatAxisTime(candles[idx].time, tf) };
+        })
+      : [];
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0.25, 0.5, 0.75].map((f) => (
-        <line
-          key={f}
-          x1={0}
-          x2={width}
-          y1={padding + (height - padding * 2) * f}
-          y2={padding + (height - padding * 2) * f}
-          stroke="var(--paper)"
-          strokeOpacity="0.06"
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        preserveAspectRatio="none"
+        onPointerMove={handleMove}
+        onPointerLeave={() => onHover(null)}
+        className="cursor-crosshair"
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0.25, 0.5, 0.75].map((f) => (
+          <line
+            key={f}
+            x1={0}
+            x2={width}
+            y1={padding + (height - padding * 2) * f}
+            y2={padding + (height - padding * 2) * f}
+            stroke="var(--paper)"
+            strokeOpacity="0.06"
+          />
+        ))}
+        <path d={area} fill={`url(#${gradientId})`} />
+        <path
+          key={data.length}
+          d={line}
+          fill="none"
+          stroke={color}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pathLength={1}
+          style={{ animation: "panda-chart-draw 900ms ease-out" }}
         />
-      ))}
-      <path d={area} fill={`url(#${gradientId})`} />
-      <path
-        key={data.length}
-        d={line}
-        fill="none"
-        stroke={color}
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        pathLength={1}
-        style={{ animation: "panda-chart-draw 900ms ease-out" }}
-      />
-      <circle cx={last.x} cy={last.y} r={4} fill={color}>
-        <animate attributeName="r" values="4;7;4" dur="1.8s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="1;0.35;1" dur="1.8s" repeatCount="indefinite" />
-      </circle>
-      <style>{`
-        @keyframes panda-chart-draw {
-          from { stroke-dasharray: 1; stroke-dashoffset: 1; }
-          to { stroke-dasharray: 1; stroke-dashoffset: 0; }
-        }
-      `}</style>
-    </svg>
+
+        {hoverIndex !== null && (
+          <line x1={active.x} x2={active.x} y1={padding} y2={height - padding} stroke="var(--paper)" strokeOpacity="0.25" strokeDasharray="3 3" />
+        )}
+
+        <circle cx={active.x} cy={active.y} r={hoverIndex !== null ? 5 : 4} fill={color}>
+          {hoverIndex === null && (
+            <>
+              <animate attributeName="r" values="4;7;4" dur="1.8s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="1;0.35;1" dur="1.8s" repeatCount="indefinite" />
+            </>
+          )}
+        </circle>
+        <style>{`
+          @keyframes panda-chart-draw {
+            from { stroke-dasharray: 1; stroke-dashoffset: 1; }
+            to { stroke-dasharray: 1; stroke-dashoffset: 0; }
+          }
+        `}</style>
+      </svg>
+
+      {axisTicks.length > 0 && (
+        <div className="relative mt-1 h-4 text-[10px] text-panda-grey">
+          {axisTicks.map((tick, i) => (
+            <span
+              key={i}
+              className={`absolute whitespace-nowrap ${
+                i === 0 ? "" : i === axisTicks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"
+              }`}
+              style={{ left: `${(tick.x / width) * 100}%` }}
+            >
+              {tick.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

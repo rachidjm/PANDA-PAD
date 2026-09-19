@@ -66,7 +66,12 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           </div>
 
           <div className="mt-6">
-            <PriceChart poolAddress={coin.poolAddress} initialCloses={coin.priceHistory} changePct={coin.changePct} />
+            <PriceChart
+              poolAddress={coin.poolAddress}
+              initialCloses={coin.priceHistory}
+              changePct={coin.changePct}
+              marketCap={coin.marketCap}
+            />
           </div>
 
           <div className="mt-8 flex gap-1 border-b border-paper/10">
