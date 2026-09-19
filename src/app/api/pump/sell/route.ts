@@ -5,7 +5,7 @@ import { buildSellTransaction } from "@/lib/pump/sell";
 
 export async function POST(req: Request) {
   try {
-    const { mint, user, tokenAmount, slippagePct } = await req.json();
+    const { mint, user, tokenAmount, poolAddress, slippagePct } = await req.json();
     if (!mint || !user || !tokenAmount) {
       return NextResponse.json({ error: "Missing mint, user or tokenAmount." }, { status: 400 });
     }
@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       mint: new PublicKey(mint),
       user: userKey,
       tokenAmount: new BN(String(tokenAmount)),
+      poolAddress: poolAddress ? new PublicKey(poolAddress) : undefined,
       slippagePct: slippagePct ? Number(slippagePct) : undefined,
     });
 

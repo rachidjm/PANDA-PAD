@@ -28,7 +28,6 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
   const graduated = coin.source === "pumpswap";
   const externalDex = coin.source === "other";
-  const tradeDisabled = graduated;
 
   useEffect(() => {
     if (!connected || !publicKey) return;
@@ -70,18 +69,23 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const displayTokens = connected ? tokenBalance : null;
 
   async function submit() {
-    if (!connected || !publicKey || !amount || tradeDisabled) return;
+    if (!connected || !publicKey || !amount) return;
     setError("");
     setSignature("");
     try {
       setStatus("building");
+      // Graduated coins trade on PumpSwap — the real pool address is
+      // already on `coin` (the same one every other page gets it from), so
+      // the server doesn't have to guess or re-derive it.
+      const poolAddress = graduated ? coin.poolAddress : undefined;
       const body =
         side === "buy"
-          ? { mint: coin.mint, user: publicKey.toBase58(), solAmount: parseFloat(amount) }
+          ? { mint: coin.mint, user: publicKey.toBase58(), solAmount: parseFloat(amount), poolAddress }
           : {
               mint: coin.mint,
               user: publicKey.toBase58(),
               tokenAmount: Math.round(parseFloat(amount) * 10 ** tokenDecimals).toString(),
+              poolAddress,
             };
 
       const endpoint = externalDex ? "/api/jupiter/swap" : `/api/pump/${side}`;
@@ -248,15 +252,13 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
 
       <button
         onClick={submit}
-        disabled={!connected || !amount || busy || tradeDisabled}
+        disabled={!connected || !amount || busy}
         className={`mt-3 w-full rounded-xl py-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
           side === "buy" ? "bg-bamboo text-ink hover:brightness-110" : "bg-clay-red text-ink hover:brightness-110"
         }`}
       >
         {!connected
           ? "Connect wallet to trade"
-          : graduated
-          ? "Graduated — PumpSwap trading coming soon"
           : status === "building"
           ? "Preparing transaction…"
           : status === "signing"
@@ -285,6 +287,10 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       {externalDex ? (
         <p className="mt-3 text-center text-xs text-panda-grey">
           Not a Pump.fun coin — routed via Jupiter across {dexLabel(coin.dex)} and other Solana DEXes. PANDA never holds your funds.
+        </p>
+      ) : graduated ? (
+        <p className="mt-3 text-center text-xs text-panda-grey">
+          Graduated to PumpSwap — real on-chain trade via Pump.fun&apos;s AMM. PANDA never holds your funds.
         </p>
       ) : (
         <p className="mt-3 text-center text-xs text-panda-grey">
