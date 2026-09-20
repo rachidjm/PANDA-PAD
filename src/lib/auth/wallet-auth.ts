@@ -92,6 +92,15 @@ export function createSessionToken(wallet: string, secret: string, now: number, 
 
 /** Returns the wallet the token was issued to, or null for anything malformed, forged, or expired. */
 export function verifySessionToken(token: string | undefined | null, secret: string, now: number): string | null {
+  return readSessionToken(token, secret, now)?.wallet ?? null;
+}
+
+/** Like verifySessionToken, but also returns when the wallet last signed in (`issuedAt`, ms). */
+export function readSessionToken(
+  token: string | undefined | null,
+  secret: string,
+  now: number
+): { wallet: string; issuedAt: number } | null {
   try {
     requireSecret(secret);
     if (!token) return null;
@@ -102,7 +111,7 @@ export function verifySessionToken(token: string | undefined | null, secret: str
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as SessionPayload;
     if (typeof payload.w !== "string" || !Number.isFinite(payload.exp) || now >= payload.exp) return null;
-    return payload.w;
+    return { wallet: payload.w, issuedAt: payload.iat };
   } catch {
     return null;
   }

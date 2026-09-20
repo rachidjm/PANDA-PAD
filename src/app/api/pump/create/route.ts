@@ -4,8 +4,12 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { buildCreateTransaction } from "@/lib/pump/create";
 import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
+import { pausedResponse } from "@/lib/protocol/guard";
+import { recordAudit } from "@/lib/audit/log";
 
 export async function POST(req: Request) {
+  const paused = await pausedResponse("token_launches");
+  if (paused) return paused;
   if (rateLimited(`pump-create:${clientIp(req)}`, 20, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
@@ -49,6 +53,16 @@ export async function POST(req: Request) {
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.feePayer = userKey;
     tx.recentBlockhash = blockhash;
+
+    // Build request only — nothing is created until the user signs and it confirms on-chain.
+    // The caller isn't authenticated here, so the actor is recorded as a claim, not a fact.
+    await recordAudit({
+      req,
+      actor: `unauthenticated:${userKey.toBase58()}`,
+      action: "token.create_tx_built",
+      object: String(mint),
+      newState: { symbol, shareholders: shareholders ?? null },
+    });
 
     const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
     return NextResponse.json({ transaction: serialized.toString("base64") });

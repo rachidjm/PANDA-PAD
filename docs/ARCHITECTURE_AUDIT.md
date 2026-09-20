@@ -44,9 +44,17 @@ Wallet-signature auth (nonce), PANDA Points, epochs, airdrops/Merkle claims, NFT
 - Tests: 22 unit tests + an end-to-end script (16 checks: wrong key, garbage/forged signature, replay, 8 concurrent verifies -> 1 login, forged/other-wallet cookie, cross-origin, claim without/with wrong/with right session).
 - Limits: sessions can't be revoked server-side before their 2h expiry (logout only clears the cookie); used-nonce blobs accumulate in Blob until a cleanup job exists; Blob write atomicity was verified by design (same ETag mechanism as the rewards ledger) but the concurrency test ran against the dev in-memory store, not Blob.
 
+## Audit trail + emergency pause (Phase 3)
+- **Audit log** (`src/lib/audit`): every event is its own immutable Blob file (`audit/events/<day>/<id>.json`, never overwritten) with id, timestamp, actor, action, object, old/new state, reason, request ID; keys named like secrets are redacted (`redact.ts`) and each event is also written to the Vercel log. Recorded now: `auth.login`, `claim.paid|failed_onchain|outcome_unknown`, `token.create_tx_built` (actor marked `unauthenticated:` — that route has no session), `cron.collect_fees`, `protocol.pause|resume`, `admin.denied`. Not yet: fee-config changes beyond creation, reward calculation, epochs, airdrops (those systems don't exist yet).
+- **Pause switches** (`src/lib/protocol`): independent per subsystem — `claims`, `airdrops`, `nft_minting`, `token_launches`, `reward_calculations`, `fee_processing`. Wired to: claims (`/api/rewards/claim`), token launches (`/api/pump/create`), fee processing (cron). Others get wired when their systems are built. Pausing stores a reason and deletes nothing. Public `GET /api/protocol/status` feeds the "PANDA PROTOCOL PAUSED" banner (EN/ES).
+- **Fail closed**: if the pause state can't be read, the subsystem is treated as paused.
+- **Admin** (`/admin`, `/api/admin/*`): enforced server-side — a wallet in `ADMIN_WALLETS` with a wallet sign-in from the last 30 minutes, same-origin check, rate limit, exact confirmation phrase ("PAUSE claims"), every change audited + alerted. Empty `ADMIN_WALLETS` = nobody is admin.
+- Tests: 34 unit tests + 27-check end-to-end script (authorization, validation, pause/resume gating claims and launches independently, audit content and ordering, no secrets in output).
+- Limits: audit recording is best-effort (a failed write is logged, doesn't block — so an emergency pause can't be blocked); audit blobs are readable by anyone with the URL (no secrets stored, wallet addresses and public signatures only); no hash-chaining, so it is append-only by convention, not tamper-evident; a pause reaches other server instances within ~5 s; the admin UI's signed-in view was type-checked but not clicked through with a real wallet; admin is a single-wallet check, not multisig.
+
 ## Environment variables
 PUBLIC: `NEXT_PUBLIC_SOLANA_RPC_URL`, `NEXT_PUBLIC_PANDA_TREASURY`, `NEXT_PUBLIC_PANDA_TOKEN_MINT`, `NEXT_PUBLIC_PANDA_REWARDS_POOL`.
-SERVER_ONLY: `AUTH_SESSION_SECRET`, `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.
+SERVER_ONLY: `AUTH_SESSION_SECRET`, `ADMIN_WALLETS`, `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.
 
 ## Trust assumptions today
 Rewards payouts are off-chain-authorised (server holds the pool key) — not trust-minimised. SL/TP tokens sit in Jupiter's Privy vault. Public price/market data is third-party. Vercel/Blob availability.

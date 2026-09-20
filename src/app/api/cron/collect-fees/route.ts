@@ -5,6 +5,8 @@ import { getRegisteredMints } from "@/lib/rewards/registry";
 import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { alertOps } from "@/lib/alerts";
+import { pausedResponse } from "@/lib/protocol/guard";
+import { recordAudit } from "@/lib/audit/log";
 import { collectFeesForMint } from "@/lib/pump/distribute";
 import { getTokenHolders, totalHolderAmount } from "@/lib/solana/holders";
 
@@ -21,6 +23,7 @@ function isAuthorized(req: Request): boolean {
 
 export async function GET(req: Request) {
   if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (await pausedResponse("fee_processing")) return NextResponse.json({ skipped: "fee_processing is paused" });
 
   try {
     const started = Date.now();
@@ -84,6 +87,17 @@ export async function GET(req: Request) {
       }
     }
 
+    await recordAudit({
+      actor: "system:cron",
+      action: "cron.collect_fees",
+      object: "registry",
+      newState: {
+        processed: results.length,
+        ofRegistered: mints.length,
+        failed: results.filter((r) => r.error).length,
+        distributedLamports: results.reduce((sum, r) => sum + (r.distributedLamports ?? 0), 0),
+      },
+    });
     return NextResponse.json({ processed: results.length, ofRegistered: mints.length, results });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Cron run failed.";

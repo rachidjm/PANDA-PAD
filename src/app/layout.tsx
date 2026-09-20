@@ -4,6 +4,7 @@ import "./globals.css";
 import { PandaDefs } from "@/components/panda/Panda";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import ProtocolBanner from "@/components/ProtocolBanner";
 import WalletProvider from "@/components/providers/WalletProvider";
 import MotionProvider from "@/components/providers/MotionProvider";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <MotionProvider>
             <WalletProvider>
               <Navbar />
+              <ProtocolBanner />
               <main className="flex-1">{children}</main>
               <Footer />
             </WalletProvider>

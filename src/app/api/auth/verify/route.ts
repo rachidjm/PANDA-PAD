@@ -4,6 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { burnNonce, isNonceFormat, readNonce, sameOrigin, sessionSecret, setSessionCookie } from "@/lib/auth/session";
 import { buildSignInMessage, verifyEd25519 } from "@/lib/auth/wallet-auth";
+import { recordAudit } from "@/lib/audit/log";
 
 const FAIL = { error: "Sign-in failed — please try again." };
 
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     // Atomic single-use: a concurrent replay of the same signature loses here.
     if (!(await burnNonce(nonce, wallet))) return NextResponse.json(FAIL, { status: 401 });
 
+    await recordAudit({ req, actor: wallet, action: "auth.login", object: "session" });
     const res = NextResponse.json({ wallet });
     setSessionCookie(res, wallet);
     return res;

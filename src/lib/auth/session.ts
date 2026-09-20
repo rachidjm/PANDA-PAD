@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { blobConfigured, readJson, updateJson } from "@/lib/rewards/blob-store";
-import { consumeNonce, createSessionToken, NonceRecord, SESSION_TTL_MS, verifySessionToken } from "./wallet-auth";
+import { consumeNonce, createSessionToken, NonceRecord, readSessionToken, SESSION_TTL_MS } from "./wallet-auth";
 
 /** Server-only. Wallet sessions: an HttpOnly cookie holding an HMAC-signed, short-lived token. */
 
@@ -24,9 +24,14 @@ function readCookie(req: Request, name: string): string | undefined {
 
 /** The wallet this request has proven it controls, or null. */
 export function getSessionWallet(req: Request): string | null {
+  return getSession(req)?.wallet ?? null;
+}
+
+/** The wallet and the time it last signed in, or null. */
+export function getSession(req: Request): { wallet: string; issuedAt: number } | null {
   const secret = sessionSecret();
   if (!secret) return null;
-  return verifySessionToken(readCookie(req, SESSION_COOKIE), secret, Date.now());
+  return readSessionToken(readCookie(req, SESSION_COOKIE), secret, Date.now());
 }
 
 export function setSessionCookie(res: NextResponse, wallet: string): void {

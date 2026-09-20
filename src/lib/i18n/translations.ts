@@ -186,6 +186,13 @@ export const dict = {
   },
   "rd.claiming": { en: "Claiming…", es: "Reclamando…" },
   "rd.claimAll": { en: "Claim all", es: "Reclamar todo" },
+  "pause.title": { en: "PANDA PROTOCOL PAUSED", es: "PROTOCOLO PANDA EN PAUSA" },
+  "pause.claims": { en: "Reward claims", es: "Reclamos de recompensas" },
+  "pause.airdrops": { en: "Airdrops", es: "Airdrops" },
+  "pause.nft_minting": { en: "NFT minting", es: "Creación de NFT" },
+  "pause.token_launches": { en: "Coin launches", es: "Lanzamiento de monedas" },
+  "pause.reward_calculations": { en: "Reward calculations", es: "Cálculo de recompensas" },
+  "pause.fee_processing": { en: "Fee processing", es: "Procesado de comisiones" },
   "auth.noSign": {
     en: "This wallet can't sign messages, which signing in requires.",
     es: "Esta wallet no puede firmar mensajes, que es necesario para iniciar sesión.",

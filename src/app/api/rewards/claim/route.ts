@@ -15,6 +15,8 @@ import { meetsRewardsThreshold } from "@/lib/rewards";
 import { alertOps } from "@/lib/alerts";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
+import { pausedResponse } from "@/lib/protocol/guard";
+import { recordAudit } from "@/lib/audit/log";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 // Never let a payout drain the pool below what it needs to keep signing (fees + rent headroom).
@@ -79,6 +81,8 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
+  const paused = await pausedResponse("claims");
+  if (paused) return paused;
   if (rateLimited(`claim:ip:${clientIp(req)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many claim attempts — wait a minute and try again." }, { status: 429 });
   }
@@ -170,6 +174,7 @@ export async function POST(req: Request) {
       if (confirmation.value.err) {
         await rollback();
         await alertOps("Claim transaction failed on-chain", { mint, holder, signature, err: confirmation.value.err });
+        await recordAudit({ req, actor: holder, action: "claim.failed_onchain", object: mint, newState: { signature, lamports: reserved } });
         return NextResponse.json({ error: "The payout failed on-chain — nothing was paid, please try again." }, { status: 500 });
       }
     } catch (err) {
@@ -184,6 +189,7 @@ export async function POST(req: Request) {
         signature,
         lamports: reserved,
       });
+      await recordAudit({ req, actor: holder, action: "claim.outcome_unknown", object: mint, newState: { signature, lamports: reserved } });
       reserved = 0;
       return NextResponse.json(
         { error: `Your claim was submitted but not confirmed yet. Check your wallet before retrying (tx ${signature}).` },
@@ -193,6 +199,7 @@ export async function POST(req: Request) {
 
     const paid = reserved;
     reserved = 0;
+    await recordAudit({ req, actor: holder, action: "claim.paid", object: mint, newState: { signature, lamports: paid } });
     return NextResponse.json({ signature, lamports: paid });
   } catch (err) {
     // Anything unexpected after a reservation was booked and before the send: undo it.

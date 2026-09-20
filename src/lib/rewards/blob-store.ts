@@ -23,7 +23,7 @@ export function blobConfigured(): boolean {
   return !!BLOB_TOKEN;
 }
 
-function requireToken(): string {
+export function requireToken(): string {
   if (!BLOB_TOKEN) throw new Error("Blob storage isn't configured — set BLOB_READ_WRITE_TOKEN.");
   return BLOB_TOKEN;
 }
