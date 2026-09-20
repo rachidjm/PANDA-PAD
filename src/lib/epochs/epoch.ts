@@ -34,6 +34,11 @@ export type Epoch = {
   /** sha256 of the finalized totals — pins them; set on FINALIZED. */
   totalsHash?: string;
   finalizedAt?: number;
+  /** Set when the airdrop is published (FINALIZED -> DISTRIBUTING): the Merkle root, pinned allocation hash and leaf count. */
+  merkleRoot?: string;
+  allocationHash?: string;
+  airdropLeafCount?: number;
+  airdropPublishedAt?: number;
 };
 
 const NEXT: Record<EpochStatus, EpochStatus[]> = {

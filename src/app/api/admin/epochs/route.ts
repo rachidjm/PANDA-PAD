@@ -59,7 +59,14 @@ export async function POST(req: Request) {
 
     if (body.action === "transition") {
       const to = body.to as EpochStatus;
-      if (!EPOCH_STATUSES.includes(to) || to === "FINALIZED") return bad("Invalid target status (use the finalize action for FINALIZED).");
+      if (!EPOCH_STATUSES.includes(to) || to === "FINALIZED") return bad("Invalid target status (FINALIZED has its own finalize action).");
+      if (to === "DISTRIBUTING") {
+        // Only ever entered by publishing the airdrop; the one thing allowed here is RESUMING a paused distribution.
+        const current = (await getEpochs()).find((e) => e.id === id);
+        if (!(current?.status === "PAUSED" && current.pausedFrom === "DISTRIBUTING")) {
+          return bad("DISTRIBUTING is entered by publishing the airdrop, not by a manual transition.");
+        }
+      }
       if (body.confirm !== `${to} EPOCH ${id}`) return bad(`Confirmation must be exactly "${to} EPOCH ${id}".`);
       if (to === "CALCULATING") {
         const paused = await pausedResponse("reward_calculations");
