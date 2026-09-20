@@ -1,4 +1,4 @@
-import { list, put } from "@vercel/blob";
+import { head, list, put } from "@vercel/blob";
 import { blobConfigured, readJson, requireToken, updateJson } from "@/lib/rewards/blob-store";
 
 /**
@@ -45,6 +45,28 @@ export async function docPutOnce(path: string, data: unknown): Promise<boolean> 
     return true;
   } catch (err) {
     if (err instanceof Error && /already exists/i.test(err.message)) return false;
+    throw err;
+  }
+}
+
+const memoryFiles = new Map<string, { bytes: Buffer; contentType: string }>();
+
+/**
+ * Stores a public, content-addressed file ONCE and returns its URL. Calling again for a path that
+ * already exists returns the existing URL (same path = same content by construction). Files are
+ * readable by anyone with the URL: never put anything private in them. Local development without
+ * a Blob store keeps bytes in memory and returns a placeholder URL.
+ */
+export async function filePutOnce(path: string, bytes: Buffer, contentType: string): Promise<string> {
+  if (inMemory()) {
+    if (!memoryFiles.has(path)) memoryFiles.set(path, { bytes, contentType });
+    return `https://blob.dev.invalid/${path}`;
+  }
+  const token = requireToken();
+  try {
+    return (await put(path, bytes, { access: "public", addRandomSuffix: false, allowOverwrite: false, contentType, token })).url;
+  } catch (err) {
+    if (err instanceof Error && /already exists/i.test(err.message)) return (await head(path, { token })).url;
     throw err;
   }
 }

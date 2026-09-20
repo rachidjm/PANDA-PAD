@@ -18,7 +18,8 @@ import sharp, { type Metadata } from "sharp";
  */
 
 export const IMAGE_LIMITS = {
-  maxBytes: 5 * 1024 * 1024,
+  // Vercel functions reject request bodies over 4.5 MB, so the file (plus form overhead) has to fit under that.
+  maxBytes: 4 * 1024 * 1024,
   minSide: 256,
   maxSide: 8000,
   maxInputPixels: 40_000_000,
@@ -63,7 +64,7 @@ const hex = (buf: Uint8Array | Buffer) => createHash("sha256").update(buf).diges
 
 export async function processImage(input: Uint8Array): Promise<ProcessedImage> {
   if (input.length === 0) throw new ImageRejected("EMPTY", "The file is empty.");
-  if (input.length > IMAGE_LIMITS.maxBytes) throw new ImageRejected("TOO_LARGE", "The image is larger than 5 MB.");
+  if (input.length > IMAGE_LIMITS.maxBytes) throw new ImageRejected("TOO_LARGE", "The image is larger than 4 MB.");
   const kind = sniffImageKind(input);
   if (!kind) throw new ImageRejected("UNSUPPORTED_TYPE", "Only PNG, JPEG, GIF and WebP images are accepted.");
 
