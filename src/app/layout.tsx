@@ -8,6 +8,7 @@ import ProtocolBanner from "@/components/ProtocolBanner";
 import WalletProvider from "@/components/providers/WalletProvider";
 import MotionProvider from "@/components/providers/MotionProvider";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
+import { isEnabled } from "@/lib/config/flags";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -34,7 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <LanguageProvider>
           <MotionProvider>
             <WalletProvider>
-              <Navbar />
+              <Navbar showThemes={isEnabled("NFT_THEMES")} />
               <ProtocolBanner />
               <main className="flex-1">{children}</main>
               <Footer />

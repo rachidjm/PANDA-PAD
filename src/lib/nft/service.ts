@@ -207,24 +207,30 @@ export async function prepareMint(
 
 export async function confirmMint(
   deps: NftDeps,
-  args: { wallet: string; contentId: string; signature: unknown }
+  args: { wallet: string; contentId: string; signature?: unknown }
 ): Promise<{ ok: true; record: NftRecord; alreadyPublished: boolean } | Failure> {
   const now = deps.now();
   const rec = await getRecord(args.contentId);
   if (!rec || rec.wallet !== args.wallet) return fail("NOT_FOUND", "No such upload.", 404);
   if (rec.status === "PUBLISHED") return { ok: true, record: rec, alreadyPublished: true };
   if (rec.status !== "PREPARED" || !rec.assetAddress) return fail("BAD_STATE", "This NFT hasn't been prepared for minting.", 409);
-  if (typeof args.signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(args.signature)) return fail("BAD_SIGNATURE", "Invalid transaction signature.", 400);
-
-  const status = await deps.signatureStatus(args.signature);
-  if (status === "failed") return fail("TX_FAILED", "The transaction failed on-chain — nothing was minted. You can try again.", 409);
-  if (status === "pending") return fail("PENDING", "The transaction isn't confirmed yet — check again shortly.", 202);
+  // A signature is optional: someone who closed the tab after signing has no signature to give. Without one
+  // nothing is taken on trust — the asset itself is read from the chain and must match exactly, which is
+  // proof enough that the mint happened (and by whom: the owner must be this wallet).
+  let signature = "";
+  if (args.signature !== undefined && args.signature !== null) {
+    if (typeof args.signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(args.signature)) return fail("BAD_SIGNATURE", "Invalid transaction signature.", 400);
+    signature = args.signature;
+    const status = await deps.signatureStatus(signature);
+    if (status === "failed") return fail("TX_FAILED", "The transaction failed on-chain — nothing was minted. You can try again.", 409);
+    if (status === "pending") return fail("PENDING", "The transaction isn't confirmed yet — check again shortly.", 202);
+  }
 
   const expected = expectedFor(rec, rec.assetAddress);
   const problem = await deps.verifyOnChain(expected);
   if (problem === "asset not found on-chain") return fail("PENDING", "The transaction is confirmed but the asset isn't visible yet — check again shortly.", 202);
   if (problem) {
-    await updateRecord(rec.contentId, (cur) => ({ next: cur && cur.status === "PREPARED" ? { ...cur, status: "REJECTED_ONCHAIN" as const, failReason: problem, signature: args.signature as string } : cur, result: null }));
+    await updateRecord(rec.contentId, (cur) => ({ next: cur && cur.status === "PREPARED" ? { ...cur, status: "REJECTED_ONCHAIN" as const, failReason: problem, ...(signature ? { signature } : {}) } : cur, result: null }));
     await deps.alert("Minted asset doesn't match what PANDA specified — NOT published", { contentId: rec.contentId, asset: rec.assetAddress, problem });
     return fail("MISMATCH", "The minted asset doesn't match the expected NFT, so it wasn't published.", 409);
   }
@@ -232,7 +238,7 @@ export async function confirmMint(
   const published = await updateRecord<NftRecord | null>(rec.contentId, (cur) => {
     if (!cur || (cur.status !== "PREPARED" && cur.status !== "PUBLISHED")) return { next: cur, result: null };
     if (cur.status === "PUBLISHED") return { next: cur, result: cur };
-    const next: NftRecord = { ...cur, status: "PUBLISHED", signature: args.signature as string, publishedAt: now };
+    const next: NftRecord = { ...cur, status: "PUBLISHED", ...(signature ? { signature } : {}), publishedAt: now };
     return { next, result: next };
   });
   if (!published) return fail("BAD_STATE", "This NFT can't be published.", 409);
@@ -245,7 +251,7 @@ export async function confirmMint(
     wallet: rec.wallet,
     name: rec.name,
     imageUrl: rec.imageUrl,
-    signature: args.signature,
+    signature,
     publishedAt: published.publishedAt ?? now,
     review: published.review,
   });

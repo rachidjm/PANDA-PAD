@@ -8,13 +8,14 @@ import CoinSearchBox from "@/components/CoinSearchBox";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
-export default function Navbar() {
+export default function Navbar({ showThemes = false }: { showThemes?: boolean }) {
   const pathname = usePathname();
   const { t } = useLanguage();
 
   const links = [
     { href: "/discover", label: t("nav.discover") },
     { href: "/create", label: t("nav.create") },
+    ...(showThemes ? [{ href: "/themes", label: t("nav.themes") }] : []),
     { href: "/rewards", label: t("nav.rewards") },
     { href: "/analytics", label: t("nav.analytics") },
   ];

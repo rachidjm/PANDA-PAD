@@ -168,7 +168,7 @@ test("reserve / publish / release never mutate their input and prune expired res
 // ---- metadata ---------------------------------------------------------------
 
 test("text is cleaned: control characters and angle brackets removed, whitespace collapsed", () => {
-  assert.equal(cleanText("  Hello   <b>World</b>\n\tagain "), "Hello bWorld/b again");
+  assert.equal(cleanText("  Hello\u0000  <b>World</b>\n\tagain "), "Hello bWorld/b again");
   assert.equal(cleanText("<script>alert(1)</script>"), "scriptalert(1)/script");
   assert.equal(cleanText("‮"), "‮", "bidi controls are not silently trusted or removed here (display escapes them)");
 });

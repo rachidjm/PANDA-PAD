@@ -324,7 +324,7 @@ test("confirm never publishes on a failed transaction, a pending one, or an asse
 
   const badSig = makeDeps();
   const id5 = await mk(badSig, await fresh());
-  for (const s of ["", "short", 5, null, "!".repeat(88)]) {
+  for (const s of ["", "short", 5, "!".repeat(88)]) {
     const r = await confirmMint(badSig.deps, { wallet: w, contentId: id5, signature: s });
     assert.ok(!r.ok && r.code === "BAD_SIGNATURE", String(s));
   }
@@ -387,4 +387,42 @@ test("when file storage fails, the slot and the image reservation are given back
   assert.equal(broken.alerts.length, 1);
   const ok = makeDeps();
   assert.ok((await upload(ok, w, theme.slug, art)).ok, "the same wallet can retry the same image: nothing was left reserved");
+});
+
+test("someone who closed the tab can confirm WITHOUT a signature: the chain is the only authority, and it must match exactly", async () => {
+  const { theme, start } = await activeTheme({ creationLimit: 10 });
+  clock = start + H;
+  const w = wallet();
+  const mk = async (h: Harness) => {
+    const up = await upload(h, w, theme.slug, await fresh());
+    assert.ok(up.ok);
+    if (!up.ok) throw new Error();
+    assert.ok((await prepareMint(h.deps, { wallet: w, contentId: up.record.contentId, assetAddress: Keypair.generate().publicKey.toBase58() })).ok);
+    return up.record.contentId;
+  };
+
+  const good = makeDeps();
+  const id1 = await mk(good);
+  const done = await confirmMint(good.deps, { wallet: w, contentId: id1 });
+  assert.ok(done.ok && !done.alreadyPublished);
+  assert.equal((await getRecord(id1))?.status, "PUBLISHED");
+  assert.equal((await getRecord(id1))?.signature, undefined, "no signature is invented");
+
+  const notThere = makeDeps();
+  notThere.state.chainProblem = "asset not found on-chain";
+  const id2 = await mk(notThere);
+  const r2 = await confirmMint(notThere.deps, { wallet: w, contentId: id2 });
+  assert.ok(!r2.ok && r2.code === "PENDING", "nothing minted yet -> nothing published");
+  assert.equal((await getRecord(id2))?.status, "PREPARED");
+
+  const wrong = makeDeps();
+  wrong.state.chainProblem = "owner differs";
+  const id3 = await mk(wrong);
+  const r3 = await confirmMint(wrong.deps, { wallet: w, contentId: id3, signature: null });
+  assert.ok(!r3.ok && r3.code === "MISMATCH");
+  assert.equal((await getRecord(id3))?.status, "REJECTED_ONCHAIN");
+
+  const thief = wallet();
+  const r4 = await confirmMint(good.deps, { wallet: thief, contentId: id2 });
+  assert.ok(!r4.ok && r4.code === "NOT_FOUND", "the chain check never lets someone else publish your upload");
 });

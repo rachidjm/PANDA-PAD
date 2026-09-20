@@ -154,3 +154,13 @@ export async function appendPublished(themeId: number, item: PublishedItem): Pro
 export async function listPublished(themeId: number): Promise<PublishedItem[]> {
   return (await docRead<PublishedDoc>(publishedPath(themeId), { version: 1, items: [] })).items;
 }
+
+// ---- a wallet's own uploads ---------------------------------------------------
+
+/** The records a wallet has in a theme (pending, prepared or published), newest first. */
+export async function listWalletRecords(themeId: number, wallet: string): Promise<NftRecord[]> {
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return [];
+  const slots = await docRead<SlotsDoc>(slotsPath(themeId, wallet), EMPTY_SLOTS);
+  const records = await Promise.all(slots.items.map((s) => getRecord(s.contentId)));
+  return records.filter((r): r is NftRecord => r !== null).sort((a, b) => b.createdAt - a.createdAt);
+}
