@@ -7,6 +7,8 @@ export type Position = {
   coinImage?: string;
   coinDoodle?: DoodleKind;
   coinBg?: string;
+  /** Recent closes of the coin's price, for a mini chart (real hourly closes when available, else the % -window shape used on the coin cards). */
+  priceHistory?: number[];
   /** Remaining real token balance implied by the trade log (0 for a closed position). */
   remainingTokens: number;
   /** Average USD cost per token across every buy still contributing to `remainingTokens`. */
@@ -28,7 +30,7 @@ export type Position = {
 export function computePositions(
   trades: LoggedTrade[],
   currentPriceByMint: Record<string, number | undefined>,
-  coinMeta: Record<string, { image?: string; doodle?: DoodleKind; bg?: string }>
+  coinMeta: Record<string, { image?: string; doodle?: DoodleKind; bg?: string; priceHistory?: number[] }>
 ): { open: Position[]; closed: Position[] } {
   const byMint = new Map<string, LoggedTrade[]>();
   for (const t of trades) {
@@ -81,6 +83,7 @@ export function computePositions(
         coinImage: meta.image,
         coinDoodle: meta.doodle,
         coinBg: meta.bg,
+        priceHistory: meta.priceHistory,
         remainingTokens: totalTokens,
         avgCostUsd,
         pnlUsd,
@@ -95,6 +98,7 @@ export function computePositions(
         coinImage: meta.image,
         coinDoodle: meta.doodle,
         coinBg: meta.bg,
+        priceHistory: meta.priceHistory,
         remainingTokens: 0,
         avgCostUsd: 0,
         pnlUsd: realizedPnlUsd,

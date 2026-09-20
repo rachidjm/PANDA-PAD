@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       Promise.all(
         mints.map(async (m) => {
           const { coin } = await getLiveCoin(m).catch(() => ({ coin: undefined }));
-          return [m.toLowerCase(), coin ? { image: coin.image, doodle: coin.doodle, bg: coin.bg } : {}] as const;
+          return [m.toLowerCase(), coin ? { image: coin.image, doodle: coin.doodle, bg: coin.bg, priceHistory: coin.priceHistory } : {}] as const;
         })
       ),
     ]);

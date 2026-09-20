@@ -224,8 +224,8 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className={`font-medium ${p.pnlUsd >= 0 ? "text-bamboo" : "text-clay-red"}`}>
-                    {p.pnlUsd >= 0 ? "+" : ""}
-                    {formatUsd(p.pnlUsd)}
+                    {p.pnlUsd >= 0 ? "+" : "-"}
+                    {formatUsd(Math.abs(p.pnlUsd))}
                   </p>
                   <p className={`text-xs ${p.pnlUsd >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(p.pnlPct)}</p>
                 </div>

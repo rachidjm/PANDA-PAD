@@ -86,6 +86,7 @@ export const dict = {
   "side.closed": { en: "Closed", es: "Cerrada" },
   "side.held": { en: "Held", es: "En cartera" },
   "side.avgCost": { en: "Avg cost", es: "Coste medio" },
+  "side.chart": { en: "Recent price", es: "Precio reciente" },
   "side.fullyClosed": { en: "Fully sold", es: "Vendida por completo" },
   "side.pnl": { en: "P&L", es: "Resultado" },
   "side.launches": { en: "Latest Launches", es: "Últimos lanzamientos" },

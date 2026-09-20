@@ -138,45 +138,70 @@ function TradeCard({ position: p }: { position: Position }) {
   return (
     <Link
       href={`/coin/${p.mint}`}
-      className="block overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised transition-colors hover:border-paper/25"
+      className="block overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised p-4 transition-colors hover:border-paper/25"
     >
-      <div className="relative h-20 overflow-hidden" style={{ backgroundColor: p.coinBg || "#171512" }}>
-        {p.coinImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.coinImage} alt="" className="h-full w-full scale-125 object-cover opacity-60 blur-[2px]" />
-        )}
-        <span className="absolute right-3 top-3 rounded-full bg-ink/70 px-2.5 py-1 text-[11px] font-semibold text-paper/80 backdrop-blur">
-          {isOpen ? t("side.open") : t("side.closed")}
-        </span>
-      </div>
-      <div className="px-4 pb-4">
-        <div className="-mt-7 h-14 w-14 overflow-hidden rounded-full border-4 border-ink-raised bg-ink">
+      <div className="flex items-center gap-3">
+        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-ink">
           <CoinAvatar image={p.coinImage} ticker={p.ticker} />
         </div>
-        <p className="mt-2 font-display text-lg font-bold">${p.ticker}</p>
-
-        <div className="mt-3 flex items-end justify-between gap-3 text-sm">
-          <div>
-            <p className="font-semibold">
-              {isOpen ? p.remainingTokens.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t("side.fullyClosed")}
-              {isOpen && <span className="ml-1 text-xs font-normal text-panda-grey">{t("side.held")}</span>}
-            </p>
-            {isOpen && (
-              <p className="text-xs text-panda-grey">
-                {t("side.avgCost")} {formatUsd(p.avgCostUsd)}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <p className={`font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
-              {positive ? "+" : ""}
-              {formatUsd(p.pnlUsd)}
-            </p>
-            <p className={`text-xs ${positive ? "text-bamboo" : "text-clay-red"}`}>{formatPct(p.pnlPct)}</p>
-          </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-lg font-bold leading-tight">${p.ticker}</p>
+          <p className="text-xs text-panda-grey">{isOpen ? t("side.open") : t("side.closed")}</p>
+        </div>
+        <div className="text-right">
+          <p className={`font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
+            {positive ? "+" : "-"}
+            {formatUsd(Math.abs(p.pnlUsd))}
+          </p>
+          <p className={`text-xs ${positive ? "text-bamboo" : "text-clay-red"}`}>{formatPct(p.pnlPct)}</p>
         </div>
       </div>
+
+      <div className="mt-3 rounded-xl bg-ink px-2 pt-2">
+        <PositionChart data={p.priceHistory} positive={positive} />
+        <p className="pb-1.5 pt-0.5 text-center text-[10px] text-panda-grey">{t("side.chart")}</p>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+        <p className="font-semibold">
+          {isOpen ? p.remainingTokens.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t("side.fullyClosed")}
+          {isOpen && <span className="ml-1 font-normal text-panda-grey">{t("side.held")}</span>}
+        </p>
+        {isOpen && (
+          <p className="text-panda-grey">
+            {t("side.avgCost")} {formatUsd(p.avgCostUsd)}
+          </p>
+        )}
+      </div>
     </Link>
+  );
+}
+
+/** Mini area chart of the coin's recent price, coloured by whether the position is up or down. */
+function PositionChart({ data, positive }: { data?: number[]; positive: boolean }) {
+  const width = 280;
+  const height = 64;
+  if (!data || data.length < 2) {
+    return <div className="flex h-16 items-center justify-center text-[11px] text-panda-grey">—</div>;
+  }
+  const min = Math.min(...data);
+  const range = Math.max(...data) - min || 1;
+  const step = width / (data.length - 1);
+  const pts = data.map((v, i) => `${(i * step).toFixed(1)},${(height - 4 - ((v - min) / range) * (height - 8)).toFixed(1)}`);
+  const color = positive ? "var(--bamboo)" : "var(--clay-red)";
+  const gradientId = `pos-fill-${positive ? "up" : "down"}`;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={64} preserveAspectRatio="none" aria-hidden>
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,${height} ${pts.join(" ")} ${width},${height}`} fill={`url(#${gradientId})`} />
+      <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
