@@ -22,14 +22,26 @@ export type Launch = {
 const CACHE_MS = 30_000;
 const SHOWN = 6;
 // Brand-new coins are mostly dust; skip the ones with no traction at all so the list isn't a wall of $2K coins.
-const MIN_MARKET_CAP_USD = 3_000;
+const MIN_MARKET_CAP_USD = 8_000;
 let cache: { launches: Launch[]; expires: number } | null = null;
 
 /** The newest coins straight from Pump.fun's own launch feed (real launch time, real socials). */
 async function fromPumpFeed(): Promise<Launch[]> {
   const feed = await fetchNewestPumpCoins(60);
-  return feed
+  // One coin per name/ticker (highest market cap wins) — lookalikes launched minutes apart confuse buyers.
+  const seen = new Set<string>();
+  const unique = feed
     .filter((c) => !c.nsfw && !c.banned && c.usdMarketCap >= MIN_MARKET_CAP_USD)
+    .sort((a, b) => b.usdMarketCap - a.usdMarketCap)
+    .filter((c) => {
+      const keys = [c.symbol, c.name].map((s) => s.toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean);
+      if (keys.some((k) => seen.has(k))) return false;
+      keys.forEach((k) => seen.add(k));
+      return true;
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return unique
     .slice(0, SHOWN)
     .map((c) => ({
       mint: c.mint,

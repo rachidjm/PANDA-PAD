@@ -13,6 +13,21 @@
 
 const BASE = "https://frontend-api-v3.pump.fun";
 
+// Pump.fun rate-limits this API hard (HTTP 429 after a modest burst), so it's
+// used sparingly: list pages are cached (the newest page briefly, deeper
+// pages longer), a 429 puts every call on hold for a minute, and while
+// on hold a cached page — even a stale one — is served instead of failing.
+let backoffUntil = 0;
+const BACKOFF_MS = 60_000;
+
+function onHold(): boolean {
+  return Date.now() < backoffUntil;
+}
+
+function noteStatus(status: number) {
+  if (status === 429) backoffUntil = Date.now() + BACKOFF_MS;
+}
+
 export type PumpCoin = {
   mint: string;
   name: string;
@@ -75,6 +90,7 @@ const CACHE_MS = 6 * 60 * 60 * 1000;
 const cache = new Map<string, { coin: PumpCoin | null; expires: number }>();
 
 async function lookupBatch(mints: string[]): Promise<PumpCoin[]> {
+  if (onHold()) throw new Error("Pump.fun API on hold after rate limit");
   const res = await fetch(`${BASE}/coins/mints`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -82,6 +98,7 @@ async function lookupBatch(mints: string[]): Promise<PumpCoin[]> {
     cache: "no-store",
     signal: AbortSignal.timeout(6000),
   });
+  noteStatus(res.status);
   if (!res.ok) throw new Error(`Pump.fun /coins/mints → ${res.status}`);
   const raw = (await res.json()) as RawPumpCoin[];
   return raw.map(mapCoin).filter((c): c is PumpCoin => c !== null);
@@ -121,12 +138,63 @@ export async function fetchPumpCoins(mints: string[]): Promise<Map<string, PumpC
 
 /** The newest real launches on Pump.fun, newest first. Throws if the API is unreachable. */
 export async function fetchNewestPumpCoins(limit: number): Promise<PumpCoin[]> {
+  if (onHold()) throw new Error("Pump.fun API on hold after rate limit");
   const res = await fetch(`${BASE}/coins?limit=${limit}&sort=created_timestamp&order=DESC&includeNsfw=false`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
     signal: AbortSignal.timeout(6000),
   });
+  noteStatus(res.status);
   if (!res.ok) throw new Error(`Pump.fun /coins → ${res.status}`);
   const raw = (await res.json()) as RawPumpCoin[];
   return raw.map(mapCoin).filter((c): c is PumpCoin => c !== null);
+}
+
+const pageCache = new Map<string, { coins: PumpCoin[]; fetchedAt: number }>();
+
+/**
+ * One page (max 70) of Pump.fun's coin list. `complete: true` = graduated to
+ * PumpSwap, `false` = still on the bonding curve. Note: a graduated coin's
+ * `usdMarketCap` here goes stale after migration, so take market cap from
+ * another source for those.
+ */
+export async function fetchPumpCoinPage(opts: {
+  complete: boolean;
+  sort: "created_timestamp" | "last_trade_timestamp" | "market_cap";
+  offset?: number;
+  limit?: number;
+}): Promise<PumpCoin[]> {
+  const key = `${opts.complete}|${opts.sort}|${opts.offset ?? 0}|${opts.limit ?? 70}`;
+  const cached = pageCache.get(key);
+  const ttl = (opts.offset ?? 0) === 0 ? 90_000 : 10 * 60_000;
+  if (cached && Date.now() - cached.fetchedAt < ttl) return cached.coins;
+  if (onHold()) {
+    if (cached) return cached.coins;
+    throw new Error("Pump.fun API on hold after rate limit");
+  }
+
+  const params = new URLSearchParams({
+    limit: String(opts.limit ?? 70),
+    offset: String(opts.offset ?? 0),
+    sort: opts.sort,
+    order: "DESC",
+    complete: String(opts.complete),
+    includeNsfw: "false",
+  });
+  try {
+    const res = await fetch(`${BASE}/coins?${params}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    noteStatus(res.status);
+    if (!res.ok) throw new Error(`Pump.fun /coins → ${res.status}`);
+    const raw = (await res.json()) as RawPumpCoin[];
+    const coins = raw.map(mapCoin).filter((c): c is PumpCoin => c !== null);
+    pageCache.set(key, { coins, fetchedAt: Date.now() });
+    return coins;
+  } catch (err) {
+    if (cached) return cached.coins; // stale beats nothing
+    throw err;
+  }
 }

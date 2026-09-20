@@ -10,7 +10,7 @@ import {
   GeckoPool,
   GeckoIncludedToken,
 } from "./gecko/client";
-import { fetchPumpCoins, PumpCoin } from "./pump/frontend-api";
+import { fetchPumpCoins, fetchPumpCoinPage, PumpCoin } from "./pump/frontend-api";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
@@ -186,8 +186,13 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
 
   lastFetchAt = Date.now();
 
-  let coins: Coin[] = [];
-  if (Date.now() >= geckoCooldownUntil) {
+  // Primary source: coins launched on Pump.fun in the last day that have real
+  // traction. Only if that comes back thin do we fall back to the older
+  // "biggest pools by volume" lists below.
+  let coins: Coin[] = await fetchHotCoins().catch(() => []);
+  if (coins.length < MIN_HOT_LIST) coins = [];
+
+  if (coins.length === 0 && Date.now() >= geckoCooldownUntil) {
     coins = await fetchListFromGecko(opts.force);
     // A rate-limited GeckoTerminal returns nothing (or only a stray page) —
     // stop hammering it for a minute instead of burning more of its budget.
@@ -207,6 +212,7 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
   // Rugged / abandoned pools that quote a few cents of market cap aren't worth a slot.
   coins = coins.filter((c) => c.marketCap >= MIN_LISTED_MARKET_CAP);
   coins = await enrichWithPump(coins);
+  coins = dedupeByIdentity(coins);
 
   if (coins.length > 0) {
     coins = await fillMissingImages(coins);
@@ -259,6 +265,79 @@ async function enrichWithPump(coins: Coin[]): Promise<Coin[]> {
       const p = info.get(c.mint);
       return p ? applyPump(c, p) : c;
     });
+}
+
+const HOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const HOT_MIN_MARKET_CAP = 30_000;
+const MIN_HOT_LIST = 12;
+
+const normalizeIdentity = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * One coin per identity. Impersonators reuse a name or ticker (three "USDF"s,
+ * two "OpenAI"s...) and people buy the wrong one, so among coins that share a
+ * ticker or a name only the one with the highest market cap is kept. Ticker
+ * and name are compared in the same pool ("Tipped" the name clashes with
+ * "TIPPED" the ticker).
+ */
+function dedupeByIdentity(coins: Coin[]): Coin[] {
+  const seen = new Set<string>();
+  const kept: Coin[] = [];
+  for (const coin of [...coins].sort((a, b) => b.marketCap - a.marketCap)) {
+    const keys = [normalizeIdentity(coin.ticker), normalizeIdentity(coin.name)].filter(Boolean);
+    if (keys.some((k) => seen.has(k))) continue;
+    keys.forEach((k) => seen.add(k));
+    kept.push(coin);
+  }
+  return kept.sort((a, b) => b.volume24h - a.volume24h);
+}
+
+/**
+ * Coins launched on Pump.fun within the last 24h with real traction: candidates
+ * come from Pump.fun (recent graduates + recently-traded bonding-curve coins),
+ * and their market cap, volume and activity from Dexscreener — Pump.fun's own
+ * market cap goes stale after graduation, so it isn't used to rank.
+ */
+async function fetchHotCoins(): Promise<Coin[]> {
+  // One at a time, not in parallel — Pump.fun's API punishes bursts.
+  const wanted = [
+    ...[0, 70, 140, 210].map((offset) => ({ complete: true, sort: "created_timestamp" as const, offset })),
+    ...[0, 70].map((offset) => ({ complete: false, sort: "last_trade_timestamp" as const, offset })),
+  ];
+  const pages: PumpCoin[][] = [];
+  for (const page of wanted) {
+    try {
+      pages.push(await fetchPumpCoinPage(page));
+    } catch {
+      break; // rate-limited or down: work with what we have
+    }
+  }
+
+  const now = Date.now();
+  const candidates = new Map<string, PumpCoin>();
+  for (const p of pages.flat()) {
+    if (p.nsfw || p.banned) continue;
+    if (now - new Date(p.createdAt).getTime() > HOT_MAX_AGE_MS) continue;
+    // Still on the bonding curve, Pump.fun's market cap is live — skip the dust early.
+    if (!p.graduated && p.usdMarketCap < 15_000) continue;
+    candidates.set(p.mint, p);
+  }
+  if (candidates.size === 0) return [];
+
+  const mints = [...candidates.keys()];
+  const chunks: string[][] = [];
+  for (let i = 0; i < mints.length; i += 30) chunks.push(mints.slice(i, i + 30));
+  const pairs = (await Promise.all(chunks.map((c) => fetchDexTokensBatch(c).catch(() => [] as DexPair[])))).flat();
+  const best = bestPairs(pairs);
+
+  const coins: Coin[] = [];
+  for (const [mint, pump] of candidates) {
+    const pair = best.get(mint);
+    if (!pair) continue;
+    const coin = applyPump(dexPairToCoin(pair), pump);
+    if (coin.marketCap >= HOT_MIN_MARKET_CAP) coins.push(coin);
+  }
+  return coins;
 }
 
 let geckoCooldownUntil = 0;
