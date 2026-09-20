@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit/log";
 import { collectFeesForMint } from "@/lib/pump/distribute";
 import { getTokenHolders } from "@/lib/solana/holders";
 import { computeHolderCredits } from "@/lib/rewards/split";
+import { recordActivity } from "@/lib/activity/record";
 
 // Vercel Hobby's function timeout is 30s — leave a real safety margin so a
 // slow mint mid-batch can't blow past it; unstarted mints just wait for the
@@ -40,21 +41,30 @@ export async function GET(req: Request) {
         // shared across every mint, so measuring one mint's real contribution
         // requires nothing else touching that balance while it's in flight.
         const distributed = await collectFeesForMint(connection, mint);
-        if (!distributed) {
+        if (!distributed || distributed.lamports <= 0) {
           results.push({ mint, distributedLamports: null, holdersCredited: 0 });
           continue;
         }
+        // The distribution transaction is confirmed on-chain and its effect on the pool was measured: a verified event.
+        await recordActivity({
+          id: `fees:${distributed.signature}`,
+          kind: "fee_distribution",
+          ts: distributed.blockTimeMs ?? Date.now(),
+          mint,
+          lamports: distributed.lamports,
+          signature: distributed.signature,
+        });
 
         const holders = await getTokenHolders(connection, mint);
         if (holders.length === 0) {
-          results.push({ mint, distributedLamports: distributed, holdersCredited: 0 });
+          results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: 0 });
           continue;
         }
 
         // Integer-exact split by raw token balance; the rounding remainder is recorded as dust, never lost.
-        const { credits, dust } = computeHolderCredits(holders, distributed);
-        await creditHolders(mint, distributed, credits, dust);
-        results.push({ mint, distributedLamports: distributed, holdersCredited: credits.length });
+        const { credits, dust } = computeHolderCredits(holders, distributed.lamports);
+        await creditHolders(mint, distributed.lamports, credits, dust);
+        results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: credits.length });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error.";
         results.push({ mint, distributedLamports: null, holdersCredited: 0, error });

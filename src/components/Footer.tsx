@@ -13,6 +13,7 @@ export default function Footer() {
     { href: "/create", label: t("nav.create") },
     { href: "/rewards", label: t("nav.rewards") },
     { href: "/analytics", label: t("nav.analytics") },
+    { href: "/activity", label: t("act.title") },
   ];
 
   return (

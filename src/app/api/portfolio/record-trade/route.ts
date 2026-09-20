@@ -6,6 +6,7 @@ import { recordTrade } from "@/lib/portfolio/trade-log";
 import { solPriceUsd } from "@/lib/solana/prices";
 import { isEnabled } from "@/lib/config/flags";
 import { awardTradePoints } from "@/lib/points/trade-award";
+import { recordActivity } from "@/lib/activity/record";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -75,6 +76,18 @@ export async function POST(req: Request) {
       solPriceUsdAtTrade,
       signature,
       ts: Date.now(),
+    });
+
+    // Verified above against the confirmed transaction: also a line in the public activity feed (no client-supplied text is stored).
+    await recordActivity({
+      id: `trade:${signature}`,
+      kind: realSide,
+      ts: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+      mint,
+      wallet,
+      lamports: Math.abs(postLamports - preLamports),
+      tokenAmount,
+      signature,
     });
 
     // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.

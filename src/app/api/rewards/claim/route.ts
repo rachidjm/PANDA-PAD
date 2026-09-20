@@ -17,6 +17,7 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
+import { recordActivity } from "@/lib/activity/record";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 // Never let a payout drain the pool below what it needs to keep signing (fees + rent headroom).
@@ -200,6 +201,8 @@ export async function POST(req: Request) {
     const paid = reserved;
     reserved = 0;
     await recordAudit({ req, actor: holder, action: "claim.paid", object: mint, newState: { signature, lamports: paid } });
+    // The payout is confirmed on-chain (checked just above), so this is a verified event.
+    await recordActivity({ id: `claim:${signature}`, kind: "reward_claim", ts: Date.now(), mint, wallet: holder, lamports: paid, signature });
     return NextResponse.json({ signature, lamports: paid });
   } catch (err) {
     // Anything unexpected after a reservation was booked and before the send: undo it.

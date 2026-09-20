@@ -4,6 +4,8 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 import { registerMint } from "@/lib/rewards/registry";
+import { fetchPumpCoins } from "@/lib/pump/frontend-api";
+import { recordActivity } from "@/lib/activity/record";
 
 /**
  * Adds a mint to PANDA's own registry of coins the rewards distributor
@@ -26,6 +28,14 @@ export async function POST(req: Request) {
     }
 
     await registerMint(mint);
+
+    // A coin whose on-chain fee-sharing config PANDA verified: record its launch, dated by Pump.fun's own launch
+    // time. If Pump.fun doesn't know the coin (yet), nothing is recorded rather than dating it by when we heard of it.
+    const pump = (await fetchPumpCoins([mint]).catch(() => new Map())).get(mint);
+    const ts = pump ? Date.parse(pump.createdAt) : NaN;
+    if (pump && Number.isFinite(ts)) {
+      await recordActivity({ id: `created:${mint}`, kind: "token_created", ts, mint, wallet: pump.creator || undefined });
+    }
     return NextResponse.json({ registered: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to register.";

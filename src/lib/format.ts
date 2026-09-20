@@ -14,6 +14,17 @@ export function formatPct(n: number): string {
   return `${sign}${n.toFixed(1)}%`;
 }
 
+/** "3 minutes ago" / "hace 3 minutos" in the given language, from a timestamp in ms. */
+export function formatRelativeTime(ts: number, lang: string, now: number = Date.now()): string {
+  const diffSec = Math.round((ts - now) / 1000);
+  const fmt = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+  const abs = Math.abs(diffSec);
+  if (abs < 60) return fmt.format(diffSec, "second");
+  if (abs < 3600) return fmt.format(Math.round(diffSec / 60), "minute");
+  if (abs < 86400) return fmt.format(Math.round(diffSec / 3600), "hour");
+  return fmt.format(Math.round(diffSec / 86400), "day");
+}
+
 export function truncateAddress(address: string): string {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }

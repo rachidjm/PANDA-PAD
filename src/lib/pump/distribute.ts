@@ -21,7 +21,7 @@ const TYPICAL_BASE_FEE_LAMPORTS = 5000;
  * coin quoted in a non-SOL token) isn't wired up yet; a real, disclosed
  * scope limit, not silently unsupported.
  */
-export async function collectFeesForMint(connection: Connection, mint: string): Promise<number | null> {
+export async function collectFeesForMint(connection: Connection, mint: string): Promise<{ lamports: number; signature: string; blockTimeMs: number | null } | null> {
   const signer = getRewardsPoolSigner();
   if (!signer) throw new Error("Rewards Pool signer isn't configured (PANDA_REWARDS_POOL_SECRET_KEY).");
 
@@ -60,5 +60,5 @@ export async function collectFeesForMint(connection: Connection, mint: string): 
   const feePaid = txInfo?.meta?.fee ?? TYPICAL_BASE_FEE_LAMPORTS;
 
   // after = before - feePaid + distributed, so:
-  return Math.max(0, after - before + feePaid);
+  return { lamports: Math.max(0, after - before + feePaid), signature, blockTimeMs: txInfo?.blockTime ? txInfo.blockTime * 1000 : null };
 }

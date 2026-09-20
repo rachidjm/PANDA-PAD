@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
-import { formatPct, formatPrice, formatUsd, truncateAddress } from "@/lib/format";
+import { formatPct, formatPrice, formatRelativeTime, formatUsd, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
@@ -78,16 +78,6 @@ function PnlCell({ pnl }: { pnl: Pnl }) {
       {signedUsd(pnl.usd)} · {formatPct(pnl.pct)}
     </p>
   );
-}
-
-function relTime(ts: number, lang: string): string {
-  const diffSec = Math.round((ts - Date.now()) / 1000);
-  const fmt = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
-  const abs = Math.abs(diffSec);
-  if (abs < 60) return fmt.format(Math.round(diffSec), "second");
-  if (abs < 3600) return fmt.format(Math.round(diffSec / 60), "minute");
-  if (abs < 86400) return fmt.format(Math.round(diffSec / 3600), "hour");
-  return fmt.format(Math.round(diffSec / 86400), "day");
 }
 
 export default function PortfolioView(p: PortfolioViewProps) {
@@ -322,7 +312,7 @@ export default function PortfolioView(p: PortfolioViewProps) {
                   </p>
                 </div>
                 <div className="shrink-0 text-right text-xs text-panda-grey">
-                  <p>{relTime(tr.ts, lang)}</p>
+                  <p>{formatRelativeTime(tr.ts, lang)}</p>
                   <a href={`https://solscan.io/tx/${tr.signature}`} target="_blank" rel="noopener noreferrer" className="text-meme-orange hover:underline">
                     {t("pf.viewTx")} ↗
                   </a>

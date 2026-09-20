@@ -83,7 +83,12 @@ export default function HomeFeed({
           ))}
 
           <div className="mt-2">
-            <h2 className="mb-4 font-display text-xl font-bold">{t("home.recentActivity")}</h2>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="font-display text-xl font-bold">{t("home.recentActivity")}</h2>
+              <Link href="/activity" className="text-sm font-medium text-paper/60 transition-colors hover:text-paper">
+                {t("act.seeAll")}
+              </Link>
+            </div>
             <ActivityFeed initialEvents={activityEvents} limit={8} />
           </div>
         </div>

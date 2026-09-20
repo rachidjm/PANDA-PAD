@@ -168,6 +168,12 @@ export async function fetchPoolTrades(poolAddress: string): Promise<GeckoTrade[]
   }
 }
 
+/** Like fetchPoolTrades, but a failure (rate limit, outage) throws instead of looking like "no trades". */
+export async function fetchPoolTradesStrict(poolAddress: string): Promise<GeckoTrade[]> {
+  const res = await geckoGet<{ data: GeckoTrade[] }>(`/networks/${NETWORK}/pools/${poolAddress}/trades`, 20);
+  return res.data;
+}
+
 export type GeckoOhlcvTimeframe = "minute" | "hour" | "day";
 
 export async function fetchPoolOhlcv(
