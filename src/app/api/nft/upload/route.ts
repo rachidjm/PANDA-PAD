@@ -14,7 +14,8 @@ const MAX_BODY = IMAGE_LIMITS.maxBytes + 256 * 1024;
 
 /**
  * Auth: signed-in wallet session (the creator is the session's wallet, never a field).
- * Body: multipart/form-data { themeSlug, name, description, image }.
+ * Body: multipart/form-data { themeSlug | branchSlug, name, description, image } — for a branch the NFT is named
+ * ("Title #001") and numbered by the server, so `name` is ignored, and only the creator / listed contributors may add.
  * Effect: validates the theme is open, the text, and the image (real file type, size,
  * dimensions, metadata stripped), takes one of the wallet's creation slots, checks for
  * duplicates, and stores the cleaned image and its metadata. Nothing is minted here.
@@ -43,13 +44,16 @@ export async function POST(req: Request) {
   }
   const file = form.get("image");
   const themeSlug = form.get("themeSlug");
-  if (!(file instanceof File) || typeof themeSlug !== "string") return NextResponse.json({ error: "Missing image or theme.", code: "BAD_REQUEST" }, { status: 400 });
+  const branchSlug = form.get("branchSlug");
+  const inBranch = typeof branchSlug === "string";
+  if (inBranch && !isEnabled("NFT_BRANCHES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  if (!(file instanceof File) || (!inBranch && typeof themeSlug !== "string")) return NextResponse.json({ error: "Missing image or theme.", code: "BAD_REQUEST" }, { status: 400 });
   if (file.size > IMAGE_LIMITS.maxBytes) return NextResponse.json({ error: "The image is too large (max 4 MB).", code: "BAD_IMAGE" }, { status: 413 });
 
   try {
     const result = await uploadNft(realNftDeps(siteUrlFor(req)), {
       wallet,
-      themeSlug,
+      ...(inBranch ? { branchSlug } : { themeSlug: themeSlug as string }),
       name: form.get("name"),
       description: form.get("description") ?? "",
       file: new Uint8Array(await file.arrayBuffer()),

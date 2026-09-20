@@ -16,6 +16,11 @@ export type NftRecord = {
   themeId: number;
   themeSlug: string;
   themeTitle: string;
+  /** Set for NFTs of a branch: the branch they belong to, and their number in it ("Title #001"). */
+  branchId?: number;
+  branchSlug?: string;
+  branchTitle?: string;
+  serial?: number;
   /** The theme's royalty at upload time — what gets written on-chain and verified back. */
   royaltyBps: number;
   name: string;
@@ -52,11 +57,16 @@ export type PublishedItem = {
   signature: string;
   publishedAt: number;
   review: ReviewState;
+  serial?: number;
 };
 
 const recordPath = (id: string) => `nft/records/${id}.json`;
-const slotsPath = (themeId: number, wallet: string) => `nft/by-wallet/${themeId}/${wallet}.json`;
+/** A creation-slot scope: a theme id (number) for a theme, or "b<branchId>" for a branch. Theme paths are unchanged. */
+export type SlotScope = number | string;
+export const scopeOf = (rec: { themeId: number; branchId?: number }): SlotScope => (rec.branchId !== undefined ? `b${rec.branchId}` : rec.themeId);
+const slotsPath = (scope: SlotScope, wallet: string) => `nft/by-wallet/${scope}/${wallet}.json`;
 const publishedPath = (themeId: number) => `nft/published/${themeId}.json`;
+const branchPublishedPath = (branchId: number) => `nft/published-branch/${branchId}.json`;
 const DEDUPE_PATH = "nft/dedupe-index.json";
 
 // ---- creation slots (per wallet, per theme) ------------------------------------
@@ -67,7 +77,7 @@ const EMPTY_SLOTS: SlotsDoc = { version: 1, items: [] };
 const slotAlive = (s: Slot, now: number) => s.status === "published" || (s.expiresAt ?? 0) > now;
 
 /** Takes one of the wallet's creation slots for the theme, or reports the limit. Expired unfinished uploads free their slot. */
-export async function reserveSlot(themeId: number, wallet: string, contentId: string, limit: number, now: number): Promise<"ok" | "limit"> {
+export async function reserveSlot(themeId: SlotScope, wallet: string, contentId: string, limit: number, now: number): Promise<"ok" | "limit"> {
   return docUpdate<SlotsDoc, "ok" | "limit">(slotsPath(themeId, wallet), EMPTY_SLOTS, (doc) => {
     const live = doc.items.filter((s) => slotAlive(s, now));
     if (live.length >= limit) return { next: { ...doc, items: live }, result: "limit" };
@@ -75,14 +85,14 @@ export async function reserveSlot(themeId: number, wallet: string, contentId: st
   });
 }
 
-export async function releaseSlot(themeId: number, wallet: string, contentId: string): Promise<void> {
+export async function releaseSlot(themeId: SlotScope, wallet: string, contentId: string): Promise<void> {
   await docUpdate<SlotsDoc, void>(slotsPath(themeId, wallet), EMPTY_SLOTS, (doc) => ({
     next: { ...doc, items: doc.items.filter((s) => s.contentId !== contentId) },
     result: undefined,
   }));
 }
 
-export async function publishSlot(themeId: number, wallet: string, contentId: string): Promise<void> {
+export async function publishSlot(themeId: SlotScope, wallet: string, contentId: string): Promise<void> {
   await docUpdate<SlotsDoc, void>(slotsPath(themeId, wallet), EMPTY_SLOTS, (doc) => ({
     next: { ...doc, items: doc.items.map((s) => (s.contentId === contentId ? { ...s, status: "published" as const, expiresAt: undefined } : s)) },
     result: undefined,
@@ -90,7 +100,7 @@ export async function publishSlot(themeId: number, wallet: string, contentId: st
 }
 
 /** Extends a slot's life (a prepared mint that is being signed must not lose its slot mid-flight). */
-export async function extendSlot(themeId: number, wallet: string, contentId: string, until: number): Promise<void> {
+export async function extendSlot(themeId: SlotScope, wallet: string, contentId: string, until: number): Promise<void> {
   await docUpdate<SlotsDoc, void>(slotsPath(themeId, wallet), EMPTY_SLOTS, (doc) => ({
     next: { ...doc, items: doc.items.map((s) => (s.contentId === contentId && s.status === "pending" ? { ...s, expiresAt: Math.max(s.expiresAt ?? 0, until) } : s)) },
     result: undefined,
@@ -155,10 +165,22 @@ export async function listPublished(themeId: number): Promise<PublishedItem[]> {
   return (await docRead<PublishedDoc>(publishedPath(themeId), { version: 1, items: [] })).items;
 }
 
+/** NFTs of a branch are listed under the branch, never in the theme's own list (the theme stays as it was). */
+export async function appendBranchPublished(branchId: number, item: PublishedItem): Promise<void> {
+  await docUpdate<PublishedDoc, void>(branchPublishedPath(branchId), { version: 1, items: [] }, (doc) => ({
+    next: doc.items.some((i) => i.contentId === item.contentId) ? doc : { ...doc, items: [...doc.items, item] },
+    result: undefined,
+  }));
+}
+
+export async function listBranchPublished(branchId: number): Promise<PublishedItem[]> {
+  return (await docRead<PublishedDoc>(branchPublishedPath(branchId), { version: 1, items: [] })).items;
+}
+
 // ---- a wallet's own uploads ---------------------------------------------------
 
 /** The records a wallet has in a theme (pending, prepared or published), newest first. */
-export async function listWalletRecords(themeId: number, wallet: string): Promise<NftRecord[]> {
+export async function listWalletRecords(themeId: SlotScope, wallet: string): Promise<NftRecord[]> {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return [];
   const slots = await docRead<SlotsDoc>(slotsPath(themeId, wallet), EMPTY_SLOTS);
   const records = await Promise.all(slots.items.map((s) => getRecord(s.contentId)));

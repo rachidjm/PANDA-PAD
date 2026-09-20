@@ -38,12 +38,19 @@ export type ExpectedAsset = {
   attributes: MintAttributes;
 };
 
-export function expectedAttributes(theme: { title: string; themeId: number }, contentHash: string): MintAttributes {
+export function expectedAttributes(theme: { title: string; themeId: number }, contentHash: string, branch?: { title: string; branchId: number }): MintAttributes {
   return [
     { key: "Theme", value: theme.title },
     { key: "Theme ID", value: String(theme.themeId) },
     { key: "Content Hash", value: contentHash },
+    // Only NFTs of a branch carry these; NFTs minted before branches existed are unchanged.
+    ...(branch ? [{ key: "Branch", value: branch.title }, { key: "Branch ID", value: String(branch.branchId) }] : []),
   ];
+}
+
+/** The attributes an NFT record must have on-chain — one place for the mint, the confirmation and the market. */
+export function attributesOfRecord(rec: { themeTitle: string; themeId: number; sha256: string; branchId?: number; branchTitle?: string }): MintAttributes {
+  return expectedAttributes({ title: rec.themeTitle, themeId: rec.themeId }, rec.sha256, rec.branchId !== undefined && rec.branchTitle ? { title: rec.branchTitle, branchId: rec.branchId } : undefined);
 }
 
 export type BuiltMint = { transactionBase64: string; blockhash: string; lastValidBlockHeight: number };

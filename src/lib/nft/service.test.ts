@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Keypair } from "@solana/web3.js";
 import sharp from "sharp";
-import { createTheme, getThemeBySlug, transitionTheme } from "@/lib/themes/store";
+import { createTheme, getThemeById, getThemeBySlug, transitionTheme } from "@/lib/themes/store";
+import { getBranchById, getBranchBySlug, takeSerial } from "@/lib/branches/store";
 import { NewThemeInput } from "@/lib/themes/theme";
 import { confirmMint, NftDeps, prepareMint, REPREPARE_AFTER_MS, reviewNft, uploadNft } from "./service";
 import { getRecord, listPublished, reserveSlot } from "./store";
@@ -45,6 +46,10 @@ function makeDeps(over: Partial<NftDeps> = {}) {
     now: () => clock,
     newId: () => `content-${++n}-${Math.random().toString(36).slice(2, 10)}`,
     getTheme: getThemeBySlug,
+    getThemeById,
+    getBranch: getBranchBySlug,
+    getBranchById,
+    takeSerial,
     putFile: async (path) => {
       files.push(path);
       return `https://blob.test/${path}`;

@@ -7,6 +7,7 @@ import { lamportsToSol } from "@/lib/market/format";
 import Countdown from "./Countdown";
 import NftGrid from "./NftGrid";
 import StatusPill from "./StatusPill";
+import BranchesSection from "@/components/branches/BranchesSection";
 import { isOpen, MarketInfo, NftView, ThemeView } from "./types";
 
 type MarketData = {
@@ -145,6 +146,8 @@ export default function ThemeDetailClient({ slug }: { slug: string }) {
           )}
         </div>
       </section>
+
+      <BranchesSection themeSlug={theme.slug} themeStatus={theme.status} />
 
       {market.enabled && marketData && (
         <section className="mt-10">

@@ -1,10 +1,13 @@
 import { PublicKey } from "@solana/web3.js";
 import { mintDecision, Theme } from "@/lib/themes/theme";
+import { Branch, branchMintDecision, mayAddNfts, nftName } from "@/lib/branches/branch";
+import { BRANCH_CONFIG } from "@/lib/branches/config";
 import { PENDING_TTL_MS } from "./dedupe";
 import { ImageRejected, processImage } from "./image";
 import { buildMetadata, validateTexts } from "./metadata";
-import { BuiltMint, expectedAttributes, ExpectedAsset } from "./mint";
+import { attributesOfRecord, BuiltMint, ExpectedAsset } from "./mint";
 import {
+  appendBranchPublished,
   appendPublished,
   extendSlot,
   getRecord,
@@ -16,6 +19,7 @@ import {
   reserveImage,
   reserveSlot,
   saveRecord,
+  scopeOf,
   updateRecord,
 } from "./store";
 
@@ -41,6 +45,11 @@ export type NftDeps = {
   now: () => number;
   newId: () => string;
   getTheme: (slug: string) => Promise<Theme | null>;
+  getThemeById: (id: number) => Promise<Theme | null>;
+  getBranch: (slug: string) => Promise<Branch | null>;
+  getBranchById: (id: number) => Promise<Branch | null>;
+  /** The next serial number of a branch, or null when the branch is full. */
+  takeSerial: (branchId: number, max: number) => Promise<number | null>;
   putFile: (path: string, bytes: Buffer, contentType: string) => Promise<string>;
   buildTx: (args: { wallet: string; expected: ExpectedAsset }) => Promise<BuiltMint>;
   signatureStatus: (signature: string) => Promise<"confirmed" | "failed" | "pending">;
@@ -59,21 +68,36 @@ const expectedFor = (rec: NftRecord, assetAddress: string): ExpectedAsset => ({
   name: rec.name,
   uri: rec.metadataUri,
   royaltyBps: rec.royaltyBps,
-  attributes: expectedAttributes({ title: rec.themeTitle, themeId: rec.themeId }, rec.sha256),
+  attributes: attributesOfRecord(rec),
 });
 
 // ---- 1. upload -------------------------------------------------------------
 
 export async function uploadNft(
   deps: NftDeps,
-  args: { wallet: string; themeSlug: string; name: unknown; description: unknown; file: Uint8Array }
+  args: { wallet: string; themeSlug?: string; branchSlug?: string; name: unknown; description: unknown; file: Uint8Array }
 ): Promise<{ ok: true; record: NftRecord; resumed: boolean } | Failure> {
   const now = deps.now();
-  const theme = await deps.getTheme(args.themeSlug);
-  const decision = mintDecision(theme, now);
-  if (!decision.ok || !theme) return fail("THEME_CLOSED", decision.ok ? "Unknown theme." : decision.reason, 409);
 
-  const texts = validateTexts({ name: args.name, description: args.description });
+  // An NFT starts either in a theme (which must be open right now) or in a branch (whose own rules apply; the theme's
+  // schedule doesn't matter — a branch outlives its theme).
+  let theme: Theme | null;
+  let branch: Branch | null = null;
+  if (args.branchSlug !== undefined) {
+    branch = await deps.getBranch(args.branchSlug);
+    if (!branch) return fail("NOT_FOUND", "This branch doesn't exist.", 404);
+    if (!mayAddNfts(branch, args.wallet)) return fail("NOT_ALLOWED", "Only the branch's creator and the contributors they added can add NFTs.", 403);
+    theme = await deps.getThemeById(branch.themeId);
+    const decision = branchMintDecision(branch, theme, args.wallet);
+    if (!decision.ok || !theme) return fail("BRANCH_CLOSED", decision.ok ? "Unknown theme." : decision.reason, 409);
+  } else {
+    theme = await deps.getTheme(args.themeSlug ?? "");
+    const decision = mintDecision(theme, now);
+    if (!decision.ok || !theme) return fail("THEME_CLOSED", decision.ok ? "Unknown theme." : decision.reason, 409);
+  }
+
+  // A branch NFT is named by the server ("Title #001"); only its description comes from the creator.
+  const texts = validateTexts({ name: branch ? nftName(branch.title, 1) : args.name, description: args.description });
   if (!texts.ok) return fail("BAD_TEXT", texts.error, 400);
 
   let image;
@@ -85,8 +109,10 @@ export async function uploadNft(
   }
 
   const contentId = deps.newId();
-  if ((await reserveSlot(theme.themeId, args.wallet, contentId, theme.creationLimit, now)) === "limit") {
-    return fail("LIMIT_REACHED", `You've reached the limit of ${theme.creationLimit} NFT(s) for this theme.`, 409);
+  const scope = branch ? `b${branch.branchId}` : theme.themeId;
+  const limit = branch ? BRANCH_CONFIG.creationLimitPerWallet : theme.creationLimit;
+  if ((await reserveSlot(scope, args.wallet, contentId, limit, now)) === "limit") {
+    return fail("LIMIT_REACHED", `You've reached the limit of ${limit} NFT(s) for this ${branch ? "branch" : "theme"}.`, 409);
   }
 
   const verdict = await reserveImage(
@@ -96,20 +122,39 @@ export async function uploadNft(
   );
 
   if (verdict.kind === "exact") {
-    await releaseSlot(theme.themeId, args.wallet, contentId);
+    await releaseSlot(scope, args.wallet, contentId);
     return fail("DUPLICATE", "This image has already been submitted. Only original artwork can be minted.", 409);
   }
   if (verdict.kind === "own_pending") {
-    await releaseSlot(theme.themeId, args.wallet, contentId);
+    await releaseSlot(scope, args.wallet, contentId);
     const existing = await getRecord(verdict.of.contentId);
     if (existing && existing.wallet === args.wallet) return { ok: true, record: existing, resumed: true };
     return fail("DUPLICATE", "This image has already been submitted.", 409);
   }
 
+  // The serial is taken only now, after every check that can refuse the upload, so refusals don't burn numbers.
+  let name = texts.name;
+  let serial: number | undefined;
+  if (branch) {
+    const taken = await deps.takeSerial(branch.branchId, BRANCH_CONFIG.maxNftsPerBranch).catch(() => undefined);
+    if (taken === undefined) {
+      await releaseImage(contentId).catch(() => {});
+      await releaseSlot(scope, args.wallet, contentId).catch(() => {});
+      return fail("STORAGE", "Couldn't number your NFT — please try again.", 503);
+    }
+    if (taken === null) {
+      await releaseImage(contentId).catch(() => {});
+      await releaseSlot(scope, args.wallet, contentId).catch(() => {});
+      return fail("BRANCH_FULL", `This branch has reached its limit of ${BRANCH_CONFIG.maxNftsPerBranch} NFTs.`, 409);
+    }
+    serial = taken;
+    name = nftName(branch.title, taken);
+  }
+
   try {
     const imageUrl = await deps.putFile(`nft/images/${image.pixelHash}.${image.ext}`, image.bytes, image.mime);
     const metadata = buildMetadata({
-      name: texts.name,
+      name,
       description: texts.description,
       imageUrl,
       imageMime: image.mime,
@@ -117,6 +162,7 @@ export async function uploadNft(
       creator: args.wallet,
       theme: { slug: theme.slug, title: theme.title, themeId: theme.themeId },
       contentHash: image.sha256,
+      ...(branch ? { branch: { slug: branch.slug, title: branch.title, branchId: branch.branchId } } : {}),
     });
     const metadataUri = await deps.putFile(`nft/metadata/${contentId}.json`, Buffer.from(JSON.stringify(metadata)), "application/json");
 
@@ -126,8 +172,9 @@ export async function uploadNft(
       themeId: theme.themeId,
       themeSlug: theme.slug,
       themeTitle: theme.title,
+      ...(branch ? { branchId: branch.branchId, branchSlug: branch.slug, branchTitle: branch.title, serial } : {}),
       royaltyBps: theme.royaltyBps,
-      name: texts.name,
+      name,
       description: texts.description,
       imageUrl,
       imageMime: image.mime,
@@ -148,7 +195,7 @@ export async function uploadNft(
     return { ok: true, record, resumed: false };
   } catch (err) {
     await releaseImage(contentId).catch(() => {});
-    await releaseSlot(theme.themeId, args.wallet, contentId).catch(() => {});
+    await releaseSlot(scope, args.wallet, contentId).catch(() => {});
     await deps.alert("NFT upload storage failed", { contentId, error: String(err).slice(0, 200) });
     return fail("STORAGE", "Couldn't store your image — please try again.", 503);
   }
@@ -167,9 +214,17 @@ export async function prepareMint(
   if (rec.review === "REVIEW_REQUIRED") return fail("REVIEW_PENDING", "This image looks similar to an existing one and is waiting for review.", 409);
   if (rec.review === "REJECTED") return fail("REJECTED", "This image was rejected in review.", 409);
 
-  const theme = await deps.getTheme(rec.themeSlug);
-  const decision = mintDecision(theme, now);
-  if (!decision.ok) return fail("THEME_CLOSED", decision.reason, 409);
+  if (rec.branchId !== undefined) {
+    // A branch NFT is re-checked against its branch (still active, wallet still allowed), not against the theme's schedule.
+    const branch = await deps.getBranchById(rec.branchId);
+    const theme = branch ? await deps.getThemeById(branch.themeId) : null;
+    const decision = branchMintDecision(branch, theme, args.wallet);
+    if (!decision.ok) return fail("BRANCH_CLOSED", decision.reason, 409);
+  } else {
+    const theme = await deps.getTheme(rec.themeSlug);
+    const decision = mintDecision(theme, now);
+    if (!decision.ok) return fail("THEME_CLOSED", decision.reason, 409);
+  }
 
   let asset: PublicKey;
   try {
@@ -196,7 +251,7 @@ export async function prepareMint(
   }
   if (outcome === "gone") return fail("BAD_STATE", "This NFT can't be prepared right now.", 409);
 
-  await extendSlot(rec.themeId, rec.wallet, rec.contentId, now + PENDING_TTL_MS);
+  await extendSlot(scopeOf(rec), rec.wallet, rec.contentId, now + PENDING_TTL_MS);
 
   const expected = expectedFor({ ...rec, assetAddress }, assetAddress);
   const built = await deps.buildTx({ wallet: args.wallet, expected });
@@ -244,8 +299,8 @@ export async function confirmMint(
   if (!published) return fail("BAD_STATE", "This NFT can't be published.", 409);
 
   await publishImage(rec.contentId);
-  await publishSlot(rec.themeId, rec.wallet, rec.contentId);
-  await appendPublished(rec.themeId, {
+  await publishSlot(scopeOf(rec), rec.wallet, rec.contentId);
+  const item = {
     contentId: rec.contentId,
     assetAddress: rec.assetAddress,
     wallet: rec.wallet,
@@ -254,7 +309,11 @@ export async function confirmMint(
     signature,
     publishedAt: published.publishedAt ?? now,
     review: published.review,
-  });
+    ...(rec.serial !== undefined ? { serial: rec.serial } : {}),
+  };
+  // A branch's NFTs are listed under the branch; the theme's own list is never touched by a branch.
+  if (rec.branchId !== undefined) await appendBranchPublished(rec.branchId, item);
+  else await appendPublished(rec.themeId, item);
   return { ok: true, record: published, alreadyPublished: false };
 }
 
@@ -274,7 +333,7 @@ export async function reviewNft(
   if (result === "state") return fail("BAD_STATE", "Only uploads waiting for review can be reviewed.", 409);
   if (args.decision === "reject") {
     await releaseImage(result.contentId);
-    await releaseSlot(result.themeId, result.wallet, result.contentId);
+    await releaseSlot(scopeOf(result), result.wallet, result.contentId);
   }
   return { ok: true, record: result };
 }

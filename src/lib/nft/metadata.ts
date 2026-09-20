@@ -50,17 +50,19 @@ export function buildMetadata(args: {
   creator: string;
   theme: { slug: string; title: string; themeId: number };
   contentHash: string;
+  branch?: { slug: string; title: string; branchId: number };
 }): NftMetadata {
-  const { name, description, imageUrl, imageMime, siteUrl, creator, theme, contentHash } = args;
+  const { name, description, imageUrl, imageMime, siteUrl, creator, theme, contentHash, branch } = args;
   return {
     name,
     description,
     image: imageUrl,
-    external_url: `${siteUrl.replace(/\/$/, "")}/themes/${theme.slug}`,
+    external_url: branch ? `${siteUrl.replace(/\/$/, "")}/branches/${branch.slug}` : `${siteUrl.replace(/\/$/, "")}/themes/${theme.slug}`,
     attributes: [
       { trait_type: "Theme", value: theme.title },
       { trait_type: "Theme ID", value: String(theme.themeId) },
       { trait_type: "Content Hash", value: contentHash },
+      ...(branch ? [{ trait_type: "Branch", value: branch.title }, { trait_type: "Branch ID", value: String(branch.branchId) }] : []),
     ],
     properties: {
       category: "image",

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Connection } from "@solana/web3.js";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { filePutOnce } from "@/lib/storage/store";
-import { getThemeBySlug } from "@/lib/themes/store";
+import { getThemeById, getThemeBySlug } from "@/lib/themes/store";
+import { getBranchById, getBranchBySlug, takeSerial } from "@/lib/branches/store";
 import { alertOps } from "@/lib/alerts";
 import { buildMintTransaction, verifyMintedAsset } from "./mint";
 import type { NftDeps } from "./service";
@@ -13,6 +14,10 @@ export function realNftDeps(siteUrl: string): NftDeps {
     now: () => Date.now(),
     newId: () => randomUUID(),
     getTheme: getThemeBySlug,
+    getThemeById,
+    getBranch: getBranchBySlug,
+    getBranchById,
+    takeSerial,
     putFile: filePutOnce,
     buildTx: ({ wallet, expected }) => buildMintTransaction({ rpcUrl: serverRpcUrl(), wallet, expected }),
     signatureStatus: async (signature) => {

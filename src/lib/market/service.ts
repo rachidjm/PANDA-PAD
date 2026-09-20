@@ -1,5 +1,5 @@
 import type { AssetLike, ExpectedAsset } from "@/lib/nft/mint";
-import { expectedAttributes, verifyAsset } from "@/lib/nft/mint";
+import { attributesOfRecord, verifyAsset } from "@/lib/nft/mint";
 import { getRecord, NftRecord } from "@/lib/nft/store";
 import type { Failure } from "@/lib/nft/service";
 import { MARKET_CONFIG } from "./config";
@@ -74,7 +74,7 @@ const expectedFor = (rec: NftRecord, owner: string): ExpectedAsset => ({
   name: rec.name,
   uri: rec.metadataUri,
   royaltyBps: rec.royaltyBps,
-  attributes: expectedAttributes({ title: rec.themeTitle, themeId: rec.themeId }, rec.sha256),
+  attributes: attributesOfRecord(rec),
 });
 
 const splitFor = (price: number, royaltyBps: number, creator: string, kind: SaleKind): Split =>

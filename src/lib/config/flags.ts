@@ -6,6 +6,7 @@
  */
 export const FEATURES = [
   "NFT_THEMES",
+  "NFT_BRANCHES",
   "NFT_MARKET",
   "NFT_SECONDARY",
   "PANDA_POINTS",

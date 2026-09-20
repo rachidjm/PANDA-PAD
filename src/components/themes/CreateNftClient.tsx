@@ -21,13 +21,17 @@ const STEPS: DictKey[] = ["cn.step.art", "cn.step.details", "cn.step.check", "cn
 
 const b64ToBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
-export default function CreateNftClient({ slug }: { slug: string }) {
+/** What the page needs to know about where the NFT is going — a theme or a branch. */
+type Ctx = { title: string; href: string; limit: number; endTime: number | null; open: boolean; autoName: boolean };
+
+/** `slug` is a theme's slug, or a branch's when `branch` is set. */
+export default function CreateNftClient({ slug, branch = false }: { slug: string; branch?: boolean }) {
   const { t } = useLanguage();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const { ensureSession } = useWalletSession();
 
-  const [theme, setTheme] = useState<ThemeView | null | "missing">(null);
+  const [theme, setTheme] = useState<Ctx | null | "missing">(null);
   const [now] = useState(() => Date.now());
   const [stage, setStage] = useState<Stage>("form");
   const [file, setFile] = useState<File | null>(null);
@@ -44,19 +48,27 @@ export default function CreateNftClient({ slug }: { slug: string }) {
   // ---- data -----------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/themes?slug=${encodeURIComponent(slug)}`)
-      .then(async (r) => (r.ok ? ((await r.json()) as { theme: ThemeView }).theme : "missing"))
-      .then((th) => !cancelled && setTheme(th as ThemeView | "missing"))
-      .catch(() => !cancelled && setTheme("missing"));
+    const load: Promise<Ctx | "missing"> = branch
+      ? fetch(`/api/branches?slug=${encodeURIComponent(slug)}`).then(async (r) => {
+          if (!r.ok) return "missing";
+          const d = (await r.json()) as { branch: { title: string; status: string }; rules: { creationLimitPerWallet: number } };
+          return { title: d.branch.title, href: `/branches/${slug}`, limit: d.rules.creationLimitPerWallet, endTime: null, open: d.branch.status === "ACTIVE", autoName: true };
+        })
+      : fetch(`/api/themes?slug=${encodeURIComponent(slug)}`).then(async (r) => {
+          if (!r.ok) return "missing";
+          const th = ((await r.json()) as { theme: ThemeView }).theme;
+          return { title: th.title, href: `/themes/${th.slug}`, limit: th.creationLimit, endTime: th.endTime, open: isOpen(th, now), autoName: false };
+        });
+    load.then((c) => !cancelled && setTheme(c)).catch(() => !cancelled && setTheme("missing"));
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, branch, now]);
 
   const loadMine = useCallback(async () => {
-    const r = await fetch(`/api/nft/mine?theme=${encodeURIComponent(slug)}`, { cache: "no-store" });
+    const r = await fetch(`/api/nft/mine?${branch ? "branch" : "theme"}=${encodeURIComponent(slug)}`, { cache: "no-store" });
     if (r.ok) setMine(((await r.json()) as { items: Mine[] }).items);
-  }, [slug]);
+  }, [slug, branch]);
 
   const errorText = (code: string | undefined, fallback?: string) => {
     const key = `cn.err.${code}` as DictKey;
@@ -79,7 +91,7 @@ export default function CreateNftClient({ slug }: { slug: string }) {
     try {
       await ensureSession(); // one free signature proves the wallet is yours
       const form = new FormData();
-      form.set("themeSlug", slug);
+      form.set(branch ? "branchSlug" : "themeSlug", slug);
       form.set("name", name);
       form.set("description", description);
       form.set("image", file);
@@ -164,16 +176,16 @@ export default function CreateNftClient({ slug }: { slug: string }) {
   if (theme === null) return <Shell><div className="h-56 animate-pulse rounded-[24px] border border-paper/10 bg-ink-raised" aria-hidden /></Shell>;
   if (theme === "missing") return <Shell><p className="text-panda-grey">{t("th.notFound")}</p></Shell>;
 
-  const open = isOpen(theme, now);
+  const open = theme.open;
   const step = stage === "done" ? 4 : stage === "signing" || stage === "confirming" || stage === "pending" ? 3 : stage === "checking" || stage === "checked" ? 2 : file ? 1 : 0;
   const used = mine.filter((m) => !["REJECTED", "REJECTED_ONCHAIN"].includes(m.status)).length;
 
   return (
-    <Shell title={theme.title} slug={theme.slug}>
+    <Shell title={theme.title} href={theme.href}>
       <Stepper step={step} />
 
       {!open && stage === "form" ? (
-        <Card><p className="text-panda-grey">{t("th.closedNote")}</p></Card>
+        <Card><p className="text-panda-grey">{branch ? t("br.notOpen") : t("th.closedNote")}</p></Card>
       ) : !connected ? (
         <Card>
           <div className="flex items-center justify-between gap-6">
@@ -198,7 +210,7 @@ export default function CreateNftClient({ slug }: { slug: string }) {
                   {t("cn.viewTx")}
                 </a>
               )}
-              <Link href={`/themes/${theme.slug}`} className="rounded-full bg-paper px-5 py-2.5 text-sm font-semibold text-ink transition hover:brightness-90">
+              <Link href={theme.href} className="rounded-full bg-paper px-5 py-2.5 text-sm font-semibold text-ink transition hover:brightness-90">
                 {theme.title}
               </Link>
               <button onClick={reset} className="rounded-full border border-paper/20 px-5 py-2.5 text-sm font-semibold transition hover:border-paper/40">
@@ -210,8 +222,8 @@ export default function CreateNftClient({ slug }: { slug: string }) {
       ) : stage === "form" || stage === "checking" ? (
         <Card>
           <div className="mb-4 flex items-center justify-between text-xs text-panda-grey">
-            <span>{t("cn.slotsLeft", { n: used, limit: theme.creationLimit })}</span>
-            <span className="flex items-center gap-1.5">{t("th.endsIn")} <Countdown target={theme.endTime} className="font-semibold text-paper" /></span>
+            <span>{t("cn.slotsLeft", { n: used, limit: theme.limit })}</span>
+            {theme.endTime !== null && <span className="flex items-center gap-1.5">{t("th.endsIn")} <Countdown target={theme.endTime} className="font-semibold text-paper" /></span>}
           </div>
 
           <button
@@ -235,10 +247,14 @@ export default function CreateNftClient({ slug }: { slug: string }) {
           </button>
           <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
 
-          <label className="mt-5 block">
-            <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cn.name")}</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} className={FIELD} />
-          </label>
+          {theme.autoName ? (
+            <p className="mt-5 rounded-xl bg-ink px-4 py-3 text-sm text-paper/80">{t("br.autoName", { title: theme.title })}</p>
+          ) : (
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cn.name")}</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} className={FIELD} />
+            </label>
+          )}
           <label className="mt-4 block">
             <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cn.description")}</span>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} rows={3} className={`${FIELD} resize-none`} />
@@ -248,7 +264,7 @@ export default function CreateNftClient({ slug }: { slug: string }) {
 
           <button
             onClick={check}
-            disabled={!file || name.trim().length < 2 || stage === "checking"}
+            disabled={!file || (!theme.autoName && name.trim().length < 2) || stage === "checking"}
             className="mt-5 w-full rounded-full bg-paper py-3.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {stage === "checking" ? t("cn.checking") : t("cn.checkBtn")}
@@ -325,12 +341,12 @@ export default function CreateNftClient({ slug }: { slug: string }) {
 
 const FIELD = "w-full rounded-2xl border border-paper/15 bg-ink px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40";
 
-function Shell({ children, title, slug }: { children: React.ReactNode; title?: string; slug?: string }) {
+function Shell({ children, title, href }: { children: React.ReactNode; title?: string; href?: string }) {
   const { t } = useLanguage();
   return (
     <div className="mx-auto max-w-2xl px-5 py-12">
-      {slug && (
-        <Link href={`/themes/${slug}`} className="text-sm text-panda-grey transition-colors hover:text-paper">
+      {href && (
+        <Link href={href} className="text-sm text-panda-grey transition-colors hover:text-paper">
           ← {title}
         </Link>
       )}
