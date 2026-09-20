@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 
 /**
  * Constants safe to import from client components — no `@pump-fun/pump-sdk`
@@ -29,7 +30,7 @@ export const PANDA_TREASURY = new PublicKey(
  * FeeDistributionStep.tsx: the creator only ever chooses how the *remaining*
  * 9500 bps is split (Creator vs Holders).
  */
-export const PANDA_PROTOCOL_FEE_BPS = 500; // 5%
+export const PANDA_PROTOCOL_FEE_BPS = PANDA_SHARE_BPS; // 5% — single source of truth in lib/config/protocol.ts
 
 /**
  * Where a coin's "Holders" creator-fee share lands, when a creator opts into

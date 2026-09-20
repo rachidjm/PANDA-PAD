@@ -1,0 +1,45 @@
+# PANDA — architecture audit (Phase 0)
+
+Stack: Next.js 16 App Router, TypeScript, Tailwind, Vercel (Hobby), Vercel Blob for JSON state, Solana web3.js + wallet-adapter (Phantom), Pump.fun SDKs, Jupiter swap + Trigger API.
+
+## What exists and is real
+| Area | State |
+|---|---|
+| Home / discover / analytics | Real data (Pump.fun web API + Dexscreener + GeckoTerminal, failover). |
+| Create coin | Real Pump.fun create + optional fee-sharing in the same tx. |
+| Buy / sell | Real Pump bonding curve, PumpSwap, Jupiter; 1% PANDA fee visible in the wallet tx. Browser RPC goes through `/api/rpc` (allowlist, same-origin). |
+| Portfolio / P&L | Positions derived on-chain (`derive-trade`, `backfill`); average-cost; flagged "estimated". |
+| Rewards | Registry + per-mint ledger in Blob (ETag atomic updates), reserve-then-pay claims, per-claim and daily caps, alerts, solvency check in cron. |
+| SL / TP | Jupiter Trigger v2 (custodial Privy vault, disclosed in UI). |
+| i18n, legal pages | EN/ES. |
+
+## Not built yet (Phases 4+ of the spec)
+Wallet-signature auth (nonce), PANDA Points, epochs, airdrops/Merkle claims, NFT Themes/market/branches, anti-Sybil scoring, admin area, audit log, emergency pause, multi-RPC failover for server reads.
+
+## Findings
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | **High** | PANDA's 5% creator-fee share was enforced only in the browser. `/api/pump/create` checked "sums to 100%" but not that PANDA was in the list, so a direct API call skipped it. | **Fixed**: `validateShareholders` now requires exactly one PANDA-treasury entry at 500 bps, total 10000, integer/positive bps, no duplicates. 14 tests. |
+| 2 | Medium | `POST /api/rewards/claim` takes `holder` from the request body with no proof of wallet ownership. Payouts go to that same address (no theft path), but anyone can trigger or grief another holder's claim timing. | Open — needs wallet-signature auth (nonce/expiry/domain/replay). Next phase. |
+| 3 | Medium | Rate limiting is in-memory, per serverless instance — bypassable by spreading requests. | Open — needs shared store (Upstash/Vercel KV). |
+| 4 | Medium | Blob JSON is used for the rewards ledger. ETag optimistic locking makes claims safe at low volume, but it is not a transactional DB. | Open — a real DB (Postgres/Supabase) is required before points/airdrops (append-only event ledger, unique constraints). |
+| 5 | Medium | No app-level security headers. | **Fixed (baseline)**: nosniff, frame-deny, referrer, permissions, HSTS, `frame-ancestors/base-uri/object-src/form-action` CSP. Full `script-src` CSP needs nonces — open. |
+| 6 | Low | `npm audit --omit=dev`: 22 findings (14 moderate, 8 high), transitive via `@solana/*`/`uuid`; `--force` fix would downgrade spl-token, so not applied. | Open — review individually. |
+| 7 | Low | No test runner existed. | **Fixed**: `npm test` (tsx + node:test), `npm run typecheck`. |
+| 8 | Info | Server RPC falls back to the public endpoint if `SOLANA_RPC_URL` is unset; no NETWORK guard (mainnet/devnet). | Open — add `NETWORK` env + program-ID check before enabling new money flows. |
+| 9 | Info | Fee-distribution is optional at create time; a coin created without it pays PANDA nothing from creator fees. | Product decision. |
+
+## Changes in this pass
+- `src/lib/config/protocol.ts` — single source for `PANDA_SHARE_BPS` (500) and creator max (9500).
+- `src/lib/money/bps.ts` — bigint-only `bpsOf`, `splitPool` (sum + dust always == pool). Fuzz-tested. Foundation for rewards/airdrop math.
+- `src/lib/pump/fee-shares-validation.ts` — PANDA share enforcement.
+- `src/app/api/pump/create/route.ts` — type/length checks on inputs.
+- `src/lib/config/flags.ts` — feature flags, default off (not wired to features yet, none exist).
+- `next.config.ts` — security headers.
+
+## Environment variables
+PUBLIC: `NEXT_PUBLIC_SOLANA_RPC_URL`, `NEXT_PUBLIC_PANDA_TREASURY`, `NEXT_PUBLIC_PANDA_TOKEN_MINT`, `NEXT_PUBLIC_PANDA_REWARDS_POOL`.
+SERVER_ONLY: `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.
+
+## Trust assumptions today
+Rewards payouts are off-chain-authorised (server holds the pool key) — not trust-minimised. SL/TP tokens sit in Jupiter's Privy vault. Public price/market data is third-party. Vercel/Blob availability.

@@ -15,6 +15,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing mint, user, name, symbol or uri." }, { status: 400 });
     }
 
+    if (
+      [mint, user, name, symbol, uri].some((v) => typeof v !== "string") ||
+      name.length > 64 ||
+      symbol.length > 16 ||
+      uri.length > 400
+    ) {
+      return NextResponse.json({ error: "Invalid coin details." }, { status: 400 });
+    }
+
     // Fee Distribution is optional — only validate it if the creator actually set it up.
     // Never trust the client's own 100% check alone.
     if (shareholders !== undefined) {
