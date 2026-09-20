@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { getJupiterQuote, SOL_MINT } from "@/lib/jupiter/client";
@@ -83,9 +84,7 @@ export default function BuyPandaWidget() {
       const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
       setStatus("confirming");
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-      const confirmation = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-      if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
+      await confirmSignature(connection, sig);
 
       setSignature(sig);
       setStatus("done");

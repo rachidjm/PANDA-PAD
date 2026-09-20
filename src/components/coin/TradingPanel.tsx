@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
@@ -109,9 +110,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
       setStatus("confirming");
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-      const confirmation = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-      if (confirmation.value.err) throw new Error("Transaction failed to confirm.");
+      await confirmSignature(connection, sig);
 
       setSignature(sig);
       setStatus("done");
@@ -324,6 +323,7 @@ function explainError(err: unknown): string {
   if (/blockhash|expired/i.test(message)) return "Transaction expired — try again.";
   if (/429|too many requests/i.test(message)) return "The Solana RPC is rate-limiting us — wait a moment and retry.";
   if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return "Network error reaching Solana — check your connection and retry.";
+  if (/failed on-chain/i.test(message)) return "The transaction failed on-chain — nothing was bought or sold; you only paid the network fee.";
   if (/failed to confirm/i.test(message)) return "Sent, but confirmation timed out — check the wallet's activity before retrying.";
   return "Trade failed. Please try again.";
 }

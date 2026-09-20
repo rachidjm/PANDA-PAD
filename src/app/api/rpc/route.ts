@@ -6,10 +6,19 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
  * Read-only JSON-RPC proxy: lets the browser query wallet balances and token
  * accounts through PANDA's server-side RPC provider without the provider's
  * API key ever reaching the client. Deliberately narrow — an allowlist of
- * read methods, same-origin callers only, small bodies, rate-limited. It can
- * not send transactions.
+ * the methods a wallet needs to read state, send an already-signed
+ * transaction and check on it; same-origin callers only, small bodies,
+ * rate-limited (sends more tightly). It never holds or signs anything.
  */
 const ALLOWED_METHODS = new Set([
+  "getLatestBlockhash",
+  "getBlockHeight",
+  "getSignatureStatuses",
+  "sendTransaction",
+  "simulateTransaction",
+  "getMinimumBalanceForRentExemption",
+  "getFeeForMessage",
+  "isBlockhashValid",
   "getBalance",
   "getTokenAccountsByOwner",
   "getTokenSupply",
@@ -39,6 +48,9 @@ export async function POST(req: Request) {
   }
   if (calls.length > 10 || calls.some((c) => !c?.method || !ALLOWED_METHODS.has(c.method))) {
     return rpcError(-32601, "Method not allowed.", 403);
+  }
+  if (calls.some((c) => c.method === "sendTransaction") && rateLimited(`rpc-send:${clientIp(req)}`, 20, 60_000)) {
+    return rpcError(-32005, "Too many transactions.", 429);
   }
 
   try {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { confirmSignature } from "@/lib/solana/confirm";
 import Link from "next/link";
 import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -70,9 +71,7 @@ export default function CreateClient() {
     const tx = base64ToTransaction(data.transaction);
     const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-    if (confirmation.value.err) throw new Error(t("cr.err.buyConfirm"));
+    await confirmSignature(connection, signature);
 
     return signature;
   }
@@ -123,9 +122,7 @@ export default function CreateClient() {
       });
 
       setStage("confirming");
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-      const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-      if (confirmation.value.err) throw new Error(t("cr.err.confirm"));
+      await confirmSignature(connection, signature);
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
       setFeeDistributionUsed(shareholders.some((s) => s.address === REWARDS_POOL_ADDRESS));
