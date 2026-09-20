@@ -3,6 +3,8 @@ import { readJson, updateJson } from "./blob-store";
 export type Ledger = {
   mint: string;
   totalDistributedLamports: number;
+  /** Rounding remainder from splits — real lamports the pool holds that no holder was credited. Invariant: sum(entitled) + dust == totalDistributed. */
+  dustLamports?: number;
   holders: Record<string, { entitledLamports: number; claimedLamports: number }>;
 };
 
@@ -27,9 +29,20 @@ export async function getLedger(mint: string): Promise<Ledger> {
  * the real delta; this function doesn't invent or adjust amounts, only
  * records them. Atomic against concurrent claims.
  */
-export async function creditHolders(mint: string, distributedLamports: number, credits: { address: string; lamports: number }[]): Promise<void> {
+export async function creditHolders(
+  mint: string,
+  distributedLamports: number,
+  credits: { address: string; lamports: number }[],
+  dustLamports: number
+): Promise<void> {
+  // Fail closed: what is credited plus the dust must account for every distributed lamport, exactly.
+  const credited = credits.reduce((sum, c) => sum + c.lamports, 0);
+  if (![distributedLamports, dustLamports, credited].every(Number.isSafeInteger) || credits.some((c) => c.lamports < 0) || dustLamports < 0 || credited + dustLamports !== distributedLamports) {
+    throw new Error("Refusing to credit: credits + dust don't add up to the distributed amount.");
+  }
   await updateJson<Ledger, void>(ledgerPath(mint), emptyLedger(mint), (ledger) => {
     ledger.totalDistributedLamports += distributedLamports;
+    ledger.dustLamports = (ledger.dustLamports ?? 0) + dustLamports;
     for (const { address, lamports } of credits) {
       if (lamports <= 0) continue;
       const existing = ledger.holders[address] || { entitledLamports: 0, claimedLamports: 0 };

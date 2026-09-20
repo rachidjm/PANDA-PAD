@@ -8,7 +8,8 @@ import { alertOps } from "@/lib/alerts";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
 import { collectFeesForMint } from "@/lib/pump/distribute";
-import { getTokenHolders, totalHolderAmount } from "@/lib/solana/holders";
+import { getTokenHolders } from "@/lib/solana/holders";
+import { computeHolderCredits } from "@/lib/rewards/split";
 
 // Vercel Hobby's function timeout is 30s — leave a real safety margin so a
 // slow mint mid-batch can't blow past it; unstarted mints just wait for the
@@ -45,17 +46,14 @@ export async function GET(req: Request) {
         }
 
         const holders = await getTokenHolders(connection, mint);
-        const total = totalHolderAmount(holders);
-        if (total <= 0) {
+        if (holders.length === 0) {
           results.push({ mint, distributedLamports: distributed, holdersCredited: 0 });
           continue;
         }
 
-        const credits = holders.map((h) => ({
-          address: h.address,
-          lamports: Math.floor((h.amount / total) * distributed),
-        }));
-        await creditHolders(mint, distributed, credits);
+        // Integer-exact split by raw token balance; the rounding remainder is recorded as dust, never lost.
+        const { credits, dust } = computeHolderCredits(holders, distributed);
+        await creditHolders(mint, distributed, credits, dust);
         results.push({ mint, distributedLamports: distributed, holdersCredited: credits.length });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error.";

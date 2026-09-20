@@ -1,7 +1,8 @@
 import { Connection } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
-export type TokenHolder = { address: string; amount: number };
+/** `amount` is the raw on-chain balance in the token's smallest units (integer, exact) — never a float. */
+export type TokenHolder = { address: string; amount: bigint };
 
 /**
  * Real, on-chain SPL token holders for a mint — every non-zero token
@@ -19,15 +20,13 @@ export async function getTokenHolders(connection: Connection, mint: string, limi
 
   const holders: TokenHolder[] = [];
   for (const { account } of accounts) {
-    const parsed = (account.data as { parsed?: { info?: { owner?: string; tokenAmount?: { uiAmount?: number | null } } } }).parsed;
+    const parsed = (account.data as { parsed?: { info?: { owner?: string; tokenAmount?: { amount?: string } } } }).parsed;
     const owner = parsed?.info?.owner;
-    const amount = parsed?.info?.tokenAmount?.uiAmount;
-    if (owner && amount && amount > 0) holders.push({ address: owner, amount });
+    const raw = parsed?.info?.tokenAmount?.amount;
+    if (!owner || !raw || !/^d+$/.test(raw)) continue;
+    const amount = BigInt(raw);
+    if (amount > BigInt(0)) holders.push({ address: owner, amount });
   }
 
-  return holders.sort((a, b) => b.amount - a.amount).slice(0, limit);
-}
-
-export function totalHolderAmount(holders: TokenHolder[]): number {
-  return holders.reduce((sum, h) => sum + h.amount, 0);
+  return holders.sort((a, b) => (a.amount === b.amount ? 0 : a.amount > b.amount ? -1 : 1)).slice(0, limit);
 }
