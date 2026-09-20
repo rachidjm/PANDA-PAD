@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { lamportsToSol } from "@/lib/market/format";
@@ -8,6 +8,8 @@ import Countdown from "./Countdown";
 import NftGrid from "./NftGrid";
 import StatusPill from "./StatusPill";
 import BranchesSection from "@/components/branches/BranchesSection";
+import Tabs, { tabId, tabPanelId } from "@/components/ui/Tabs";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { isOpen, MarketInfo, NftView, ThemeView } from "./types";
 
 type MarketData = {
@@ -133,24 +135,120 @@ export default function ThemeDetailClient({ slug }: { slug: string }) {
         </section>
       )}
 
-      <section className="mt-10">
-        <h2 className="font-display text-2xl font-bold">NFT</h2>
-        <p className="mt-1 text-xs text-panda-grey">{t("th.verifiedNote")}</p>
-        <div className="mt-5">
-          {nfts.length === 0 ? (
-            <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-8 text-center text-panda-grey">
-              {open ? t("th.empty") : t("th.emptyClosed")}
-            </div>
+      <ThemeTabs theme={theme} nfts={nfts} market={market} marketData={marketData} open={open} onChanged={() => void load()} nameOf={nameOf} />
+    </div>
+  );
+}
+
+type Tab = "nfts" | "creators" | "branches" | "activity";
+type Sort = "new" | "sold";
+
+/** NFTs / Creators / Branches / Activity of a theme. Every ranking here is computed from verified data — nothing is a guess. */
+function ThemeTabs({
+  theme,
+  nfts,
+  market,
+  marketData,
+  open,
+  onChanged,
+  nameOf,
+}: {
+  theme: ThemeView;
+  nfts: NftView[];
+  market: MarketInfo;
+  marketData: MarketData | null;
+  open: boolean;
+  onChanged: () => void;
+  nameOf: (asset: string) => string;
+}) {
+  const { t } = useLanguage();
+  const { branches: branchesOn } = useFeatures();
+  const [tab, setTab] = useState<Tab>("nfts");
+  const [sort, setSort] = useState<Sort>("new");
+
+  const sortedNfts = useMemo(() => [...nfts].sort((a, b) => (sort === "sold" ? b.sales - a.sales || b.publishedAt - a.publishedAt : b.publishedAt - a.publishedAt)), [nfts, sort]);
+  const creators = useMemo(() => {
+    const by = new Map<string, { creator: string; nfts: number; sales: number }>();
+    for (const n of nfts) {
+      const c = by.get(n.creator) ?? { creator: n.creator, nfts: 0, sales: 0 };
+      c.nfts++;
+      c.sales += n.sales;
+      by.set(n.creator, c);
+    }
+    return [...by.values()].sort((a, b) => b.sales - a.sales || b.nfts - a.nfts || (a.creator < b.creator ? -1 : 1));
+  }, [nfts]);
+
+  const showActivity = market.enabled && marketData !== null;
+  const tabs = [
+    { id: "nfts" as const, label: "NFT", count: nfts.length },
+    { id: "creators" as const, label: t("th.tabCreators"), count: creators.length },
+    ...(branchesOn ? [{ id: "branches" as const, label: t("br.title") }] : []),
+    ...(showActivity ? [{ id: "activity" as const, label: t("th.tabActivity") }] : []),
+  ];
+  const base = `theme-${theme.themeId}`;
+  const panel = (id: Tab) => ({ role: "tabpanel" as const, id: tabPanelId(base, id), "aria-labelledby": tabId(base, id), tabIndex: 0, className: "mt-6 outline-none" });
+
+  return (
+    <section className="mt-10">
+      <Tabs idBase={base} label={t("th.tabsLabel")} tabs={tabs} value={tab} onChange={setTab} variant="underline" />
+
+      {tab === "nfts" && (
+        <div {...panel("nfts")}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-panda-grey">{sort === "sold" ? t("th.sortSoldNote") : t("th.verifiedNote")}</p>
+            {nfts.length > 1 && (
+              <div className="flex gap-1" role="group" aria-label={t("th.sortLabel")}>
+                {(["new", "sold"] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setSort(k)}
+                    aria-pressed={sort === k}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${sort === k ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"}`}
+                  >
+                    {k === "new" ? t("th.sortNew") : t("th.sortSold")}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-5">
+            {nfts.length === 0 ? (
+              <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-8 text-center text-panda-grey">{open ? t("th.empty") : t("th.emptyClosed")}</div>
+            ) : (
+              <NftGrid items={sortedNfts} market={market} onChanged={onChanged} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "creators" && (
+        <div {...panel("creators")}>
+          <p className="text-xs text-panda-grey">{t("th.creatorsNote")}</p>
+          {creators.length === 0 ? (
+            <div className="mt-5 rounded-[24px] border border-paper/10 bg-ink-raised p-8 text-center text-panda-grey">{t("th.noCreators")}</div>
           ) : (
-            <NftGrid items={nfts} market={market} onChanged={() => void load()} />
+            <ol className="mt-5 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
+              {creators.map((c, i) => (
+                <li key={c.creator} className="flex items-center gap-4 px-5 py-3.5 text-sm">
+                  <span className="w-6 text-panda-grey">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{short(c.creator)}</span>
+                  <span className="text-panda-grey">{t("th.creatorNfts", { n: c.nfts })}</span>
+                  {market.enabled && <span className="w-20 text-right font-medium">{t(c.sales === 1 ? "th.creatorSalesOne" : "th.creatorSalesMany", { n: c.sales })}</span>}
+                </li>
+              ))}
+            </ol>
           )}
         </div>
-      </section>
+      )}
 
-      <BranchesSection themeSlug={theme.slug} themeStatus={theme.status} />
+      {tab === "branches" && (
+        <div {...panel("branches")}>
+          <BranchesSection themeSlug={theme.slug} themeStatus={theme.status} />
+        </div>
+      )}
 
-      {market.enabled && marketData && (
-        <section className="mt-10">
+      {tab === "activity" && showActivity && marketData && (
+        <div {...panel("activity")}>
           <h2 className="font-display text-2xl font-bold">{t("mk.recentSales")}</h2>
           {marketData.sales.length === 0 ? (
             <p className="mt-3 text-sm text-panda-grey">{t("mk.noSales")}</p>
@@ -173,9 +271,9 @@ export default function ThemeDetailClient({ slug }: { slug: string }) {
               ))}
             </ul>
           )}
-        </section>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 

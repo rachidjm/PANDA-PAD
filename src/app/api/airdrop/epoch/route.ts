@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isEnabled } from "@/lib/config/flags";
 import { getEpochs } from "@/lib/points/store";
 import { loadVerifiedAllocation } from "@/lib/airdrop/store";
+import { pandaDecimals } from "@/lib/economy/deps";
 
 /**
  * Auth: none (public transparency). Query: ?id=<epoch>. Output: everything needed to
@@ -33,6 +34,7 @@ export async function GET(req: Request) {
         dust: set.dust,
         dustPolicy: set.dustPolicy,
         recipients: set.entries.length,
+        decimals: await pandaDecimals(),
         formula: "amount = floor(pool x wallet points / total points)",
         formulaVersion: set.formulaVersion,
         totalsHash: set.totalsHash,

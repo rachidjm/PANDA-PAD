@@ -133,6 +133,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
           value={inputValue}
           onChange={(e) => typeQuery(e.target.value)}
           placeholder={t("nav.searchPlaceholder")}
+          aria-label={t("nav.searchPlaceholder")}
           className="w-full max-w-xs rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40 sm:hidden"
         />
       </div>

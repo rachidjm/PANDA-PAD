@@ -9,6 +9,7 @@ import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfol
 import { Coin, PortfolioHolding } from "@/lib/types";
 import { formatUsd, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 type State = "loading" | "ready" | "error";
 
@@ -16,6 +17,7 @@ type State = "loading" | "ready" | "error";
 export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: PublicKey; onDisconnect: () => void }) {
   const connection = useReadConnection();
   const { t } = useLanguage();
+  const { points, airdrops } = useFeatures();
   const [state, setState] = useState<State>("loading");
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
 
@@ -95,6 +97,17 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
         >
           {t("wp.open")}
         </Link>
+        {[
+          { href: "/rewards", label: t("nav.rewards"), show: true },
+          { href: "/points", label: t("nav.points"), show: points },
+          { href: "/airdrops", label: t("nav.airdrops"), show: airdrops },
+        ]
+          .filter((i) => i.show)
+          .map((i) => (
+            <Link key={i.href} href={i.href} className="block rounded-xl px-3 py-2 text-sm text-paper/80 hover:bg-paper/10 hover:text-paper transition-colors">
+              {i.label}
+            </Link>
+          ))}
         <button
           onClick={onDisconnect}
           className="w-full rounded-xl px-3 py-2 text-left text-sm text-paper/70 hover:bg-paper/10 hover:text-paper transition-colors"

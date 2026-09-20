@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isEnabled } from "@/lib/config/flags";
 import { getEpochs } from "@/lib/points/store";
+import { POINTS_CONFIG } from "@/lib/points/config";
 
 /**
  * Auth: none (public). Output: { epochs: [...] } — timing, status, formula
@@ -22,7 +23,14 @@ export async function GET() {
           rewardPool: e.rewardPool,
           formulaVersion: e.formulaVersion,
           totalsHash: e.totalsHash ?? null,
+          airdropPublished: Boolean(e.merkleRoot),
         })),
+        // The published rules, so the page can show the real numbers (never a hand-written copy).
+        rules: {
+          formulaVersion: POINTS_CONFIG.version,
+          trade: POINTS_CONFIG.trade,
+          caps: POINTS_CONFIG.caps,
+        },
       },
       { headers: { "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30" } }
     );

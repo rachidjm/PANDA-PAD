@@ -389,7 +389,7 @@ export default function CreateClient() {
               onChange={(e) => setFirstBuyAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0"
               inputMode="decimal"
-              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey/50"
+              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey"
             />
             <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">SOL</span>
           </div>

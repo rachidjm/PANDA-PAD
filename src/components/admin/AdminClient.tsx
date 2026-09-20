@@ -117,7 +117,7 @@ export default function AdminClient() {
                     onChange={(e) => setReasons((r) => ({ ...r, [s]: e.target.value }))}
                     maxLength={200}
                     placeholder="Reason (shown publicly)"
-                    className="min-w-0 flex-1 rounded-xl bg-ink px-3 py-2 text-sm outline-none placeholder:text-panda-grey/60 focus:ring-1 focus:ring-paper/30"
+                    className="min-w-0 flex-1 rounded-xl bg-ink px-3 py-2 text-sm outline-none placeholder:text-panda-grey focus:ring-1 focus:ring-paper/30"
                   />
                 )}
                 <button

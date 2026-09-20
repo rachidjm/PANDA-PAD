@@ -5,8 +5,10 @@ import { displayStatus, Theme } from "@/lib/themes/theme";
 import { listPublished } from "@/lib/nft/store";
 import { MARKET_CONFIG } from "@/lib/market/config";
 import { listActive, listSales } from "@/lib/market/store";
+import { listBranchesOfTheme } from "@/lib/branches/store";
 
-const publicTheme = (t: Theme, now: number, nfts: number) => ({
+type Extra = { creators: number; volumeLamports: number | null; branches: number | null };
+const publicTheme = (t: Theme, now: number, nfts: number, extra?: Extra) => ({
   themeId: t.themeId,
   slug: t.slug,
   title: t.title,
@@ -21,6 +23,7 @@ const publicTheme = (t: Theme, now: number, nfts: number) => ({
   status: displayStatus(t, now),
   version: t.version,
   nfts,
+  ...(extra ?? {}),
 });
 
 /**
@@ -75,8 +78,18 @@ export async function GET(req: Request) {
       );
     }
     const themes = (await listThemes()).filter((t) => t.status !== "DRAFT");
-    const counts = await Promise.all(themes.map(async (t) => (await listPublished(t.themeId)).length));
-    return NextResponse.json({ themes: themes.map((t, i) => publicTheme(t, now, counts[i])) }, { headers: { "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30" } });
+    const marketOn = isEnabled("NFT_MARKET");
+    const branchesOn = isEnabled("NFT_BRANCHES");
+    // Everything below is counted from what PANDA verified: published NFTs, completed sales, opened branches. Null = that feature is off.
+    const details = await Promise.all(
+      themes.map(async (t) => {
+        const items = await listPublished(t.themeId);
+        const volumeLamports = marketOn ? (await listSales(t.themeId)).filter((s) => s.status === "COMPLETED").reduce((sum, s) => sum + s.priceLamports, 0) : null;
+        const branches = branchesOn ? (await listBranchesOfTheme(t.themeId)).length : null;
+        return { nfts: items.length, extra: { creators: new Set(items.map((i) => i.wallet)).size, volumeLamports, branches } };
+      })
+    );
+    return NextResponse.json({ themes: themes.map((t, i) => publicTheme(t, now, details[i].nfts, details[i].extra)) }, { headers: { "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30" } });
   } catch {
     return NextResponse.json({ error: "Couldn't load themes." }, { status: 500 });
   }

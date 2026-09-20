@@ -8,8 +8,11 @@ export function formatSolAmount(lamports: number, lang: string): string {
   return sol.toLocaleString(lang, { maximumFractionDigits: sol >= 1000 ? 0 : sol >= 100 ? 1 : sol >= 1 ? 2 : 4 });
 }
 
-/** Token base units (decimal string, any size) as text with `decimals` decimals — exact, no floating point. `decimals` null = raw units. */
-export function formatTokenUnits(base: string, decimals: number | null, lang: string): string {
+/**
+ * Token base units (decimal string, any size) as text with `decimals` decimals — exact, no floating point. `decimals` null = raw units.
+ * `fractionDigits` is how many decimals are shown (truncated, never rounded up, trailing zeros dropped); pass `decimals` for the full amount.
+ */
+export function formatTokenUnits(base: string, decimals: number | null, lang: string, fractionDigits = 2): string {
   let n: bigint;
   try {
     n = BigInt(base);
@@ -17,9 +20,11 @@ export function formatTokenUnits(base: string, decimals: number | null, lang: st
     return "—";
   }
   if (decimals === null || decimals <= 0) return n.toLocaleString(lang);
+  const digits = Math.max(0, Math.min(fractionDigits, decimals));
   const unit = BigInt(10) ** BigInt(decimals);
   const whole = n / unit;
-  const frac = ((n % unit) * BigInt(100)) / unit; // two decimals, truncated
+  const frac = ((n % unit) * BigInt(10) ** BigInt(digits)) / unit; // truncated
   const w = whole.toLocaleString(lang);
-  return frac === BigInt(0) ? w : `${w}${lang === "es" ? "," : "."}${frac.toString().padStart(2, "0")}`;
+  const fracText = frac.toString().padStart(digits, "0").replace(/0+$/, "");
+  return fracText === "" ? w : `${w}${lang === "es" ? "," : "."}${fracText}`;
 }

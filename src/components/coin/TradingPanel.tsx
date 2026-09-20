@@ -187,7 +187,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               placeholder="0.0"
               inputMode="decimal"
               disabled={busy}
-              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey/50 disabled:opacity-50"
+              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
             />
             <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">{quote}</span>
           </div>
@@ -240,7 +240,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               placeholder="0"
               inputMode="decimal"
               disabled={busy}
-              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey/50 disabled:opacity-50"
+              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
             />
             <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">${coin.ticker}</span>
           </div>

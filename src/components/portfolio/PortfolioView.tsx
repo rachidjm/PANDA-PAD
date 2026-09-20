@@ -180,7 +180,7 @@ export default function PortfolioView(p: PortfolioViewProps) {
             </Link>
           </div>
         )}
-        <p className="mt-4 text-[11px] leading-relaxed text-panda-grey/80">{t("pf.legend")}</p>
+        <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{t("pf.legend")}</p>
       </section>
 
       {/* ---- allocation ---- */}

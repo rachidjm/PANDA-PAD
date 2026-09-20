@@ -163,7 +163,7 @@ export default function ActivityView(p: {
         ))}
       </div>
 
-      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey/80">{t("act.notice")}</p>
+      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{t("act.notice")}</p>
     </div>
   );
 }

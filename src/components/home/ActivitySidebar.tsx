@@ -220,7 +220,7 @@ function LaunchRow({ launch: l }: { launch: Launch }) {
 
   return (
     <div className="flex items-center gap-3 p-3.5">
-      <Link href={`/coin/${l.mint}`} className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
+      <Link href={`/coin/${l.mint}`} aria-label={`$${l.ticker}`} className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
         <CoinAvatar image={l.image} ticker={l.ticker} />
       </Link>
       <div className="min-w-0 flex-1">

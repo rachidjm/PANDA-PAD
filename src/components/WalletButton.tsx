@@ -17,8 +17,15 @@ export default function WalletButton() {
     function onClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   if (connected && publicKey) {
@@ -26,11 +33,13 @@ export default function WalletButton() {
       <div className="relative" ref={ref}>
         <button
           onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-haspopup="true"
           className="flex items-center gap-2 rounded-full border border-paper/20 bg-ink-raised px-4 py-2 text-sm font-medium hover:border-paper/40 transition-colors"
         >
-          <span className="h-2 w-2 rounded-full bg-bamboo" />
+          <span className="h-2 w-2 rounded-full bg-bamboo" aria-hidden />
           {truncateAddress(publicKey.toBase58())}
-          <span className="text-panda-grey">▾</span>
+          <span className="text-panda-grey" aria-hidden>▾</span>
         </button>
         {open && (
           <div className="absolute right-0 mt-2">
@@ -54,6 +63,8 @@ export default function WalletButton() {
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={connecting}
+        aria-expanded={open}
+        aria-haspopup="true"
         className="rounded-full bg-paper px-4 py-2 text-sm font-semibold text-ink hover:brightness-90 transition disabled:opacity-60"
       >
         {connecting ? t("wallet.connecting") : t("wallet.connect")}

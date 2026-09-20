@@ -209,3 +209,14 @@ test("token units are exact past 2^53, with decimals or without", () => {
   assert.equal(formatTokenUnits("42", null, "en"), "42", "unknown decimals: raw units, never a guess");
   assert.equal(formatTokenUnits("not a number", 6, "en"), "—");
 });
+
+test("token amounts can be shown in full precision, truncated (never rounded up), with trailing zeros dropped", () => {
+  assert.equal(formatTokenUnits("4999999999998", 6, "en", 6), "4,999,999.999998", "not 4,999,999.99");
+  assert.equal(formatTokenUnits("4999999999998", 6, "en"), "4,999,999.99", "the default still shows two decimals, truncated");
+  assert.equal(formatTokenUnits("2", 6, "en", 6), "0.000002", "a tiny remainder is not shown as 0");
+  assert.equal(formatTokenUnits("2", 6, "en"), "0", "…unless only two decimals were asked for");
+  assert.equal(formatTokenUnits("5000000000000", 6, "en", 6), "5,000,000", "zeros dropped");
+  assert.equal(formatTokenUnits("1500000", 6, "es", 6), "1,5");
+  assert.equal(formatTokenUnits("123456789", 9, "en", 20), "0.123456789", "asking for more digits than the token has is fine");
+  assert.equal(formatTokenUnits("1234567", 6, "en", 0), "1", "zero decimals truncates");
+});

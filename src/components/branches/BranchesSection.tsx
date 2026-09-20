@@ -99,7 +99,7 @@ export function EligibilityView({
       ) : (
         <p className="mt-4 text-sm text-panda-grey">{t("br.notEligible")}</p>
       )}
-      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey/80">
+      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">
         {need && t("br.method", { h: elig.minHoldHours, buyers: need.minUniqueBuyers, sol: lamportsToSol(need.minVolumeLamports) })}
       </p>
     </>

@@ -16,6 +16,10 @@ export type ThemeView = {
   status: ThemeStatusView;
   version: number;
   nfts: number;
+  /** Only on the list: distinct creators with a published NFT, verified volume (null when the market is off) and branches (null when off). */
+  creators?: number;
+  volumeLamports?: number | null;
+  branches?: number | null;
 };
 
 export type MarketInfo = { enabled: boolean; secondaryEnabled: boolean; feeBps: number };

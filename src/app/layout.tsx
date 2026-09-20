@@ -7,6 +7,9 @@ import Footer from "@/components/Footer";
 import ProtocolBanner from "@/components/ProtocolBanner";
 import WalletProvider from "@/components/providers/WalletProvider";
 import MotionProvider from "@/components/providers/MotionProvider";
+import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
+import MobileTabBar from "@/components/MobileTabBar";
+import SkipLink from "@/components/SkipLink";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
 
@@ -30,16 +33,31 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-full flex-col pb-16 sm:pb-0">
         <PandaDefs />
         <LanguageProvider>
           <MotionProvider>
-            <WalletProvider>
-              <Navbar showThemes={isEnabled("NFT_THEMES")} />
-              <ProtocolBanner />
-              <main className="flex-1">{children}</main>
-              <Footer />
-            </WalletProvider>
+            <FeaturesProvider
+              features={{
+                themes: isEnabled("NFT_THEMES"),
+                branches: isEnabled("NFT_THEMES") && isEnabled("NFT_BRANCHES"),
+                market: isEnabled("NFT_THEMES") && isEnabled("NFT_MARKET"),
+                points: isEnabled("PANDA_POINTS"),
+                airdrops: isEnabled("PANDA_AIRDROPS"),
+                claims: isEnabled("PANDA_AIRDROPS") && isEnabled("MERKLE_CLAIMS"),
+              }}
+            >
+              <WalletProvider>
+                <SkipLink />
+                <Navbar />
+                <ProtocolBanner />
+                <main id="main" tabIndex={-1} className="flex-1 outline-none">
+                  {children}
+                </main>
+                <Footer />
+                <MobileTabBar />
+              </WalletProvider>
+            </FeaturesProvider>
           </MotionProvider>
         </LanguageProvider>
       </body>

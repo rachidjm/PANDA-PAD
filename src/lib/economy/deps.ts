@@ -15,6 +15,16 @@ const MAX_LEDGERS = 120;
 /** Airdrop claim records read per request across all epochs. */
 const MAX_CLAIM_RECORDS = 1500;
 
+let decimalsCache: { value: number | null; at: number } | null = null;
+/** PANDA token decimals from the chain, remembered for an hour (a mint's decimals never change; a failed read is retried after a minute). */
+export async function pandaDecimals(): Promise<number | null> {
+  const now = Date.now();
+  if (decimalsCache && now - decimalsCache.at < (decimalsCache.value === null ? 60_000 : 3_600_000)) return decimalsCache.value;
+  const value = await decimalsOfPandaMint();
+  decimalsCache = { value, at: now };
+  return value;
+}
+
 async function decimalsOfPandaMint(): Promise<number | null> {
   const mint = pandaMint();
   if (!mint) return null;
@@ -59,7 +69,7 @@ export function realEconomyDeps(): EconomyDeps {
         if (c.truncated) partial = true;
         epochs.push({ epoch: e.id, distributed: loaded.set.distributed, claimed: c.claimed.toString(), claimedCount: c.count, leaves: loaded.set.entries.length });
       }
-      return { epochs, partial, unverified, decimals: await decimalsOfPandaMint() };
+      return { epochs, partial, unverified, decimals: await pandaDecimals() };
     },
 
     sales: async () => {

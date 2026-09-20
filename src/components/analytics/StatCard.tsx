@@ -25,7 +25,7 @@ export default function StatCard({
         <span>{label}</span>
         {tooltip && (
           <Tooltip label={tooltip}>
-            <span className="cursor-help text-panda-grey/70">ⓘ</span>
+            <span className="cursor-help text-panda-grey">ⓘ</span>
           </Tooltip>
         )}
       </div>

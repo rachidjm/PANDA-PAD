@@ -3,14 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { lamportsToSol } from "@/lib/market/format";
 import Countdown from "./Countdown";
 import StatusPill from "./StatusPill";
 import type { ThemeView } from "./types";
 
 type State = { kind: "loading" } | { kind: "error" } | { kind: "ready"; themes: ThemeView[] };
 
-/** Active first, then upcoming, then the rest (newest end first). */
-const ORDER: Record<string, number> = { ACTIVE: 0, CLOSING: 1, SCHEDULED: 2, ENDED: 3, CLOSED: 3, ARCHIVED: 4, CANCELLED: 5 };
+type Section = "active" | "upcoming" | "completed";
+/** Where a theme belongs on the page. Cancelled themes are left out: nothing happened there. */
+const SECTION_OF: Record<string, Section | null> = { ACTIVE: "active", CLOSING: "active", SCHEDULED: "upcoming", ENDED: "completed", CLOSED: "completed", ARCHIVED: "completed", CANCELLED: null };
 
 export default function ThemesClient() {
   const { t } = useLanguage();
@@ -44,18 +46,39 @@ export default function ThemesClient() {
         {state.kind === "ready" && state.themes.length === 0 && (
           <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-8 text-center text-panda-grey">{t("th.none")}</div>
         )}
-        {state.kind === "ready" && state.themes.length > 0 && (
-          <ul className="grid gap-4 sm:grid-cols-2">
-            {[...state.themes]
-              .sort((a, b) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) || b.endTime - a.endTime)
-              .map((th) => (
-                <li key={th.themeId}>
-                  <ThemeCard theme={th} />
-                </li>
-              ))}
-          </ul>
-        )}
+        {state.kind === "ready" && state.themes.length > 0 && <Sections themes={state.themes} />}
       </div>
+    </div>
+  );
+}
+
+function Sections({ themes }: { themes: ThemeView[] }) {
+  const { t } = useLanguage();
+  const groups: { id: Section; title: string; list: ThemeView[] }[] = [
+    // Active: soonest to end first. Upcoming: soonest to start first. Completed: most recently ended first.
+    { id: "active", title: t("th.secActive"), list: themes.filter((x) => SECTION_OF[x.status] === "active").sort((a, b) => a.endTime - b.endTime) },
+    { id: "upcoming", title: t("th.secUpcoming"), list: themes.filter((x) => SECTION_OF[x.status] === "upcoming").sort((a, b) => a.startTime - b.startTime) },
+    { id: "completed", title: t("th.secCompleted"), list: themes.filter((x) => SECTION_OF[x.status] === "completed").sort((a, b) => b.endTime - a.endTime) },
+  ];
+  const shown = groups.filter((g) => g.list.length > 0);
+  if (shown.length === 0) return <div className="rounded-[24px] border border-paper/10 bg-ink-raised p-8 text-center text-panda-grey">{t("th.none")}</div>;
+  return (
+    <div className="space-y-10">
+      {shown.map((g) => (
+        <section key={g.id} aria-labelledby={`themes-${g.id}`}>
+          <h2 id={`themes-${g.id}`} className="mb-4 flex items-baseline gap-2 font-display text-xl font-bold">
+            {g.title}
+            <span className="text-sm font-medium text-panda-grey">{g.list.length}</span>
+          </h2>
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {g.list.map((th) => (
+              <li key={th.themeId}>
+                <ThemeCard theme={th} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }
@@ -64,6 +87,15 @@ function ThemeCard({ theme }: { theme: ThemeView }) {
   const { t } = useLanguage();
   const upcoming = theme.status === "SCHEDULED";
   const live = theme.status === "ACTIVE";
+  const completed = SECTION_OF[theme.status] === "completed";
+  const stats = [
+    t(theme.nfts === 1 ? "th.nftOne" : "th.nfts", { n: theme.nfts }),
+    theme.creators !== undefined ? t(theme.creators === 1 ? "th.creator" : "th.creators", { n: theme.creators }) : null,
+    // Volume only exists when the market is on; it is never shown as 0 when it simply isn't tracked.
+    // A theme that hasn't started has no volume to speak of.
+    theme.volumeLamports != null && !upcoming ? t(completed ? "th.volumeFinal" : "th.volumeLive", { v: lamportsToSol(theme.volumeLamports) }) : null,
+    theme.branches ? t(theme.branches === 1 ? "th.branchOne" : "th.branchMany", { n: theme.branches }) : null,
+  ].filter(Boolean);
   return (
     <Link
       href={`/themes/${theme.slug}`}
@@ -82,7 +114,9 @@ function ThemeCard({ theme }: { theme: ThemeView }) {
             <Countdown target={live ? theme.endTime : theme.startTime} className="font-semibold text-paper" />
           </span>
         )}
-        <span>{t("th.nfts", { n: theme.nfts })}</span>
+        {stats.map((s) => (
+          <span key={s as string}>{s}</span>
+        ))}
         <span>
           {t("th.royalty")} {theme.royaltyBps / 100}%
         </span>

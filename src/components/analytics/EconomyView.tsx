@@ -16,7 +16,7 @@ function Card({ title, unit, children, source }: { title: string; unit: string; 
         <span className="rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-panda-grey">{unit}</span>
       </div>
       <div className="mt-3 flex-1">{children}</div>
-      {source && <p className="mt-4 text-[11px] leading-relaxed text-panda-grey/80">{source}</p>}
+      {source && <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{source}</p>}
     </div>
   );
 }

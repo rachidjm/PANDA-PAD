@@ -224,7 +224,7 @@ export default function RewardsDashboard() {
             <div className="flex items-center justify-center gap-1 text-[11px] text-panda-grey">
               <span>{t("rd.pending")}</span>
               <Tooltip label={t("rd.pendingHint")}>
-                <span className="cursor-help text-panda-grey/60">ⓘ</span>
+                <span className="cursor-help text-panda-grey">ⓘ</span>
               </Tooltip>
             </div>
             <p className="mt-1 font-display text-lg font-bold text-paper/40">{t("rd.notTracked")}</p>
@@ -315,7 +315,7 @@ export default function RewardsDashboard() {
           <p className="text-sm font-medium">{t("rd.earnings")}</p>
           <div className="flex gap-1">
             {["7D", "30D", "ALL"].map((range) => (
-              <span key={range} className="rounded-full bg-paper/5 px-2.5 py-1 text-xs font-semibold text-panda-grey/60">
+              <span key={range} className="rounded-full bg-paper/5 px-2.5 py-1 text-xs font-semibold text-panda-grey">
                 {range}
               </span>
             ))}
