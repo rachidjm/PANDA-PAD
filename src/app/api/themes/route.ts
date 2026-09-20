@@ -3,6 +3,8 @@ import { isEnabled } from "@/lib/config/flags";
 import { getThemeBySlug, listThemes } from "@/lib/themes/store";
 import { displayStatus, Theme } from "@/lib/themes/theme";
 import { listPublished } from "@/lib/nft/store";
+import { MARKET_CONFIG } from "@/lib/market/config";
+import { listActive, listSales } from "@/lib/market/store";
 
 const publicTheme = (t: Theme, now: number, nfts: number) => ({
   themeId: t.themeId,
@@ -35,10 +37,30 @@ export async function GET(req: Request) {
       const theme = await getThemeBySlug(slug);
       if (!theme || theme.status === "DRAFT") return NextResponse.json({ error: "No such theme." }, { status: 404 });
       const items = (await listPublished(theme.themeId)).sort((a, b) => b.publishedAt - a.publishedAt);
+
+      // Market view (only when the market is on): who owns each NFT (the latest verified buyer, else its creator),
+      // how many verified sales it has had, and its active listing.
+      const marketOn = isEnabled("NFT_MARKET");
+      const ownerOf = new Map<string, string>();
+      const salesOf = new Map<string, number>();
+      const listingOf = new Map<string, { listingId: string; priceLamports: number; expiresAt: number; seller: string }>();
+      if (marketOn) {
+        const [sales, active] = await Promise.all([listSales(theme.themeId), listActive(theme.themeId, now)]);
+        for (const s of sales.filter((x) => x.status === "COMPLETED")) {
+          ownerOf.set(s.assetAddress, s.buyer);
+          salesOf.set(s.assetAddress, (salesOf.get(s.assetAddress) ?? 0) + 1);
+        }
+        for (const a of active) listingOf.set(a.assetAddress, { listingId: a.listingId, priceLamports: a.priceLamports, expiresAt: a.expiresAt, seller: a.seller });
+      }
+
       return NextResponse.json(
         {
           theme: publicTheme(theme, now, items.length),
+          market: marketOn ? { enabled: true, secondaryEnabled: isEnabled("NFT_SECONDARY"), feeBps: MARKET_CONFIG.feeBps } : { enabled: false, secondaryEnabled: false, feeBps: 0 },
           nfts: items.map((i) => ({
+            owner: ownerOf.get(i.assetAddress) ?? i.wallet,
+            sales: salesOf.get(i.assetAddress) ?? 0,
+            listing: listingOf.get(i.assetAddress) ?? null,
             contentId: i.contentId,
             asset: i.assetAddress,
             creator: i.wallet,

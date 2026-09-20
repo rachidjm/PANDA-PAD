@@ -11,6 +11,7 @@ export const SUBSYSTEMS = [
   "claims",
   "airdrops",
   "nft_minting",
+  "nft_market",
   "token_launches",
   "reward_calculations",
   "fee_processing",

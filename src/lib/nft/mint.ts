@@ -28,7 +28,10 @@ export type MintAttributes = { key: string; value: string }[];
 
 export type ExpectedAsset = {
   assetAddress: string;
+  /** Who must own the asset right now (the creator right after minting; the seller once it is on sale). */
   owner: string;
+  /** The original creator: the update authority and the royalty recipient. Defaults to `owner` (the mint case). */
+  creator?: string;
   name: string;
   uri: string;
   royaltyBps: number;
@@ -126,18 +129,37 @@ const str = (v: string | { toString(): string } | undefined) => (v === undefined
  * buyer, or a lifecycle hook) makes the asset fail verification and it is
  * never published or listed.
  */
-export function verifyAsset(asset: AssetLike, expected: ExpectedAsset): string | null {
+export type VerifyOptions = {
+  /**
+   * PANDA's marketplace authority. When set, a TransferDelegate plugin whose authority is exactly this
+   * address is permitted (that is what an active listing looks like); any other transfer delegate is still refused.
+   */
+  marketAuthority?: string;
+  /** Require the marketplace TransferDelegate to be present (a listing that can actually be sold). */
+  requireMarketDelegate?: boolean;
+};
+
+export function verifyAsset(asset: AssetLike, expected: ExpectedAsset, opts: VerifyOptions = {}): string | null {
+  const creator = expected.creator ?? expected.owner;
   if (str(asset.publicKey) !== expected.assetAddress) return "asset address differs";
   if (str(asset.owner) !== expected.owner) return "owner differs";
   if (asset.name !== expected.name) return "name differs";
   if (asset.uri !== expected.uri) return "uri differs";
-  if (asset.updateAuthority.type !== "Address" || str(asset.updateAuthority.address) !== expected.owner) return "update authority differs";
+  if (asset.updateAuthority.type !== "Address" || str(asset.updateAuthority.address) !== creator) return "update authority differs";
 
   for (const key of Object.keys(asset)) {
     if (BASE_FIELDS.has(key)) continue;
     const value = asset[key];
     if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) continue;
+    if (key === "transferDelegate" && opts.marketAuthority) continue; // checked precisely below
     if (!ALLOWED_PLUGINS.has(key)) return `unexpected plugin: ${key}`;
+  }
+
+  const td = asset.transferDelegate as { authority?: { type?: string; address?: string | { toString(): string } } } | undefined | null;
+  if (td) {
+    if (!opts.marketAuthority || td.authority?.type !== "Address" || str(td.authority.address) !== opts.marketAuthority) return "unexpected transfer delegate";
+  } else if (opts.requireMarketDelegate) {
+    return "PANDA's marketplace is not approved to transfer this asset";
   }
 
   if (!asset.immutableMetadata) return "metadata is not immutable";
@@ -148,7 +170,7 @@ export function verifyAsset(asset: AssetLike, expected: ExpectedAsset): string |
   if (r.authority.type !== "None") return "royalties can still be changed";
   if (r.basisPoints !== expected.royaltyBps) return "royalty differs";
   if (r.ruleSet.type !== "None") return "unexpected royalty rule set";
-  if (r.creators.length !== 1 || str(r.creators[0].address) !== expected.owner || r.creators[0].percentage !== 100) return "royalty creators differ";
+  if (r.creators.length !== 1 || str(r.creators[0].address) !== creator || r.creators[0].percentage !== 100) return "royalty creators differ";
 
   const a = asset.attributes;
   if (!a) return "attributes plugin missing";
@@ -160,7 +182,7 @@ export function verifyAsset(asset: AssetLike, expected: ExpectedAsset): string |
 }
 
 /** Reads the asset from the chain and verifies it. Returns null when it matches, else the reason (or "asset not found"). */
-export async function verifyMintedAsset(rpcUrl: string, expected: ExpectedAsset): Promise<string | null> {
+export async function verifyMintedAsset(rpcUrl: string, expected: ExpectedAsset, opts: VerifyOptions = {}): Promise<string | null> {
   const umi = createUmi(rpcUrl).use(mplCore());
   let asset;
   try {
@@ -168,5 +190,5 @@ export async function verifyMintedAsset(rpcUrl: string, expected: ExpectedAsset)
   } catch {
     return "asset not found on-chain";
   }
-  return verifyAsset(asset as unknown as AssetLike, expected);
+  return verifyAsset(asset as unknown as AssetLike, expected, opts);
 }

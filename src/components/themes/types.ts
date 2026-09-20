@@ -18,7 +18,14 @@ export type ThemeView = {
   nfts: number;
 };
 
+export type MarketInfo = { enabled: boolean; secondaryEnabled: boolean; feeBps: number };
+
 export type NftView = {
+  /** Current owner as far as PANDA's verified sales know (the creator until a sale is recorded). */
+  owner: string;
+  /** Verified sales this NFT has had. */
+  sales: number;
+  listing: { listingId: string; priceLamports: number; expiresAt: number; seller: string } | null;
   contentId: string;
   asset: string;
   creator: string;

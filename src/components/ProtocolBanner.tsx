@@ -10,6 +10,7 @@ const LABEL_KEYS: Record<string, DictKey> = {
   claims: "pause.claims",
   airdrops: "pause.airdrops",
   nft_minting: "pause.nft_minting",
+  nft_market: "pause.nft_market",
   token_launches: "pause.token_launches",
   reward_calculations: "pause.reward_calculations",
   fee_processing: "pause.fee_processing",
