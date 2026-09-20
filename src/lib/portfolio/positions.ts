@@ -16,6 +16,12 @@ export type Position = {
   /** Real USD P&L: unrealized (open) from the live price, or realized (closed) from actual sells. */
   pnlUsd: number;
   pnlPct: number;
+  /** Open positions only: whether a live price was available. When false, `pnlUsd` is 0 because it is UNKNOWN, not because it is flat. */
+  priceKnown: boolean;
+  /** Profit already locked in by sells of this coin (average-cost method); 0 if nothing was sold. */
+  realizedPnlUsd: number;
+  /** True when some sold tokens had no known purchase (bought before the scanned history), so realized P&L covers only part of the sales. */
+  partialHistory: boolean;
   lastTradeTs: number;
   /** True when any of this position's trades were read back from on-chain history (approximate). */
   estimated?: boolean;
@@ -48,6 +54,7 @@ export function computePositions(
     let realizedPnlUsd = 0;
     let realizedCostUsd = 0; // sum of cost-of-sold, for a closed position's % P&L
     let lastTradeTs = 0;
+    let partialHistory = false;
     const estimated = sorted.some((t) => t.estimated);
 
     for (const t of sorted) {
@@ -59,6 +66,7 @@ export function computePositions(
       } else {
         const avgCost = totalTokens > 0 ? totalCostUsd / totalTokens : 0;
         const sold = Math.min(t.tokenAmount, totalTokens);
+        if (sold < t.tokenAmount) partialHistory = true;
         if (sold <= 0) continue; // a sale of tokens we never saw bought (e.g. before the scanned history) has no known cost basis
         const costOfSold = avgCost * sold;
         // Only the part of the sale we can match to known purchases counts, along with its share of the proceeds.
@@ -88,6 +96,9 @@ export function computePositions(
         avgCostUsd,
         pnlUsd,
         pnlPct: totalCostUsd > 0 ? (pnlUsd / totalCostUsd) * 100 : 0,
+        priceKnown: currentPriceUsd !== undefined,
+        realizedPnlUsd,
+        partialHistory,
         lastTradeTs,
         estimated,
       });
@@ -103,6 +114,9 @@ export function computePositions(
         avgCostUsd: 0,
         pnlUsd: realizedPnlUsd,
         pnlPct: realizedCostUsd > 0 ? (realizedPnlUsd / realizedCostUsd) * 100 : 0,
+        priceKnown: true,
+        realizedPnlUsd,
+        partialHistory,
         lastTradeTs,
         estimated,
       });
