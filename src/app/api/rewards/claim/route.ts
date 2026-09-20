@@ -14,6 +14,7 @@ import { fetchTokenPools } from "@/lib/gecko/client";
 import { meetsRewardsThreshold } from "@/lib/rewards";
 import { alertOps } from "@/lib/alerts";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 // Never let a payout drain the pool below what it needs to keep signing (fees + rent headroom).
@@ -77,6 +78,7 @@ export async function GET(req: Request) {
  *      payout isn't) and raise an alert.
  */
 export async function POST(req: Request) {
+  if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (rateLimited(`claim:ip:${clientIp(req)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many claim attempts — wait a minute and try again." }, { status: 429 });
   }
@@ -90,6 +92,10 @@ export async function POST(req: Request) {
     holder = body.holder;
     if (!isValidAddress(mint) || !isValidAddress(holder)) {
       return NextResponse.json({ error: "Missing or invalid mint or holder." }, { status: 400 });
+    }
+    // Only the wallet's owner (proven by a signed sign-in, see /api/auth/*) can trigger its claim.
+    if (getSessionWallet(req) !== holder) {
+      return NextResponse.json({ error: "Sign in with this wallet to claim.", code: "AUTH_REQUIRED" }, { status: 401 });
     }
     if (rateLimited(`claim:holder:${holder}`, 3, 60_000)) {
       return NextResponse.json({ error: "Too many claim attempts for this wallet — wait a minute." }, { status: 429 });

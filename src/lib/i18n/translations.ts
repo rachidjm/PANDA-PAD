@@ -186,6 +186,12 @@ export const dict = {
   },
   "rd.claiming": { en: "Claiming…", es: "Reclamando…" },
   "rd.claimAll": { en: "Claim all", es: "Reclamar todo" },
+  "auth.noSign": {
+    en: "This wallet can't sign messages, which signing in requires.",
+    es: "Esta wallet no puede firmar mensajes, que es necesario para iniciar sesión.",
+  },
+  "auth.failed": { en: "Sign-in failed — please try again.", es: "Falló el inicio de sesión — inténtalo de nuevo." },
+  "auth.rejected": { en: "Sign-in cancelled.", es: "Inicio de sesión cancelado." },
   "rd.claimFailed": { en: "Claim failed.", es: "Fallo al reclamar." },
   "rd.claimFailedFor": { en: "Claim failed for ${ticker}.", es: "Fallo al reclamar ${ticker}." },
   "rd.poolTotal": {

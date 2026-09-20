@@ -20,7 +20,7 @@ Wallet-signature auth (nonce), PANDA Points, epochs, airdrops/Merkle claims, NFT
 | # | Severity | Finding | Status |
 |---|---|---|---|
 | 1 | **High** | PANDA's 5% creator-fee share was enforced only in the browser. `/api/pump/create` checked "sums to 100%" but not that PANDA was in the list, so a direct API call skipped it. | **Fixed**: `validateShareholders` now requires exactly one PANDA-treasury entry at 500 bps, total 10000, integer/positive bps, no duplicates. 14 tests. |
-| 2 | Medium | `POST /api/rewards/claim` takes `holder` from the request body with no proof of wallet ownership. Payouts go to that same address (no theft path), but anyone can trigger or grief another holder's claim timing. | Open — needs wallet-signature auth (nonce/expiry/domain/replay). Next phase. |
+| 2 | Medium | `POST /api/rewards/claim` takes `holder` from the request body with no proof of wallet ownership. Payouts go to that same address (no theft path), but anyone can trigger or grief another holder's claim timing. | **Fixed** (see "Wallet sign-in"): claims now require a signed-in session for that exact wallet. |
 | 3 | Medium | Rate limiting is in-memory, per serverless instance — bypassable by spreading requests. | Open — needs shared store (Upstash/Vercel KV). |
 | 4 | Medium | Blob JSON is used for the rewards ledger. ETag optimistic locking makes claims safe at low volume, but it is not a transactional DB. | Open — a real DB (Postgres/Supabase) is required before points/airdrops (append-only event ledger, unique constraints). |
 | 5 | Medium | No app-level security headers. | **Fixed (baseline)**: nosniff, frame-deny, referrer, permissions, HSTS, `frame-ancestors/base-uri/object-src/form-action` CSP. Full `script-src` CSP needs nonces — open. |
@@ -37,9 +37,16 @@ Wallet-signature auth (nonce), PANDA Points, epochs, airdrops/Merkle claims, NFT
 - `src/lib/config/flags.ts` — feature flags, default off (not wired to features yet, none exist).
 - `next.config.ts` — security headers.
 
+## Wallet sign-in (Phase 2)
+- `POST /api/auth/challenge` issues a one-time nonce (5 min) bound to wallet + domain; `POST /api/auth/verify` rebuilds the message server-side, verifies the ed25519 signature, atomically burns the nonce (ETag-locked Blob update; one blob per nonce) and sets an HttpOnly, SameSite=Strict, Secure, 2h HMAC-signed cookie. `GET /api/auth/session`, `POST /api/auth/logout`.
+- `POST /api/rewards/claim` requires the session wallet to equal `holder`; also checks Origin. The client signs once per session via `useWalletSession`.
+- Fails closed: without `AUTH_SESSION_SECRET` (>= 32 chars) sign-in returns 503 and nobody can claim.
+- Tests: 22 unit tests + an end-to-end script (16 checks: wrong key, garbage/forged signature, replay, 8 concurrent verifies -> 1 login, forged/other-wallet cookie, cross-origin, claim without/with wrong/with right session).
+- Limits: sessions can't be revoked server-side before their 2h expiry (logout only clears the cookie); used-nonce blobs accumulate in Blob until a cleanup job exists; Blob write atomicity was verified by design (same ETag mechanism as the rewards ledger) but the concurrency test ran against the dev in-memory store, not Blob.
+
 ## Environment variables
 PUBLIC: `NEXT_PUBLIC_SOLANA_RPC_URL`, `NEXT_PUBLIC_PANDA_TREASURY`, `NEXT_PUBLIC_PANDA_TOKEN_MINT`, `NEXT_PUBLIC_PANDA_REWARDS_POOL`.
-SERVER_ONLY: `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.
+SERVER_ONLY: `AUTH_SESSION_SECRET`, `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.
 
 ## Trust assumptions today
 Rewards payouts are off-chain-authorised (server holds the pool key) — not trust-minimised. SL/TP tokens sit in Jupiter's Privy vault. Public price/market data is third-party. Vercel/Blob availability.

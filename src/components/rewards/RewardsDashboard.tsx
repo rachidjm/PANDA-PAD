@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Tooltip from "@/components/Tooltip";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletSession } from "@/lib/auth/useWalletSession";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import Panda from "@/components/panda/Panda";
@@ -27,6 +28,7 @@ function solStr(lamports: number): string {
 export default function RewardsDashboard() {
   const connection = useReadConnection();
   const { connected, publicKey } = useWallet();
+  const { ensureSession } = useWalletSession();
   const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
   const [sources, setSources] = useState<RewardSource[]>([]);
@@ -134,6 +136,7 @@ export default function RewardsDashboard() {
     setClaimError("");
     const signatures: string[] = [];
     try {
+      await ensureSession(); // proves wallet ownership (one free signature) before any payout is requested
       // Sequential — every claim is signed by the same server-side Rewards
       // Pool key, so running them one at a time avoids blockhash/nonce races.
       for (const s of sources) {
