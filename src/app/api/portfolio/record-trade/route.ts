@@ -4,6 +4,8 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection } from "@solana/web3.js";
 import { recordTrade } from "@/lib/portfolio/trade-log";
 import { solPriceUsd } from "@/lib/solana/prices";
+import { isEnabled } from "@/lib/config/flags";
+import { awardTradePoints } from "@/lib/points/trade-award";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -75,7 +77,24 @@ export async function POST(req: Request) {
       ts: Date.now(),
     });
 
-    return NextResponse.json({ recorded: true });
+    // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.
+    let points: { outcome: string; awarded: number } | undefined;
+    if (isEnabled("PANDA_POINTS")) {
+      try {
+        const r = await awardTradePoints({
+          tx,
+          signature,
+          wallet,
+          mint,
+          observedSolMovementLamports: Math.abs(postLamports - preLamports),
+        });
+        points = { outcome: r.outcome, awarded: r.awarded };
+      } catch (err) {
+        console.error("[PANDA POINTS] award failed", signature, String(err));
+      }
+    }
+
+    return NextResponse.json({ recorded: true, ...(points ? { points } : {}) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to record trade.";
     return NextResponse.json({ error: message }, { status: 500 });
