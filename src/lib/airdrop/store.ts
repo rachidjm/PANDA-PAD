@@ -132,3 +132,23 @@ export async function updateClaim<R>(
   if (!SOLANA_ADDRESS.test(wallet)) throw new Error("Invalid wallet.");
   return docUpdate<ClaimRecord | null, R>(claimPath(epoch, wallet), null, mutate);
 }
+
+/**
+ * Sum of what an epoch's claim records say was CLAIMED (finalized on-chain), reading at most `maxRecords` records.
+ * `truncated` is true when there were more records than that, so the sum is a lower bound.
+ */
+export async function claimedTotals(epoch: number, maxRecords: number): Promise<{ claimed: bigint; count: number; read: number; truncated: boolean }> {
+  const paths = await docListPaths(`airdrop/claims/${epoch}/`);
+  const slice = paths.slice(0, Math.max(0, maxRecords));
+  let claimed = BigInt(0);
+  let count = 0;
+  for (let i = 0; i < slice.length; i += 20) {
+    for (const rec of await Promise.all(slice.slice(i, i + 20).map((p) => docRead<ClaimRecord | null>(p, null)))) {
+      if (rec?.status === "CLAIMED") {
+        claimed += BigInt(rec.amount);
+        count++;
+      }
+    }
+  }
+  return { claimed, count, read: slice.length, truncated: paths.length > slice.length };
+}

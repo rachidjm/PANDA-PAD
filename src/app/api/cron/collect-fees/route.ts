@@ -11,6 +11,8 @@ import { collectFeesForMint } from "@/lib/pump/distribute";
 import { getTokenHolders } from "@/lib/solana/holders";
 import { computeHolderCredits } from "@/lib/rewards/split";
 import { recordActivity } from "@/lib/activity/record";
+import { breakdown } from "@/lib/economy/shares";
+import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 
 // Vercel Hobby's function timeout is 30s — leave a real safety margin so a
 // slow mint mid-batch can't blow past it; unstarted mints just wait for the
@@ -53,7 +55,18 @@ export async function GET(req: Request) {
           mint,
           lamports: distributed.lamports,
           signature: distributed.signature,
-        });
+        }, (() => {
+          // Analytics: how this distribution split, from its own transaction. If the split couldn't be read, only the
+          // pool amount (measured separately) is counted and the rest stays unknown rather than guessed.
+          const split = distributed.shares.length
+            ? breakdown(distributed.shares, PANDA_TREASURY.toBase58(), (PANDA_REWARDS_POOL ?? PANDA_TREASURY).toBase58())
+            : null;
+          return {
+            distributions: 1,
+            creatorFeePoolLamports: split ? split.pool : distributed.lamports,
+            ...(split ? { creatorFeeLamports: split.total, creatorFeeTreasuryLamports: split.treasury } : {}),
+          };
+        })());
 
         const holders = await getTokenHolders(connection, mint);
         if (holders.length === 0) {

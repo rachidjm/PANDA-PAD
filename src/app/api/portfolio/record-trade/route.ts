@@ -7,6 +7,7 @@ import { solPriceUsd } from "@/lib/solana/prices";
 import { isEnabled } from "@/lib/config/flags";
 import { awardTradePoints } from "@/lib/points/trade-award";
 import { recordActivity } from "@/lib/activity/record";
+import { findPandaFee } from "@/lib/points/trade-award";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -88,6 +89,11 @@ export async function POST(req: Request) {
       lamports: Math.abs(postLamports - preLamports),
       tokenAmount,
       signature,
+    }, {
+      trades: 1,
+      volumeLamports: Math.abs(postLamports - preLamports),
+      // PANDA's trade fee is only counted when the transaction really contains the transfer to the treasury.
+      tradeFeeLamports: findPandaFee(tx, wallet)?.lamports ?? 0,
     });
 
     // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.

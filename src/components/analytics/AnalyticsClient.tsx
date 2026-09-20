@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import CoinAvatar from "@/components/CoinAvatar";
-import Panda from "@/components/panda/Panda";
 import ActivityFeed from "@/components/ActivityFeed";
 import StatCard from "@/components/analytics/StatCard";
+import EconomySection from "@/components/analytics/EconomySection";
+import type { PublicAddresses } from "@/components/analytics/EconomyView";
 import BarChart from "@/components/analytics/BarChart";
 import { computeRealStats, computeWindowVolume, computeLaunchRecency } from "@/lib/analytics";
 import { formatCompact, formatPct } from "@/lib/format";
 import { Coin, ActivityEvent } from "@/lib/types";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -20,11 +22,14 @@ export default function AnalyticsClient({
   coins,
   trending,
   activityEvents,
+  addresses,
 }: {
   coins: Coin[];
   trending: Coin[];
   activityEvents: ActivityEvent[];
+  addresses: PublicAddresses;
 }) {
+  const { t } = useLanguage();
   const stats = computeRealStats(coins);
   const volumeByWindow = computeWindowVolume(coins);
   const launchesByAge = computeLaunchRecency(coins);
@@ -36,8 +41,8 @@ export default function AnalyticsClient({
       <motion.div initial="hidden" animate="show" variants={fadeUp}>
         <h1 className="font-display text-2xl font-bold">Analytics</h1>
         <p className="mt-1 max-w-2xl text-sm text-panda-grey">
-          Coin totals, volume and activity below are live from Solana, over the same coins Discover tracks. Time-series
-          history and creator/protocol fees aren&apos;t wired up to a real data store yet — those are marked below.
+          The market numbers below are live from Solana, over the same coins Discover tracks — the whole market, not just
+          PANDA. PANDA&apos;s own volume, fees, rewards, airdrops and NFT sales are further down, each measured separately.
         </p>
       </motion.div>
 
@@ -49,7 +54,7 @@ export default function AnalyticsClient({
         className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5"
       >
         <motion.div variants={fadeUp}>
-          <StatCard label="Total volume (24h)" value={stats.totalVolume} format={formatCompact} tooltip="Sum of 24h volume across every tracked coin." />
+          <StatCard label={t("eco.marketVolume")} value={stats.totalVolume} format={formatCompact} tooltip={t("eco.marketVolumeTip")} />
         </motion.div>
         <motion.div variants={fadeUp}>
           <StatCard label="Total market cap" value={stats.totalMarketCap} format={formatCompact} tooltip="Sum of market cap across every tracked coin." />
@@ -80,6 +85,8 @@ export default function AnalyticsClient({
         </motion.div>
       </motion.div>
 
+      <EconomySection addresses={addresses} />
+
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <motion.div initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} variants={fadeUp}>
           <p className="mb-3 text-sm font-medium text-paper/80">Trending tokens</p>
@@ -93,32 +100,15 @@ export default function AnalyticsClient({
         </motion.div>
 
         <motion.div initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} variants={fadeUp}>
-          <p className="mb-3 text-sm font-medium text-paper/80">Creator &amp; protocol fees</p>
-          <div className="rounded-2xl border border-paper/10 bg-ink-raised p-6">
-            <div className="flex items-center justify-between gap-6">
-              <div>
-                <p className="font-medium">Not tracked yet</p>
-                <p className="mt-1 text-sm text-panda-grey">
-                  PANDA&apos;s own 1% trade fee is real and on-chain, but we don&apos;t have a fee-tracking store built
-                  yet — this card will show real numbers once we do.
-                </p>
-              </div>
-              <Panda pose="empty" size={80} />
-            </div>
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <p className="text-sm font-medium text-paper/80">{t("home.recentActivity")}</p>
+            <Link href="/activity" className="text-xs font-medium text-paper/60 transition-colors hover:text-paper">
+              {t("act.seeAll")}
+            </Link>
           </div>
+          <ActivityFeed initialEvents={activityEvents} limit={8} />
         </motion.div>
       </div>
-
-      <motion.div
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "-60px" }}
-        variants={fadeUp}
-        className="mt-6"
-      >
-        <p className="mb-3 text-sm font-medium text-paper/80">Recent activity</p>
-        <ActivityFeed initialEvents={activityEvents} />
-      </motion.div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Connection, Transaction, ComputeBudgetProgram, PublicKey } from "@solan
 import { getPumpSdk, getOnlinePumpSdk } from "./client";
 import { getRawSharingConfig } from "./fee-sharing";
 import { getRewardsPoolSigner } from "./rewards-pool-signer";
+import { distributionShares, Share } from "@/lib/economy/shares";
 
 const TYPICAL_BASE_FEE_LAMPORTS = 5000;
 
@@ -21,7 +22,10 @@ const TYPICAL_BASE_FEE_LAMPORTS = 5000;
  * coin quoted in a non-SOL token) isn't wired up yet; a real, disclosed
  * scope limit, not silently unsupported.
  */
-export async function collectFeesForMint(connection: Connection, mint: string): Promise<{ lamports: number; signature: string; blockTimeMs: number | null } | null> {
+export async function collectFeesForMint(
+  connection: Connection,
+  mint: string
+): Promise<{ lamports: number; signature: string; blockTimeMs: number | null; shares: Share[] } | null> {
   const signer = getRewardsPoolSigner();
   if (!signer) throw new Error("Rewards Pool signer isn't configured (PANDA_REWARDS_POOL_SECRET_KEY).");
 
@@ -56,9 +60,24 @@ export async function collectFeesForMint(connection: Connection, mint: string): 
   if (confirmation.value.err) throw new Error(`distributeCreatorFees failed to confirm for ${mint}.`);
 
   const after = await connection.getBalance(signer.publicKey);
-  const txInfo = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
+  const txInfo = await connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
   const feePaid = txInfo?.meta?.fee ?? TYPICAL_BASE_FEE_LAMPORTS;
 
   // after = before - feePaid + distributed, so:
-  return { lamports: Math.max(0, after - before + feePaid), signature, blockTimeMs: txInfo?.blockTime ? txInfo.blockTime * 1000 : null };
+  // What every shareholder really received, read from this transaction's own balance changes (empty if it can't be read).
+  const shares =
+    txInfo?.meta
+      ? distributionShares(
+          {
+            keys: txInfo.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()),
+            pre: txInfo.meta.preBalances,
+            post: txInfo.meta.postBalances,
+            fee: txInfo.meta.fee,
+            feePayer: signer.publicKey.toBase58(),
+          },
+          raw.config.shareholders.map((s) => s.address.toBase58())
+        )
+      : [];
+
+  return { lamports: Math.max(0, after - before + feePaid), signature, blockTimeMs: txInfo?.blockTime ? txInfo.blockTime * 1000 : null, shares };
 }
