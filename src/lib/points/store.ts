@@ -12,6 +12,7 @@ import {
 } from "@/lib/epochs/epoch";
 import { buildTotals, EpochTotals, totalsAreIntact } from "@/lib/epochs/totals";
 import { applyAward, AwardInput, AwardOutcome, emptyWalletDoc, WalletEpochDoc } from "./events";
+import { walletMayEarn, walletsExcludedFromTotals } from "@/lib/abuse/store";
 
 /**
  * Storage for epochs and the points ledger (server only). One epochs index
@@ -71,6 +72,8 @@ export async function awardPoints(input: Omit<AwardInput, "epoch">): Promise<Awa
   const epoch = epochForTime(await getEpochs(), input.ts);
   if (!epoch) return { outcome: "rejected", awarded: 0, reason: "no_epoch_for_time" };
   if (!acceptsEvents(epoch)) return { outcome: "rejected", awarded: 0, reason: `epoch_${epoch.status.toLowerCase()}` };
+  // A wallet under RESTRICTED / DISQUALIFIED earns nothing new. Admin corrections stay possible (they can only fix the ledger).
+  if (input.type !== "correction" && !(await walletMayEarn(input.wallet))) return { outcome: "rejected", awarded: 0, reason: "wallet_restricted" };
 
   const result = await docUpdate<WalletEpochDoc, AwardOutcome>(walletPath(epoch.id, input.wallet), emptyWalletDoc(input.wallet, epoch.id), (doc) => {
     const r = applyAward(doc, { ...input, epoch: epoch.id }, Date.now());
@@ -116,7 +119,7 @@ export async function finalizeEpoch(id: number, now: number): Promise<{ ok: true
   if (!epoch) return { ok: false, error: "No such epoch." };
   if (epoch.status !== "CALCULATING") return { ok: false, error: `Epoch is ${epoch.status}, not CALCULATING.` };
 
-  const totals = buildTotals(id, epoch.formulaVersion, await listWalletDocs(id));
+  const totals = buildTotals(id, epoch.formulaVersion, await listWalletDocs(id), await walletsExcludedFromTotals());
   if (!(await docPutOnce(totalsPath(id), totals))) {
     const existing = await docRead<EpochTotals | null>(totalsPath(id), null);
     if (!existing || !totalsAreIntact(existing) || existing.hash !== totals.hash) {
