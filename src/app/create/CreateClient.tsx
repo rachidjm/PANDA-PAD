@@ -7,15 +7,13 @@ import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
-import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
-import FeeDistributionStep from "@/components/create/FeeDistributionStep";
+import FeeDistributionStep, { FeeDistributionResult } from "@/components/create/FeeDistributionStep";
+import LaunchConfirm from "@/components/create/LaunchConfirm";
+import { formatBps } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
-type Shareholder = { address: string; shareBps: number };
-
-const REWARDS_POOL_ADDRESS = PANDA_REWARDS_POOL?.toBase58() || null;
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const firstBuyPresets = [0.5, 1, 2, 5];
@@ -37,8 +35,9 @@ export default function CreateClient() {
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
   const [buyError, setBuyError] = useState("");
-  const [feeShareholders, setFeeShareholders] = useState<Shareholder[]>([]);
-  const [feeDistributionUsed, setFeeDistributionUsed] = useState(false);
+  const [feeResult, setFeeResult] = useState<FeeDistributionResult | null>(null);
+  const [feeSummary, setFeeSummary] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -53,7 +52,12 @@ export default function CreateClient() {
     setImagePreview(URL.createObjectURL(file));
   }
 
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected;
+  // The split must be complete and valid: an empty or broken plan never falls through to "no fee distribution".
+  const feeReady = !!feeResult && feeResult.lines.length > 0 && !feeResult.issue && !feeResult.invalidNumber;
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady;
+
+  const kindLabel = (kind: "panda" | "creator" | "holders" | "partner") =>
+    kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
 
   // Buys the just-created coin as a second, separate transaction — the
   // bonding curve doesn't exist until the create transaction has confirmed,
@@ -96,7 +100,8 @@ export default function CreateClient() {
 
       setStage("building");
       const mint = Keypair.generate();
-      const shareholders = feeShareholders;
+      const shareholders = (feeResult?.lines ?? []).map((l) => ({ address: l.address, shareBps: l.bps }));
+      const summary = (feeResult?.lines ?? []).map((l) => `${kindLabel(l.kind)} ${formatBps(l.bps)}%`).join(" · ");
       const buildRes = await fetch("/api/pump/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,7 +130,7 @@ export default function CreateClient() {
       await confirmSignature(connection, signature);
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
-      setFeeDistributionUsed(shareholders.some((s) => s.address === REWARDS_POOL_ADDRESS));
+      setFeeSummary(summary);
 
       if (shareholders.length) {
         // Best-effort — the coin and its real on-chain fee split are already
@@ -169,8 +174,9 @@ export default function CreateClient() {
     setTwitter("");
     setFirstBuyAmount("");
     setBuyError("");
-    setFeeShareholders([]);
-    setFeeDistributionUsed(false);
+    setFeeResult(null);
+    setFeeSummary("");
+    setConfirming(false);
     setResult(null);
     setError("");
   }
@@ -234,7 +240,7 @@ export default function CreateClient() {
           </p>
         )}
         <p className="text-sm text-bamboo">
-          {t("cr.feeSet", { who: feeDistributionUsed ? t("cr.holders95") : t("cr.you95") })}
+          {t("cr.feeSet", { summary: feeSummary })}
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
@@ -413,7 +419,7 @@ export default function CreateClient() {
         </div>
 
         {connected && publicKey ? (
-          <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeShareholders} />
+          <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
         ) : (
           <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
             <p className="font-medium">{t("cr.feeDistribution")}</p>
@@ -422,7 +428,7 @@ export default function CreateClient() {
         )}
 
         <button
-          onClick={launch}
+          onClick={() => setConfirming(true)}
           disabled={!canLaunch}
           className="w-full rounded-full bg-paper py-3.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -435,6 +441,20 @@ export default function CreateClient() {
           {t("cr.mintNote")}
         </p>
       </div>
+      {confirming && feeResult && (
+        <LaunchConfirm
+          name={name.trim()}
+          ticker={ticker.trim()}
+          imageSrc={imagePreview}
+          lines={feeResult.lines}
+          firstBuySol={parseFloat(firstBuyAmount) > 0 ? parseFloat(firstBuyAmount) : 0}
+          onBack={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            launch();
+          }}
+        />
+      )}
     </div>
   );
 }

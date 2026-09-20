@@ -6,6 +6,9 @@ import { PANDA_TREASURY } from "./constants";
 export type FeeShareholderInput = { address: string; shareBps: number };
 
 export const MAX_SHAREHOLDERS = 10;
+
+/** Addresses no fee share may point at — fees sent there are unrecoverable (System Program, the incinerator). */
+const BLOCKED_RECIPIENTS = new Set(["11111111111111111111111111111111", "1nc1nerator11111111111111111111111111111111"]);
 export const TOTAL_SHARE_BPS = 10_000;
 
 /**
@@ -31,6 +34,7 @@ export function validateShareholders(shareholders: FeeShareholderInput[]): strin
       return `"${s.address}" isn't a valid Solana wallet address.`;
     }
     const key = address.toBase58();
+    if (BLOCKED_RECIPIENTS.has(key)) return "That address can't receive fees — they would be lost.";
     if (seen.has(key)) return "Each recipient can only appear once.";
     seen.add(key);
   }

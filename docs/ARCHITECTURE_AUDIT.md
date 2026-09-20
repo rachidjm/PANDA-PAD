@@ -52,6 +52,14 @@ Wallet-signature auth (nonce), PANDA Points, epochs, airdrops/Merkle claims, NFT
 - Tests: 34 unit tests + 27-check end-to-end script (authorization, validation, pause/resume gating claims and launches independently, audit content and ordering, no secrets in output).
 - Limits: audit recording is best-effort (a failed write is logged, doesn't block — so an emergency pause can't be blocked); audit blobs are readable by anyone with the URL (no secrets stored, wallet addresses and public signatures only); no hash-chaining, so it is append-only by convention, not tamper-evident; a pause reaches other server instances within ~5 s; the admin UI's signed-in view was type-checked but not clicked through with a real wallet; admin is a single-wallet check, not multisig.
 
+## Fee distribution (Phase 4)
+- Create form (`FeeDistributionStep`): PANDA 5% shown as a locked row (never an input); the creator splits the other 95% between Creator, Holders (PANDA's rewards pool) and an optional Partner wallet, with a live bar, presets, and an always-visible "PANDA 5% + allocations = 100%" line. Inputs parse as exact integer basis points (`parsePercentToBps`, max 2 decimals, no floats); a broken or unbalanced plan disables Launch and can never fall through to "no fee distribution".
+- Final confirmation modal (`LaunchConfirm`) lists every recipient, address (abbreviated), percentage, total 100% and the first buy before the wallet prompt. Verified on desktop and 375px mobile, EN/ES.
+- Server is still the enforcer: `validateShareholders` requires exactly one PANDA-treasury entry at 500 bps, total 10000, no duplicates, positive integer bps, max 10 recipients, and now also rejects the System Program and incinerator addresses (fees sent there are unrecoverable).
+- Rewards fix: the daily cron split holder credits with floating point (`Math.floor((amount/total)*distributed)` on UI amounts). Now raw integer balances + `splitPool`; the rounding remainder is stored as `dustLamports` in the ledger, and `creditHolders` refuses to write unless credits + dust == distributed exactly. Fuzz-tested.
+- Tests: 44 unit tests total. Not covered: an on-chain create with a 3-way split (needs a real wallet and SOL); the create UI itself was checked in the browser through a temporary harness page, not with a connected wallet.
+- Known: fee-sharing config authority — whether the creator or PANDA can later change a coin's split on-chain is a property of Pump's SharingConfig, not verified here; the UI therefore says the split is "written on-chain with your coin", not that it is permanent.
+
 ## Environment variables
 PUBLIC: `NEXT_PUBLIC_SOLANA_RPC_URL`, `NEXT_PUBLIC_PANDA_TREASURY`, `NEXT_PUBLIC_PANDA_TOKEN_MINT`, `NEXT_PUBLIC_PANDA_REWARDS_POOL`.
 SERVER_ONLY: `AUTH_SESSION_SECRET`, `ADMIN_WALLETS`, `PANDA_REWARDS_POOL_SECRET_KEY`, `CRON_SECRET`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, `ALERT_WEBHOOK_URL`, `REWARDS_MAX_CLAIM_SOL`, `REWARDS_DAILY_CAP_SOL`, `FEATURE_*`.

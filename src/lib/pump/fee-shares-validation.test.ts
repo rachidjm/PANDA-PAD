@@ -75,3 +75,9 @@ test("rejects duplicate creator-side recipients", () => {
     null
   );
 });
+
+test("rejects burn / system-program recipients (fees would be lost)", () => {
+  for (const dead of ["11111111111111111111111111111111", "1nc1nerator11111111111111111111111111111111"]) {
+    assert.match(validateShareholders([{ address: treasury, shareBps: 500 }, { address: dead, shareBps: 9500 }]) ?? "", /lost/);
+  }
+});
