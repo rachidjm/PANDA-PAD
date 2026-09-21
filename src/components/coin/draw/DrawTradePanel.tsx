@@ -218,11 +218,12 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
               <Dot kind={kind} />
               {t(`draw.label.${kind}` as DictKey)}
             </span>
-            <p className="mt-1 text-sm font-semibold">{draft[kind] !== undefined ? formatPrice(draft[kind]!) : "—"}</p>
+            <PriceInput value={draft[kind]} label={t(`draw.label.${kind}` as DictKey)} onCommit={(v) => draw.setPrice(draft.id, kind, v)} />
           </div>
         ))}
       </div>
-      {draft.stop === undefined && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
+      <p className="mt-2 text-[11px] text-panda-grey">{t("draw.typeHint")}</p>
+      {draft.stop === undefined && <p className="mt-1 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
 
       {complete && (
         <>
@@ -347,6 +348,33 @@ function PriceSummary({ buy, sell, stop }: { buy?: number; sell?: number; stop?:
         </>
       ) : null}
     </p>
+  );
+}
+
+/** The price as plain digits (never "4.3e-7"), so it can be read and edited by hand. */
+function plainPrice(p: number): string {
+  const decimals = Math.min(18, Math.max(2, -Math.floor(Math.log10(p)) + 3));
+  return p.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+/** Prices are normally drawn on the chart; this box is the same thing by hand. Applied on Enter or when leaving the box. */
+function PriceInput({ value, label, onCommit }: { value?: number; label: string; onCommit: (v: string) => void }) {
+  const [text, setText] = useState<string | null>(null);
+  const commit = () => {
+    if (text !== null) onCommit(text);
+    setText(null);
+  };
+  return (
+    <input
+      value={text ?? (value !== undefined ? plainPrice(value) : "")}
+      onChange={(e) => setText(e.target.value.replace(/[^0-9.]/g, ""))}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && commit()}
+      inputMode="decimal"
+      placeholder="—"
+      aria-label={`${label} (USD)`}
+      className="mt-1 w-full bg-transparent text-sm font-semibold outline-none placeholder:text-panda-grey"
+    />
   );
 }
 

@@ -290,6 +290,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     setNotice({ kind: target, price });
   }, []);
 
+  /** A price typed by hand goes through the same place as a drawn one. */
+  const setPrice = useCallback(
+    (id: string, target: DrawTarget, value: string) => {
+      const p = roundPrice(parseFloat(value));
+      if (p > 0) applyPrice(id, target, p);
+    },
+    [applyPrice]
+  );
+
   const removeDraft = useCallback(
     (id: string) => {
       setDrafts((ds) => ds.filter((d) => d.id !== id));
@@ -455,6 +464,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     engine: quote?.engine ?? false,
     setActiveId,
     patchDraft,
+    setPrice,
     startTarget,
     addStrategy,
     cancelDrawing,

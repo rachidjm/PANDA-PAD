@@ -717,6 +717,10 @@ export const dict = {
     en: "Stop at",
     es: "Stop a",
   },
+  "draw.typeHint": {
+    en: "You can also type a price by hand in any box (USD per token) instead of drawing it.",
+    es: "También puedes escribir un precio a mano en cualquier casilla (USD por token) en vez de dibujarlo.",
+  },
   "draw.stopHint": {
     en: "Jupiter needs a stop in every strategy: press Set Stop and mark it on the chart, below your buy price.",
     es: "Jupiter exige un stop en cada estrategia: pulsa Fijar stop y márcalo en el gráfico, por debajo de tu precio de compra.",
