@@ -24,5 +24,5 @@ export async function POST(req: Request) {
     fundingAsset: body.fundingAsset,
   });
   if (!result.ok) return failureResponse(result);
-  return NextResponse.json({ strategy: result.record, transaction: result.transaction });
+  return NextResponse.json({ strategy: result.record, transaction: result.transaction, feeTransaction: result.feeTransaction });
 }

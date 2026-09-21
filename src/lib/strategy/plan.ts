@@ -1,3 +1,4 @@
+import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { NETWORK_BUFFER_SOL } from "@/lib/trading/limits";
 
 /**
@@ -11,6 +12,20 @@ import { NETWORK_BUFFER_SOL } from "@/lib/trading/limits";
 
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+/**
+ * PANDA's fee on a strategy: 0.5% for its buy and 0.5% for its sell, so 1% of the amount invested, paid up front when
+ * the strategy is confirmed. A strategy's sale happens later and by itself, so there is no moment to take a cut of the
+ * proceeds: it is charged on the amount invested instead, and added to what the user pays. Always paid in SOL.
+ */
+export const STRATEGY_FEE_BPS = PANDA_FEE_BPS * 2;
+
+/** The fee for investing `amountUsd`, in USD and in lamports of SOL. null when the SOL rate isn't known. */
+export function strategyFee(amountUsd: number, solUsd: number | null): { feeUsd: number; feeLamports: number } | null {
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0 || !solUsd || solUsd <= 0) return null;
+  const feeUsd = (amountUsd * STRATEGY_FEE_BPS) / 10_000;
+  return { feeUsd, feeLamports: Math.floor((feeUsd / solUsd) * 1e9) };
+}
 
 /** Jupiter Trigger rejects price orders under 10 USD (documented). */
 export const MIN_ORDER_USD = 10;
@@ -113,6 +128,12 @@ export type StrategyMetrics = {
   stopLossPct: number;
   /** Profit if slippage is fully used on both legs — a bound, not a forecast. */
   worstCaseProfitUsd: number;
+  /** What PANDA charges to set the strategy up (already included in the two `net` figures below). */
+  feeUsd: number;
+  /** Result if it sells exactly at the SELL target, after PANDA's fee. */
+  netProfitUsd: number;
+  /** Result if the stop triggers instead, after PANDA's fee. */
+  netStopLossUsd: number;
 };
 
 /**
@@ -120,7 +141,8 @@ export type StrategyMetrics = {
  * network fees vary, so neither is invented here: these figures are BEFORE fees and slippage, and the
  * worst-case line shows what full slippage on both legs would cost.
  */
-export function strategyMetrics(i: { buy: number; sell: number; stop: number; amountUsd: number }): StrategyMetrics {
+export function strategyMetrics(i: { buy: number; sell: number; stop: number; amountUsd: number; feeUsd?: number }): StrategyMetrics {
+  const feeUsd = i.feeUsd ?? 0;
   const tokens = i.amountUsd / i.buy;
   const grossReturnUsd = tokens * i.sell;
   const worstTokens = i.amountUsd / (i.buy * (1 + BUY_SLIPPAGE_BPS / 10_000));
@@ -132,7 +154,10 @@ export function strategyMetrics(i: { buy: number; sell: number; stop: number; am
     grossProfitUsd: grossReturnUsd - i.amountUsd,
     stopLossUsd: tokens * i.stop - i.amountUsd,
     stopLossPct: (i.stop / i.buy - 1) * 100,
-    worstCaseProfitUsd: worstTokens * i.sell * (1 - TP_SLIPPAGE_BPS / 10_000) - i.amountUsd,
+    worstCaseProfitUsd: worstTokens * i.sell * (1 - TP_SLIPPAGE_BPS / 10_000) - i.amountUsd - feeUsd,
+    feeUsd,
+    netProfitUsd: grossReturnUsd - i.amountUsd - feeUsd,
+    netStopLossUsd: tokens * i.stop - i.amountUsd - feeUsd,
   };
 }
 
@@ -162,6 +187,8 @@ export type Funding = {
   usd: number;
   rateUsd: number;
   balanceKnown: boolean;
+  /** PANDA's fee on top of `usd` (0 when the caller didn't ask for one). */
+  feeUsd: number;
 };
 
 export type FundingResult =
@@ -184,6 +211,8 @@ export function chooseFunding(i: {
   rates: Rates;
   balances: { sol: number | null; usdc: number | null };
   preferred?: FundingAsset | null;
+  /** PANDA's fee, in basis points of the amount: it is paid in SOL ON TOP of the amount, so the wallet must cover both. */
+  feeBps?: number;
 }): FundingResult {
   const usd = amountToUsd(i.unit, i.value, i.rates);
   if (!Number.isFinite(i.value) || i.value <= 0) return { ok: false, reason: "invalid_amount" };
@@ -205,8 +234,16 @@ export function chooseFunding(i: {
     const raw = toRaw(ui, decimals);
     if (raw === "0") return { ok: false, reason: "invalid_amount" };
     const bal = valueUsd(asset);
-    if (bal !== null && usd > bal + 1e-9) return { ok: false, reason: "insufficient", shortfallUsd: usd - bal };
-    return { ok: true, funding: { asset, mint, decimals, ui, raw, usd, rateUsd: rate, balanceKnown: bal !== null } };
+    const feeUsd = (usd * (i.feeBps ?? 0)) / 10_000;
+    // The fee is always paid in SOL: with SOL it comes out of the same balance as the amount, with USDC out of the SOL the wallet holds.
+    if (asset === "SOL") {
+      if (bal !== null && usd + feeUsd > bal + 1e-9) return { ok: false, reason: "insufficient", shortfallUsd: usd + feeUsd - bal };
+    } else {
+      if (bal !== null && usd > bal + 1e-9) return { ok: false, reason: "insufficient", shortfallUsd: usd - bal };
+      const sol = valueUsd("SOL");
+      if (feeUsd > 0 && sol !== null && feeUsd > sol + 1e-9) return { ok: false, reason: "insufficient", shortfallUsd: feeUsd - sol };
+    }
+    return { ok: true, funding: { asset, mint, decimals, ui, raw, usd, rateUsd: rate, balanceKnown: bal !== null, feeUsd } };
   };
 
   if (i.unit === "SOL" || i.unit === "USDC") return build(i.unit);

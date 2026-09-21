@@ -7,7 +7,7 @@ import bs58 from "bs58";
 import type { Coin } from "@/lib/types";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
-import { base64ToVersionedTransaction, versionedTransactionToBase64 } from "@/lib/pump/wire";
+import { base64ToTransaction, base64ToVersionedTransaction, transactionToBase64, versionedTransactionToBase64 } from "@/lib/pump/wire";
 import {
   amountToUsd,
   type AmountUnit,
@@ -15,6 +15,7 @@ import {
   preferredFunding,
   roundPrice,
   strategyMetrics,
+  STRATEGY_FEE_BPS,
   USDC_MINT,
   validateStrategy,
   type FundingAsset,
@@ -79,7 +80,7 @@ function newId(): string {
 
 export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const readConnection = useReadConnection();
-  const { connected, publicKey, signMessage, signTransaction } = useWallet();
+  const { connected, publicKey, signMessage, signTransaction, signAllTransactions } = useWallet();
   const { ensureSession } = useWalletSession();
   const mint = coin?.mint ?? "";
 
@@ -214,11 +215,11 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       drafts.map((draft) => {
         const value = parseFloat(draft.amount);
         const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
-        const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay }) : null;
+        const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS }) : null;
         const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
         const complete = draft.buy !== undefined && draft.sell !== undefined && draft.stop !== undefined;
         const issues = complete ? validateStrategy({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }) : [];
-        const metrics = complete && amountUsd && !issues.includes("invalid_price") && draft.buy! > 0 ? strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd }) : null;
+        const metrics = complete && amountUsd && !issues.includes("invalid_price") && draft.buy! > 0 ? strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, feeUsd: (amountUsd * STRATEGY_FEE_BPS) / 10_000 }) : null;
         return { draft, asset, amountUsd, funding, issues, metrics, ready: complete && issues.length === 0 && !!funding?.ok };
       }),
     [drafts, rates, balances, currentUsd, quote]
@@ -377,11 +378,28 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const prepared = await prep.json();
         if (!prep.ok) throw new ApiError(prepared.error, prepared.code, prepared.issues);
 
+        // Two transactions, approved together: the deposit into Jupiter's vault, and PANDA's fee. Nothing is sent from here:
+        // the server checks both, creates the order, and only then collects the fee.
         setStep("sign");
-        const signed = await signTransaction(base64ToVersionedTransaction(prepared.transaction));
+        const deposit = base64ToVersionedTransaction(prepared.transaction);
+        const feeTx = prepared.feeTransaction ? base64ToTransaction(prepared.feeTransaction) : null;
+        let signedDeposit: typeof deposit;
+        let signedFee: typeof feeTx = null;
+        if (feeTx && signAllTransactions) {
+          const both = await signAllTransactions([deposit, feeTx]);
+          signedDeposit = both[0] as typeof deposit;
+          signedFee = both[1] as NonNullable<typeof feeTx>;
+        } else {
+          signedDeposit = await signTransaction(deposit);
+          if (feeTx) signedFee = await signTransaction(feeTx);
+        }
 
         setStep("create");
-        const created = await fetch("/api/strategy/create", { method: "POST", headers, body: JSON.stringify({ id: d.id, depositSignedTx: versionedTransactionToBase64(signed) }) });
+        const created = await fetch("/api/strategy/create", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ id: d.id, depositSignedTx: versionedTransactionToBase64(signedDeposit), feeSignedTx: signedFee ? transactionToBase64(signedFee) : undefined }),
+        });
         const result = await created.json();
         if (!created.ok) throw new ApiError(result.error, result.code);
 
@@ -396,7 +414,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
       }
     },
-    [coin, ensureJwt, ensureSession, signTransaction]
+    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
   );
 
   // ── read back what Jupiter did (needs Jupiter's sign-in, so it is on demand) ─────────────────────

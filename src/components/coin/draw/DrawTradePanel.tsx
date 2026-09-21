@@ -325,10 +325,13 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
           {m && view.amountUsd && (
             <>
               <dl className="mt-3 space-y-1.5 rounded-xl bg-ink-raised px-3.5 py-3 text-xs">
-                <Row label={t("draw.ifSell")} value={`${signedMoney(m.grossProfitUsd)} (${formatPct(m.pct)})`} tone={m.grossProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} strong />
-                <Row label={t("draw.stopResult")} value={`${signedMoney(m.stopLossUsd)} (${formatPct(m.stopLossPct)})`} tone="text-clay-red" />
+                <Row label={t("draw.fee")} value={`+ ${money(m.feeUsd)}`} muted />
+                <Row label={t("draw.total")} value={money(view.amountUsd + m.feeUsd)} strong />
+                <div className="border-t border-paper/10 pt-1.5" />
+                <Row label={t("draw.ifSell")} value={`${signedMoney(m.netProfitUsd)} (${formatPct((m.netProfitUsd / view.amountUsd) * 100)})`} tone={m.netProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} strong />
+                <Row label={t("draw.stopResult")} value={`${signedMoney(m.netStopLossUsd)} (${formatPct((m.netStopLossUsd / view.amountUsd) * 100)})`} tone="text-clay-red" />
               </dl>
-              <p className="mt-1.5 text-[11px] text-panda-grey">{t("draw.estimateShort")}</p>
+              <p className="mt-1.5 text-[11px] text-panda-grey">{t("draw.estimateShort")} {t("draw.feeNote")}</p>
             </>
           )}
 

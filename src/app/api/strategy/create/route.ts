@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   if (g instanceof NextResponse) return g;
   const body = await readBody(req);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  const result = await createStrategy(realDeps(), { wallet: g.wallet, token: g.token, id: body.id, depositSignedTx: body.depositSignedTx });
+  const result = await createStrategy(realDeps(), { wallet: g.wallet, token: g.token, id: body.id, depositSignedTx: body.depositSignedTx, feeSignedTx: body.feeSignedTx });
   if (!result.ok) return failureResponse(result);
   return NextResponse.json({ strategy: result.record });
 }

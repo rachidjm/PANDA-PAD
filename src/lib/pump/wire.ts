@@ -18,6 +18,11 @@ export function versionedTransactionToBase64(tx: VersionedTransaction): string {
   return bytesToBase64(tx.serialize());
 }
 
+/** Browser-safe signed legacy Transaction → base64. */
+export function transactionToBase64(tx: Transaction): string {
+  return bytesToBase64(tx.serialize());
+}
+
 /** Browser-safe base64 → Transaction, no Buffer polyfill required. */
 export function base64ToTransaction(base64: string): Transaction {
   return Transaction.from(base64ToBytes(base64));

@@ -12,10 +12,10 @@ let counter = 0;
 /** A distinct, valid wallet address per call (deterministic bytes — Keypair.generate is very slow in pure JS). */
 const wallet = () => new PublicKey(Buffer.alloc(32, ++counter)).toBase58();
 
-type Calls = { craft: number; create: number; list: number };
+type Calls = { craft: number; create: number; list: number; feeSent: number };
 
 function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () => []): { deps: Deps; calls: Calls; clock: { t: number } } {
-  const calls: Calls = { craft: 0, create: 0, list: 0 };
+  const calls: Calls = { craft: 0, create: 0, list: 0, feeSent: 0 };
   const clock = { t: 1_000_000 };
   const deps: Deps = {
     now: () => clock.t,
@@ -37,6 +37,15 @@ function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () =>
       },
     },
     verifyTx: async () => true,
+    fee: {
+      treasury: "TREASURY",
+      build: async () => "feetx".repeat(30),
+      check: (signed) => (signed === "GOODFEE" ? { ok: true } : { ok: false, reason: "bad" }),
+      send: async () => {
+        calls.feeSent++;
+        return "FEESIG";
+      },
+    },
     ...over,
   };
   return { deps, calls, clock };
@@ -175,7 +184,7 @@ test("create: submits the order exactly as prepared (stored values, not the brow
     },
   });
   assert.ok((await prepareStrategy(deps, input(w))).ok);
-  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   assert.ok(r.ok);
   if (!r.ok) return;
   assert.equal(r.record.state, "waiting");
@@ -195,7 +204,7 @@ test("create twice for the same strategy: the second is refused and Jupiter is c
   const w = wallet();
   const { deps, calls } = fakeDeps();
   await prepareStrategy(deps, input(w));
-  const args = { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) };
+  const args = { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" };
   const [a, b] = await Promise.all([createStrategy(deps, args), createStrategy(deps, args)]);
   assert.equal([a, b].filter((r) => r.ok).length, 1);
   assert.equal(calls.create, 1);
@@ -210,7 +219,7 @@ test("a strategy can't be re-prepared once submitted, and can be re-prepared bef
   assert.ok((await prepareStrategy(deps, input(w))).ok);
   assert.ok((await prepareStrategy(deps, input(w))).ok); // wallet popup closed, try again
   assert.equal((await listStrategies(w, 1_000_000)).length, 1);
-  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   const r = await prepareStrategy(deps, input(w));
   assert.ok(!r.ok && r.code === "conflict");
   assert.equal(calls.create, 1);
@@ -221,7 +230,7 @@ test("a wallet can't create (or see) another wallet's strategy", async () => {
   const b = wallet();
   const { deps } = fakeDeps();
   await prepareStrategy(deps, input(a));
-  const r = await createStrategy(deps, { wallet: b, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  const r = await createStrategy(deps, { wallet: b, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   assert.ok(!r.ok && r.code === "not_found");
   assert.equal((await listStrategies(b, 1_000_000)).length, 0);
 });
@@ -238,12 +247,12 @@ test("create: an order Jupiter rejects becomes FAILED with the reason, and can't
     },
   });
   await prepareStrategy(deps, input(w));
-  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   assert.ok(!r.ok && r.code === "jupiter_error");
   const [s] = await listStrategies(w, 1_000_000);
   assert.equal(s.state, "failed");
   assert.match(s.error ?? "", /unsupported token/);
-  const again = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  const again = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   assert.ok(!again.ok && again.code === "conflict");
 });
 
@@ -252,7 +261,7 @@ test("create: a prepared deposit that sat too long is refused", async () => {
   const { deps, clock, calls } = fakeDeps();
   await prepareStrategy(deps, input(w));
   clock.t += PREPARED_TTL_MS + 1;
-  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   assert.ok(!r.ok && r.code === "expired");
   assert.equal(calls.create, 0);
 });
@@ -262,7 +271,7 @@ test("sync walks WAITING → POSITION OPEN → COMPLETED only on verified fills,
   let current: TriggerOrder[] = [];
   const { deps } = fakeDeps({}, () => current);
   await prepareStrategy(deps, input(w));
-  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
 
   current = [order("order-1", { orderState: "open" })];
   let r = await syncStrategies(deps, { wallet: w, token: "jwt" });
@@ -289,7 +298,7 @@ test("a completed strategy never changes again, even if Jupiter later reports so
   let current: TriggerOrder[] = [order("order-1", { orderState: "filled", events: [buyEvt, slEvt] })];
   const { deps } = fakeDeps({}, () => current);
   await prepareStrategy(deps, input(w));
-  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   await syncStrategies(deps, { wallet: w, token: "jwt" });
   current = [order("order-1", { orderState: "open", events: [] })];
   const r = await syncStrategies(deps, { wallet: w, token: "jwt" });
@@ -364,7 +373,7 @@ test("sync leaves things alone when Jupiter is unreachable (reports the error, c
     },
   });
   await prepareStrategy(deps, input(w));
-  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200) });
+  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   fail = true;
   const r = await syncStrategies(deps, { wallet: w, token: "jwt" });
   assert.ok(!r.ok && r.code === "jupiter_error");
@@ -377,8 +386,115 @@ test("several strategies on one wallet are kept apart", async () => {
   await prepareStrategy(deps, input(w, { id: "strategy-0001", n: 1 }));
   await prepareStrategy(deps, input(w, { id: "strategy-0002", n: 2, buyUsd: 0.8, sellUsd: 1.6, stopUsd: 0.6 }));
   await prepareStrategy(deps, input(w, { id: "strategy-0003", n: 3, buyUsd: 1.6, sellUsd: 2.3, stopUsd: 1.3 }));
-  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0002", depositSignedTx: "s".repeat(200) });
+  await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0002", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
   const all = await listStrategies(w, 1_000_000);
   assert.deepEqual(all.map((s) => [s.n, s.state]), [[1, "prepared"], [2, "waiting"], [3, "prepared"]]);
   assert.equal(all[2].triggerCondition, "above");
+});
+
+// ---- PANDA's fee: added to what the user pays, collected when the strategy is confirmed --------------------------------
+
+test("fee: prepare works out 1% (0.5% buy + 0.5% sell) of the amount in SOL from the server's rate and hands back the fee transaction", async () => {
+  const w = wallet();
+  const { deps } = fakeDeps();
+  const r = await prepareStrategy(deps, input(w)); // 100 USD at 200 USD per SOL
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.record.feeLamports, 5_000_000); // $1 = 0.005 SOL
+  assert.equal(r.record.feeState, "prepared");
+  assert.ok(r.feeTransaction && r.feeTransaction.length > 100);
+  assert.equal(r.record.inputAmountRaw, "500000000"); // the deposit is still the full amount: the fee is on top, not taken out of it
+});
+
+test("fee: no fee payment, or a wrong one, and Jupiter is never called", async () => {
+  const w = wallet();
+  const { deps, calls } = fakeDeps();
+  await prepareStrategy(deps, input(w));
+  for (const feeSignedTx of [undefined, "", "WRONGFEE"]) {
+    const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx });
+    assert.ok(!r.ok && r.code === "invalid");
+  }
+  assert.equal(calls.create, 0);
+  assert.equal(calls.feeSent, 0);
+  // and the strategy is still there to be confirmed properly
+  const ok = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
+  assert.ok(ok.ok);
+});
+
+test("fee: charged once, only after Jupiter accepted the order, and recorded as paid", async () => {
+  const w = wallet();
+  const order: string[] = [];
+  const { deps } = fakeDeps({
+    jupiter: {
+      craftDeposit: async () => ({ transaction: "tx".repeat(200), requestId: "r", receiverAddress: "v", mint: MINT, amount: "1", tokenDecimals: 6 }),
+      createOrder: async () => {
+        order.push("order");
+        return { id: "order-1" };
+      },
+      listOrders: async () => ({ orders: [] }),
+    },
+    fee: {
+      treasury: "TREASURY",
+      build: async () => "feetx".repeat(30),
+      check: () => ({ ok: true }),
+      send: async () => {
+        order.push("fee");
+        return "FEESIG";
+      },
+    },
+  });
+  await prepareStrategy(deps, input(w));
+  const args = { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" };
+  const [a, b] = await Promise.all([createStrategy(deps, args), createStrategy(deps, args)]);
+  assert.equal([a, b].filter((r) => r.ok).length, 1);
+  assert.deepEqual(order, ["order", "fee"]); // the order first, the fee after, and each exactly once
+  const [s] = await listStrategies(w, 1_000_000);
+  assert.equal(s.feeState, "paid");
+  assert.equal(s.feeSignature, "FEESIG");
+});
+
+test("fee: if Jupiter refuses the order, nothing is charged", async () => {
+  const w = wallet();
+  const { deps, calls } = fakeDeps({
+    jupiter: {
+      craftDeposit: async () => ({ transaction: "tx".repeat(200), requestId: "r", receiverAddress: "v", mint: MINT, amount: "1", tokenDecimals: 6 }),
+      createOrder: async () => {
+        throw new Error("rejected");
+      },
+      listOrders: async () => ({ orders: [] }),
+    },
+  });
+  await prepareStrategy(deps, input(w));
+  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
+  assert.ok(!r.ok);
+  assert.equal(calls.feeSent, 0);
+  assert.equal((await listStrategies(w, 1_000_000))[0].feeState, "prepared");
+});
+
+test("fee: if the fee transfer itself fails after the order exists, the strategy stays live and the failure is recorded", async () => {
+  const w = wallet();
+  const { deps } = fakeDeps({
+    fee: {
+      treasury: "TREASURY",
+      build: async () => "feetx".repeat(30),
+      check: () => ({ ok: true }),
+      send: async () => {
+        throw new Error("blockhash expired");
+      },
+    },
+  });
+  await prepareStrategy(deps, input(w));
+  const r = await createStrategy(deps, { wallet: w, token: "jwt", id: "strategy-0001", depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
+  assert.ok(r.ok);
+  const [s] = await listStrategies(w, 1_000_000);
+  assert.equal(s.state, "waiting");
+  assert.equal(s.feeState, "failed");
+  assert.match(s.feeError ?? "", /blockhash/);
+});
+
+test("fee: without a SOL rate the fee can't be worked out, so nothing is prepared", async () => {
+  const { deps, calls } = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: null, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000 }) });
+  const r = await prepareStrategy(deps, input(wallet(), { amount: { unit: "USDC", value: 100 } }));
+  assert.ok(!r.ok && r.code === "price_unavailable");
+  assert.equal(calls.craft, 0);
 });

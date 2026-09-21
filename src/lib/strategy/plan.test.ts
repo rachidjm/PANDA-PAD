@@ -8,6 +8,8 @@ import {
   MIN_ORDER_USD,
   preferredFunding,
   roundPrice,
+  strategyFee,
+  STRATEGY_FEE_BPS,
   strategyMetrics,
   triggerConditionFor,
   validateStrategy,
@@ -152,4 +154,34 @@ test("an amount can be shown in another unit with the real rates, and not at all
   assert.ok(Math.abs((convertAmount("SOL", 0.55, "EUR", rates) ?? 0) - 100) < 1e-9);
   assert.equal(convertAmount("USD", 100, "EUR", { ...rates, eurUsd: null }), null);
   assert.equal(convertAmount("USD", 0, "SOL", rates), null);
+});
+
+test("PANDA's strategy fee is 1% of the amount (0.5% buy + 0.5% sell), worked out in SOL", () => {
+  assert.equal(STRATEGY_FEE_BPS, 100);
+  assert.deepEqual(strategyFee(100, 200), { feeUsd: 1, feeLamports: 5_000_000 });
+  assert.equal(strategyFee(100, null), null);
+  assert.equal(strategyFee(0, 200), null);
+});
+
+test("the fee is paid in SOL on top of the amount: the wallet has to cover both", () => {
+  // 100 USD paid in SOL: 101 USD of SOL are needed.
+  const short = chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: 0.5, usdc: 0 }, preferred: "SOL", feeBps: 100 });
+  assert.equal(short.ok, false); // 0.5 SOL = 100 USD, minus the cushion, is not enough for 101
+  const enough = chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: 0.52, usdc: 0 }, preferred: "SOL", feeBps: 100 });
+  assert.ok(enough.ok && Math.abs(enough.funding.feeUsd - 1) < 1e-9);
+  // Paid in USDC: the amount comes from USDC, the fee still needs SOL.
+  const noSol = chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: 0.006, usdc: 500 }, preferred: "USDC", feeBps: 100 });
+  assert.equal(noSol.ok, false);
+  const withSol = chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: 0.02, usdc: 500 }, preferred: "USDC", feeBps: 100 });
+  assert.ok(withSol.ok);
+  // Without a fee asked for, nothing changes.
+  assert.ok(chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: 0.52, usdc: 0 }, preferred: "SOL" }).ok);
+});
+
+test("the result shown to the user is after PANDA's fee", () => {
+  const m = strategyMetrics({ buy: 1, sell: 1.5, stop: 0.8, amountUsd: 100, feeUsd: 1 });
+  assert.equal(Math.round(m.grossProfitUsd), 50);
+  assert.equal(Math.round(m.netProfitUsd * 100) / 100, 49);
+  assert.equal(Math.round(m.netStopLossUsd * 100) / 100, -21);
+  assert.equal(strategyMetrics({ buy: 1, sell: 1.5, stop: 0.8, amountUsd: 100 }).netProfitUsd, 50); // no fee asked: unchanged
 });

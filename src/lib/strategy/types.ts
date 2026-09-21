@@ -24,6 +24,11 @@ export type StrategyRecord = {
   inputAmountRaw: string;
   /** What the user asked to invest, in USD at the server's price when it was prepared. */
   amountUsd: number;
+  /** PANDA's fee for setting the strategy up (0.5% buy + 0.5% sell of the amount), paid in SOL when it is confirmed. */
+  feeLamports: number;
+  feeState: "none" | "prepared" | "paid" | "failed";
+  feeSignature?: string;
+  feeError?: string;
   state: RecordState;
   depositRequestId: string;
   jupiterOrderId?: string;

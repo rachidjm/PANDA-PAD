@@ -5,6 +5,8 @@ import {
   BUY_SLIPPAGE_BPS,
   chooseFunding,
   SL_SLIPPAGE_BPS,
+  STRATEGY_FEE_BPS,
+  strategyFee,
   STRATEGY_TTL_MS,
   TP_SLIPPAGE_BPS,
   triggerConditionFor,
@@ -14,6 +16,7 @@ import {
   type StrategyIssue,
 } from "./plan";
 import { deriveStatus, canAdvance } from "./status";
+import type { FeeCheck } from "./fee";
 import { listStrategies, PREPARED_TTL_MS, putPrepared, transition } from "./store";
 import type { StrategyRecord } from "./types";
 import { TERMINAL } from "./types";
@@ -38,6 +41,13 @@ export type Deps = {
   };
   /** True only for a signature that is confirmed on-chain and did not fail. */
   verifyTx: (signature: string) => Promise<boolean>;
+  /** PANDA's fee: a SOL transfer to the treasury, built here, signed by the wallet, checked here and only then sent. */
+  fee: {
+    treasury: string;
+    build: (wallet: string, lamports: number) => Promise<string>;
+    check: (signedBase64: unknown, expected: { wallet: string; treasury: string; lamports: number }) => FeeCheck;
+    send: (signedBase64: string) => Promise<string>;
+  };
 };
 
 export type Failure = {
@@ -73,7 +83,7 @@ export type PrepareInput = {
   fundingAsset: unknown;
 };
 
-export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string }> {
+export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string; feeTransaction: string | null }> {
   if (!deps.engineConfigured()) return fail(503, "engine_unavailable", "The order engine isn't configured on this deployment.");
   const { id, n, mint, buyUsd, sellUsd, stopUsd } = i;
   const unit = i.amount.unit as AmountUnit;
@@ -104,6 +114,11 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   });
   if (issues.length) return fail(422, "issues", "This strategy can't be placed as drawn.", issues);
 
+  // PANDA's fee is worked out here from the server's own rates and added on top of what is invested.
+  const fee = strategyFee(funding.funding.usd, quote.solUsd);
+  if (!fee) return fail(503, "price_unavailable", "No live SOL rate to work out the fee right now.");
+  if (STRATEGY_FEE_BPS > 0 && fee.feeLamports <= 0) return fail(400, "invalid", "That amount is too small.");
+
   const now = deps.now();
   const condition = triggerConditionFor(buyUsd as number, quote.tokenUsd);
   let deposit: DepositCraft;
@@ -112,6 +127,13 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
       { inputMint: funding.funding.mint, outputMint: mint as string, userAddress: i.wallet, amount: funding.funding.raw, orderType: "price", orderSubType: "otoco" },
       i.token
     );
+  } catch (err) {
+    return fail(502, "jupiter_error", clip(err));
+  }
+
+  let feeTransaction: string | null = null;
+  try {
+    feeTransaction = fee.feeLamports > 0 ? await deps.fee.build(i.wallet, fee.feeLamports) : null;
   } catch (err) {
     return fail(502, "jupiter_error", clip(err));
   }
@@ -130,6 +152,8 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
     fundingMint: funding.funding.mint,
     inputAmountRaw: funding.funding.raw,
     amountUsd: funding.funding.usd,
+    feeLamports: fee.feeLamports,
+    feeState: fee.feeLamports > 0 ? "prepared" : "none",
     state: "prepared",
     depositRequestId: deposit.requestId,
     createdAt: now,
@@ -141,17 +165,24 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
     if (put.reason === "exists") return fail(409, "conflict", "This strategy was already submitted.");
     return fail(429, "limit", put.reason === "limit" ? "Too many strategies on this wallet." : "Too many strategies waiting to be confirmed.");
   }
-  return { ok: true, record, transaction: deposit.transaction };
+  return { ok: true, record, transaction: deposit.transaction, feeTransaction };
 }
 
 export async function createStrategy(
   deps: Deps,
-  i: { wallet: string; token: string; id: unknown; depositSignedTx: unknown }
+  i: { wallet: string; token: string; id: unknown; depositSignedTx: unknown; feeSignedTx?: unknown }
 ): Promise<Failure | { ok: true; record: StrategyRecord }> {
   if (!deps.engineConfigured()) return fail(503, "engine_unavailable", "The order engine isn't configured on this deployment.");
   if (typeof i.id !== "string" || !ID_RE.test(i.id)) return fail(400, "invalid", "Invalid strategy id.");
   if (typeof i.depositSignedTx !== "string" || i.depositSignedTx.length < 100 || i.depositSignedTx.length > 20_000) return fail(400, "invalid", "Missing signed deposit.");
   const now = deps.now();
+
+  // The fee has to be there, and be exactly what was agreed, BEFORE the order is touched.
+  const pending = (await listStrategies(i.wallet, now)).find((s) => s.id === i.id);
+  if (pending && pending.state === "prepared" && pending.feeLamports > 0) {
+    const check = deps.fee.check(i.feeSignedTx, { wallet: i.wallet, treasury: deps.fee.treasury, lamports: pending.feeLamports });
+    if (!check.ok) return fail(400, "invalid", `The fee payment is missing or wrong (${check.reason}).`);
+  }
 
   // Prepared → creating, atomically: a second request for the same strategy finds it already taken.
   const record = await transition(i.wallet, i.id, ["prepared"], { state: "creating" }, now);
@@ -186,7 +217,16 @@ export async function createStrategy(
       },
       i.token
     );
-    const live = await transition(i.wallet, i.id, ["creating"], { state: "waiting", jupiterOrderId: order.id }, deps.now());
+    let live = await transition(i.wallet, i.id, ["creating"], { state: "waiting", jupiterOrderId: order.id }, deps.now());
+    // The strategy exists: now, and only now, the fee is collected (so nothing is charged if Jupiter refused the order).
+    if (record.feeLamports > 0) {
+      try {
+        const signature = await deps.fee.send(i.feeSignedTx as string);
+        live = (await transition(i.wallet, i.id, ["waiting"], { feeState: "paid", feeSignature: signature }, deps.now())) ?? live;
+      } catch (err) {
+        live = (await transition(i.wallet, i.id, ["waiting"], { feeState: "failed", feeError: clip(err) }, deps.now())) ?? live;
+      }
+    }
     return { ok: true, record: live ?? record };
   } catch (err) {
     const message = clip(err);
