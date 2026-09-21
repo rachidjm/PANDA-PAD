@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import WalletButton from "@/components/WalletButton";
 import Logo from "@/components/Logo";
@@ -13,6 +14,18 @@ export default function Navbar() {
   const pathname = usePathname();
   const { t } = useLanguage();
   const { themes } = useFeatures();
+
+  // Things that stick under the header (the PANDA ecosystem strip) need to know how tall it is: 68px on a desktop, more on a phone with its second row.
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty("--header-h", `${el.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
@@ -29,7 +42,7 @@ export default function Navbar() {
   const more = [...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []), { href: "/analytics", label: t("nav.analytics") }, { href: "/activity", label: t("act.title") }];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
+    <header ref={headerRef} className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3.5">
         <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="PANDA">
           <Logo size={34} />

@@ -96,8 +96,8 @@ export default function BuyPandaWidget() {
 
   if (!PANDA_MINT) {
     return (
-      <div className="rounded-full border border-paper/15 px-4 py-2 text-right">
-        <p className="text-xs font-medium">{t("bp.notLaunched")}</p>
+      <div className="shrink-0 rounded-full border border-paper/15 px-3 py-1.5 text-right">
+        <p className="whitespace-nowrap text-xs font-medium">{t("bp.notLaunched")}</p>
       </div>
     );
   }
@@ -141,7 +141,7 @@ export default function BuyPandaWidget() {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="rounded-full bg-paper px-6 py-3 text-sm font-semibold text-ink transition hover:brightness-90">
+      <button onClick={() => setOpen(true)} className="shrink-0 rounded-full bg-paper px-4 py-1.5 text-xs font-semibold text-ink transition hover:brightness-90 sm:text-sm">
         {t("bp.open")}
       </button>
     );
@@ -155,8 +155,9 @@ export default function BuyPandaWidget() {
   const shortfall = connected ? buyShortfall(sol, balance) : null;
   const impactTone = impact >= IMPACT_HIGH_PCT ? "text-clay-red" : impact >= IMPACT_WARN_PCT ? "text-meme-orange" : "text-paper";
 
+  // Opens as a panel under the strip, so the strip itself stays thin.
   return (
-    <div className="w-full max-w-sm rounded-2xl border border-paper/15 bg-ink-raised p-4">
+    <div className="absolute right-0 top-full z-50 mt-2 max-h-[80vh] w-[min(24rem,calc(100vw-2.5rem))] overflow-y-auto rounded-2xl border border-paper/15 bg-ink-raised p-4 shadow-2xl">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">{t("bp.open")}</p>
         <button onClick={() => setOpen(false)} className="text-panda-grey transition-colors hover:text-paper" aria-label={t("bp.close")}>

@@ -60,8 +60,12 @@ export default function HomeFeed({
 
   return (
     <section className="pb-24">
-      <div className="mb-10">
-        <PandaEcosystemCard />
+      {/* The PANDA strip stays under the header for a while as the page scrolls (about 550px), then moves on with the page.
+          The tall, click-through box only defines how long it sticks; the negative margin gives the space back, so nothing is left empty. */}
+      <div className="pointer-events-none relative z-30 -mb-[528px] h-[600px]">
+        <div className="pointer-events-auto sticky top-[calc(var(--header-h,68px)+8px)]">
+          <PandaEcosystemCard />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
