@@ -6,8 +6,13 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function Hero() {
   const { t } = useLanguage();
+  // On a phone the page opens straight on the coins (the tab bar already has Create and Discover); the heading stays for screen readers.
   return (
-    <section className="grid grid-cols-1 items-center gap-6 py-8 sm:gap-10 sm:py-16 md:grid-cols-[1.1fr_1fr]">
+    <>
+    <h1 className="sr-only sm:hidden">
+      {t("home.title1")} {t("home.title2")}
+    </h1>
+    <section className="hidden grid-cols-1 items-center gap-10 py-16 sm:grid md:grid-cols-[1.1fr_1fr]">
       <div>
         <p className="font-display text-base font-semibold text-paper/70">{t("home.kicker")}</p>
         <h1 className="mt-3 font-display text-5xl font-extrabold leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl">
@@ -41,5 +46,6 @@ export default function Hero() {
         />
       </div>
     </section>
+    </>
   );
 }
