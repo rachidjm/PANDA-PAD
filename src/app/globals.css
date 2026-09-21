@@ -63,9 +63,13 @@ main:focus {
 
 /* The NFT "coming soon" band: one transform on one layer, so it runs on the GPU and stays smooth on phones. The row is drawn twice; moving by half of it loops without a seam. */
 .nft-marquee-track {
-  animation: nft-marquee 90s linear infinite;
+  --nft-secs: 65;
+  animation: nft-marquee calc(var(--nft-secs) * 1s) linear infinite;
   will-change: transform;
   backface-visibility: hidden;
+}
+.nft-marquee-track[data-paused="true"] {
+  animation-play-state: paused;
 }
 .nft-marquee-tile {
   margin-right: 10px;
@@ -81,7 +85,15 @@ main:focus {
 }
 @media (max-width: 639px) {
   .nft-marquee-track {
-    animation-duration: 60s;
+    --nft-secs: 40;
+  }
+}
+/* This band is the one animation that keeps moving when the device asks for reduced motion: many phones and PCs have that switched on
+   without their owner knowing (battery saver, "remove animations"), and then the band would look broken. It keeps the same slow drift, and it has a pause button. */
+@media (prefers-reduced-motion: reduce) {
+  .nft-marquee-track {
+    animation-duration: calc(var(--nft-secs) * 1s) !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
