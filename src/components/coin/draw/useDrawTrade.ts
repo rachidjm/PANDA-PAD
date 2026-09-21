@@ -11,12 +11,11 @@ import { base64ToVersionedTransaction, versionedTransactionToBase64 } from "@/li
 import {
   amountToUsd,
   chooseFunding,
-  defaultStop,
+  preferredFunding,
   roundPrice,
   strategyMetrics,
   USDC_MINT,
   validateStrategy,
-  type AmountUnit,
   type FundingAsset,
   type FundingResult,
   type Rates,
@@ -38,11 +37,9 @@ export type Draft = {
   buy?: number;
   sell?: number;
   stop?: number;
-  /** While true the stop follows the BUY target (default −20%); the user editing it turns this off. */
-  stopAuto: boolean;
   amount: string;
-  unit: AmountUnit;
-  funding: FundingAsset | null;
+  /** The coin that pays (the amount is typed in it). null = not chosen yet: the coin the wallet holds most of. */
+  unit: FundingAsset | null;
 };
 
 export type ChartLine = { key: string; groupId: string; kind: DrawTarget; price: number; tag: string; live: boolean; active: boolean };
@@ -53,6 +50,8 @@ export type Step = "idle" | "session" | "jupiter" | "prepare" | "sign" | "create
 
 export type DraftView = {
   draft: Draft;
+  /** The coin that will pay: the user's pick, else the one the wallet holds most of. */
+  asset: FundingAsset;
   amountUsd: number | null;
   funding: FundingResult | null;
   issues: StrategyIssue[];
@@ -108,7 +107,14 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const raw = localStorage.getItem(storageKey(mint));
         const parsed = raw ? (JSON.parse(raw) as Draft[]) : [];
         // A draft with no BUY yet is just an empty box left behind: not worth keeping between visits.
-        if (Array.isArray(parsed)) setDrafts(parsed.filter((d) => d && typeof d.id === "string" && d.buy !== undefined).slice(0, 20));
+        if (Array.isArray(parsed)) {
+          setDrafts(
+            parsed
+              .filter((d) => d && typeof d.id === "string" && d.buy !== undefined)
+              .slice(0, 20)
+              .map((d) => ({ id: d.id, n: d.n, buy: d.buy, sell: d.sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit: d.unit === "SOL" || d.unit === "USDC" ? d.unit : null }))
+          );
+        }
       } catch {}
       loaded.current = true;
     });
@@ -196,13 +202,14 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const views: DraftView[] = useMemo(
     () =>
       drafts.map((draft) => {
+        const asset = draft.unit ?? preferredFunding(balances, rates);
         const value = parseFloat(draft.amount);
-        const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
-        const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.funding }) : null;
+        const amountUsd = Number.isFinite(value) ? amountToUsd(asset, value, rates) : null;
+        const funding = value > 0 ? chooseFunding({ unit: asset, value, rates, balances }) : null;
         const complete = draft.buy !== undefined && draft.sell !== undefined && draft.stop !== undefined;
         const issues = complete ? validateStrategy({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }) : [];
         const metrics = complete && amountUsd && !issues.includes("invalid_price") && draft.buy! > 0 ? strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd }) : null;
-        return { draft, amountUsd, funding, issues, metrics, ready: complete && issues.length === 0 && !!funding?.ok };
+        return { draft, asset, amountUsd, funding, issues, metrics, ready: complete && issues.length === 0 && !!funding?.ok };
       }),
     [drafts, rates, balances, currentUsd, quote]
   );
@@ -214,7 +221,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       const active = d.id === activeId;
       if (d.buy) out.push({ key: `${d.id}-b`, groupId: d.id, kind: "buy", price: d.buy, tag, live: false, active });
       if (d.sell) out.push({ key: `${d.id}-s`, groupId: d.id, kind: "sell", price: d.sell, tag, live: false, active });
-      if (d.stop && d.buy) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
+      if (d.stop) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
     }
     for (const r of records) {
       if (TERMINAL.includes(r.state) || r.state === "prepared" || r.state === "creating") continue;
@@ -232,7 +239,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const patchDraft = useCallback((id: string, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))), []);
 
   const newDraft = useCallback((): Draft => {
-    const d: Draft = { id: newId(), n: nextNumber(), stopAuto: true, amount: "", unit: readUnit(), funding: null };
+    const d: Draft = { id: newId(), n: nextNumber(), amount: "", unit: readUnit() };
     setDrafts((ds) => [...ds, d]);
     setActiveId(d.id);
     return d;
@@ -275,22 +282,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     setDrafts((ds) =>
       ds.map((d) => {
         if (d.id !== id) return d;
-        if (target === "buy") return { ...d, buy: price, stop: d.stopAuto ? defaultStop(price) : d.stop };
+        if (target === "buy") return { ...d, buy: price };
         if (target === "sell") return { ...d, sell: price };
-        return { ...d, stop: price, stopAuto: false };
+        return { ...d, stop: price };
       })
     );
     setNotice({ kind: target, price });
   }, []);
-
-  /** Typed prices (keyboard / precise entry) go through the same place as drawn ones. */
-  const setPrice = useCallback(
-    (id: string, target: DrawTarget, value: string) => {
-      const p = roundPrice(parseFloat(value));
-      if (p > 0) applyPrice(id, target, p);
-    },
-    [applyPrice]
-  );
 
   const removeDraft = useCallback(
     (id: string) => {
@@ -353,8 +351,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             buyUsd: d.buy,
             sellUsd: d.sell,
             stopUsd: d.stop,
-            amount: { unit: d.unit, value: parseFloat(d.amount) },
-            fundingAsset: view.funding?.ok ? view.funding.funding.asset : d.funding,
+            amount: { unit: view.asset, value: parseFloat(d.amount) },
+            fundingAsset: view.asset,
           }),
         });
         const prepared = await prep.json();
@@ -457,7 +455,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     engine: quote?.engine ?? false,
     setActiveId,
     patchDraft,
-    setPrice,
     startTarget,
     addStrategy,
     cancelDrawing,
@@ -486,16 +483,16 @@ class ApiError extends Error {
   }
 }
 
-function readUnit(): AmountUnit {
+function readUnit(): FundingAsset | null {
   try {
-    const u = localStorage.getItem("panda.draw.unit");
-    if (u === "USD" || u === "EUR" || u === "SOL" || u === "USDC") return u;
+    const u = localStorage.getItem("panda.draw.pay");
+    if (u === "SOL" || u === "USDC") return u;
   } catch {}
-  return "USD";
+  return null;
 }
 
-export function rememberUnit(u: AmountUnit) {
+export function rememberUnit(u: FundingAsset) {
   try {
-    localStorage.setItem("panda.draw.unit", u);
+    localStorage.setItem("panda.draw.pay", u);
   } catch {}
 }

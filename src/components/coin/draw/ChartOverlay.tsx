@@ -18,22 +18,10 @@ export type ChartOverlayData = {
 /** Buy = red (as asked) — a crimson, so it stays readable on the orange-red curve of a falling coin; sell = a cool blue that can be mistaken neither for the red nor for the curve; stop = the site's orange. */
 export const LINE_COLOR: Record<DrawTarget, string> = { buy: "var(--draw-buy)", sell: "var(--draw-sell)", stop: "var(--meme-orange)" };
 
-/** The dashed lines (and the tint between a strategy's BUY and SELL) inside the chart's own SVG. */
+/** The dashed lines inside the chart's own SVG (nothing is filled: the chart's background stays as it was). */
 export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
-  const groups = new Map<string, ChartLine[]>();
-  for (const l of overlay.lines) groups.set(l.groupId, [...(groups.get(l.groupId) ?? []), l]);
-  const bands = [...groups.values()].flatMap((g) => {
-    const buy = g.find((l) => l.kind === "buy");
-    const sell = g.find((l) => l.kind === "sell");
-    if (!buy || !sell) return [];
-    const [y1, y2] = [priceToY(buy.price, domain), priceToY(sell.price, domain)].sort((a, b) => a - b);
-    return [{ key: buy.groupId, y: y1, h: y2 - y1, dim: !buy.live && !buy.active }];
-  });
   return (
     <g pointerEvents="none">
-      {bands.map((b) => (
-        <rect key={b.key} x={0} width={CHART.width} y={b.y} height={b.h} fill="var(--draw-sell)" opacity={b.dim ? 0.04 : 0.08} />
-      ))}
       {overlay.lines.map((l) => {
         const y = priceToY(l.price, domain);
         return (

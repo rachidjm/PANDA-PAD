@@ -214,3 +214,11 @@ export function chooseFunding(i: {
   const second = build(vals[1].a);
   return second.ok ? second : first;
 }
+
+/** The coin to pay with when the user hasn't picked one: the one the wallet holds the most of (in dollars); SOL when nothing is known. */
+export function preferredFunding(balances: { sol: number | null; usdc: number | null }, rates: Rates): FundingAsset {
+  const sol = balances.sol !== null && rates.solUsd ? Math.max(0, balances.sol - NETWORK_BUFFER_SOL) * rates.solUsd : null;
+  const usdc = balances.usdc !== null && rates.usdcUsd ? balances.usdc * rates.usdcUsd : null;
+  if (sol === null && usdc === null) return "SOL";
+  return (usdc ?? -1) > (sol ?? -1) ? "USDC" : "SOL";
+}

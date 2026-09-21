@@ -5,13 +5,13 @@ import type { Coin } from "@/lib/types";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import type { AmountUnit, Funding, StrategyIssue } from "@/lib/strategy/plan";
+import type { Funding, FundingAsset, StrategyIssue } from "@/lib/strategy/plan";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
 import { LINE_COLOR } from "./ChartOverlay";
 import { rememberUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
-const UNITS: AmountUnit[] = ["USD", "EUR", "SOL", "USDC"];
+const PAY_WITH: FundingAsset[] = ["SOL", "USDC"];
 const STEP_KEYS: Record<string, DictKey> = {
   session: "draw.step.session",
   jupiter: "draw.step.jupiter",
@@ -39,6 +39,7 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
   const { t } = useLanguage();
   const target = draw.machine.target;
   const canSell = !!draw.active?.buy;
+  const canStop = !!draw.active?.buy;
   const busy = draw.step !== "idle" && draw.step !== "done";
 
   return (
@@ -57,6 +58,9 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
           <TargetButton kind="sell" active={target === "sell"} disabled={busy || !canSell} onClick={() => draw.startTarget("sell")} title={!canSell ? t("draw.sellNeedsBuy") : undefined}>
             {t("draw.setSell")}
           </TargetButton>
+          <TargetButton kind="stop" active={target === "stop"} disabled={busy || !canStop} onClick={() => draw.startTarget("stop")} title={!canStop ? t("draw.sellNeedsBuy") : undefined}>
+            {t("draw.setStop")}
+          </TargetButton>
           <button
             type="button"
             onClick={draw.addStrategy}
@@ -69,8 +73,11 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
       </div>
 
       {target && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs" style={{ borderColor: LINE_COLOR[target], background: `color-mix(in srgb, ${LINE_COLOR[target]} 12%, transparent)` }} role="status">
-          <span className="text-paper/90">{t(MODE_KEYS[target])}</span>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-paper/15 bg-ink px-3.5 py-2.5 text-xs" role="status">
+          <span className="flex items-start gap-2 text-paper/90">
+            <Dot kind={target} />
+            {t(MODE_KEYS[target])}
+          </span>
           <button type="button" onClick={draw.cancelDrawing} className="shrink-0 font-semibold underline underline-offset-2">
             {t("draw.cancelMode")}
           </button>
@@ -79,7 +86,8 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
 
       <div aria-live="polite" className="min-h-0">
         {draw.notice && !target && (
-          <p className="mt-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-ink" style={{ background: LINE_COLOR[draw.notice.kind] }}>
+          <p className="mt-3 flex items-center gap-2 rounded-xl bg-paper/10 px-3.5 py-2.5 text-xs font-semibold text-paper">
+            <Dot kind={draw.notice.kind} />
             {t(SET_KEYS[draw.notice.kind], { price: formatPrice(draw.notice.price) })}
           </p>
         )}
@@ -109,6 +117,11 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
   );
 }
 
+function Dot({ kind }: { kind: DrawTarget }) {
+  return <span className="mt-[3px] inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: LINE_COLOR[kind] }} aria-hidden />;
+}
+
+/** Neutral like the rest of the site's buttons; the small dot only says which line it draws. */
 function TargetButton({ kind, active, disabled, onClick, title, children }: { kind: DrawTarget; active: boolean; disabled?: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
   return (
     <button
@@ -117,13 +130,11 @@ function TargetButton({ kind, active, disabled, onClick, title, children }: { ki
       disabled={disabled}
       aria-pressed={active}
       title={title}
-      className="rounded-xl border px-3.5 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-      style={{
-        borderColor: LINE_COLOR[kind],
-        color: active ? "var(--ink)" : LINE_COLOR[kind],
-        background: active ? LINE_COLOR[kind] : `color-mix(in srgb, ${LINE_COLOR[kind]} 10%, transparent)`,
-      }}
+      className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        active ? "border-paper bg-paper text-ink" : "border-paper/15 text-paper/80 hover:border-paper/35 hover:text-paper"
+      }`}
     >
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: LINE_COLOR[kind] }} aria-hidden />
       {children}
     </button>
   );
@@ -202,21 +213,16 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
 
       <div className="mt-3 grid grid-cols-3 gap-2">
         {(["buy", "sell", "stop"] as const).map((kind) => (
-          <label key={kind} className="block">
-            <span className="mb-1 flex items-center gap-1.5 text-[11px] text-panda-grey">
-              <span className="h-2 w-2 rounded-full" style={{ background: LINE_COLOR[kind] }} />
+          <div key={kind} className="rounded-xl bg-ink-raised px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
+              <Dot kind={kind} />
               {t(`draw.label.${kind}` as DictKey)}
             </span>
-            <PriceInput value={draft[kind]} onCommit={(v) => draw.setPrice(draft.id, kind, v)} />
-          </label>
+            <p className="mt-1 text-sm font-semibold">{draft[kind] !== undefined ? formatPrice(draft[kind]!) : "—"}</p>
+          </div>
         ))}
       </div>
-      <div className="mt-2 flex items-start justify-between gap-3 text-[11px] text-panda-grey">
-        <span>{t("draw.stopHint")}</span>
-        <button type="button" onClick={() => draw.startTarget("stop")} className="shrink-0 font-semibold text-meme-orange hover:brightness-110">
-          {t("draw.setStop")}
-        </button>
-      </div>
+      {draft.stop === undefined && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
 
       {complete && (
         <>
@@ -233,16 +239,16 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
                 className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
               />
               <div className="flex shrink-0 gap-1 rounded-full bg-ink p-0.5" role="group" aria-label="Unit">
-                {UNITS.map((u) => (
+                {PAY_WITH.map((u) => (
                   <button
                     key={u}
                     type="button"
                     onClick={() => {
                       rememberUnit(u);
-                      draw.patchDraft(draft.id, { unit: u, funding: u === "SOL" || u === "USDC" ? null : draft.funding });
+                      draw.patchDraft(draft.id, { unit: u });
                     }}
-                    aria-pressed={draft.unit === u}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${draft.unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
+                    aria-pressed={view.asset === u}
+                    className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${view.asset === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
                   >
                     {u}
                   </button>
@@ -250,29 +256,11 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
               </div>
             </div>
 
-            {draft.unit !== "SOL" && draft.unit !== "USDC" && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-panda-grey">
-                <span>{t("draw.payWith")}</span>
-                {([null, "SOL", "USDC"] as const).map((a) => (
-                  <button
-                    key={a ?? "auto"}
-                    type="button"
-                    onClick={() => draw.patchDraft(draft.id, { funding: a })}
-                    aria-pressed={draft.funding === a}
-                    className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${draft.funding === a ? "bg-paper/15 text-paper" : "bg-paper/5 text-paper/70 hover:bg-paper/10"}`}
-                  >
-                    {a ?? t("draw.auto")}
-                  </button>
-                ))}
-                {draft.funding === null && <span>{t("draw.autoWhy")}</span>}
-              </div>
-            )}
-
             {(draw.balances.sol !== null || draw.balances.usdc !== null) && (
               <p className="mt-2 text-[11px] text-panda-grey">{t("draw.balances", { sol: draw.balances.sol?.toFixed(4) ?? "—", usdc: draw.balances.usdc?.toFixed(2) ?? "—" })}</p>
             )}
 
-            {funding && <Conversion funding={funding} view={view} ticker={ticker} unit={draft.unit} value={draft.amount} />}
+            {funding && <Conversion funding={funding} ticker={ticker} eurUsd={draw.quote?.eurUsd ?? null} />}
             {rateMissing && <p className="mt-2 text-xs text-clay-red">{t("draw.noRate")}</p>}
             {short !== undefined && <p className="mt-2 text-xs text-clay-red">{t("draw.notEnough", { short: money(short) })}</p>}
           </div>
@@ -326,12 +314,13 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
   );
 }
 
-function Conversion({ funding, view, ticker, unit, value }: { funding: Funding; view: DraftView; ticker: string; unit: AmountUnit; value: string }) {
-  const { t } = useLanguage();
-  const ui = funding.asset === "SOL" ? funding.ui.toLocaleString(undefined, { maximumFractionDigits: 5 }) : funding.ui.toLocaleString(undefined, { maximumFractionDigits: 2 });
+/** USD and EUR are only here so the amount means something: the user pays in SOL or USDC. */
+function Conversion({ funding, ticker, eurUsd }: { funding: Funding; ticker: string; eurUsd: number | null }) {
+  const { t, lang } = useLanguage();
+  const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
   return (
     <dl className="mt-2 space-y-1 rounded-xl bg-ink-raised px-3.5 py-2.5 text-xs">
-      <Row label={t("draw.equivalent")} value={unit === "USD" || unit === "EUR" ? `${value} ${unit} ≈ ${money(view.amountUsd ?? 0)} ≈ ${ui} ${funding.asset}` : `${ui} ${funding.asset} ≈ ${money(view.amountUsd ?? 0)}`} />
+      <Row label={t("draw.equivalent")} value={eurUsd ? `≈ ${cur(funding.usd, "USD")} · ≈ ${cur(funding.usd / eurUsd, "EUR")}` : `≈ ${cur(funding.usd, "USD")}`} />
       <Row label={t("draw.route")} value={`${funding.asset} → $${ticker}`} strong />
     </dl>
   );
@@ -358,27 +347,6 @@ function PriceSummary({ buy, sell, stop }: { buy?: number; sell?: number; stop?:
         </>
       ) : null}
     </p>
-  );
-}
-
-/** A price field that lets you type freely and applies the number when you leave it or press Enter. */
-function PriceInput({ value, onCommit }: { value?: number; onCommit: (v: string) => void }) {
-  const [text, setText] = useState<string | null>(null);
-  const shown = text ?? (value !== undefined ? String(value) : "");
-  const commit = () => {
-    if (text !== null) onCommit(text);
-    setText(null);
-  };
-  return (
-    <input
-      value={shown}
-      onChange={(e) => setText(e.target.value.replace(/[^0-9.]/g, ""))}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === "Enter" && commit()}
-      inputMode="decimal"
-      placeholder="—"
-      className="w-full rounded-xl border border-paper/15 bg-ink-raised px-2.5 py-2 text-xs outline-none focus:border-paper/40"
-    />
   );
 }
 

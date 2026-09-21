@@ -47,15 +47,15 @@ body {
   color: var(--ink);
 }
 
-/* Keyboard focus is always visible: a clear ring on everything interactive, including fields that hide the browser's own outline. */
+/* Keyboard focus is always visible on links, buttons and tabs. Text fields don't get a ring: typing in one is already obvious, and their box marks focus with its own border. */
 :where(a, button, summary, [role="tab"], [tabindex]):focus-visible {
   outline: 2px solid var(--meme-orange);
   outline-offset: 2px;
   border-radius: 6px;
 }
 :where(input, textarea, select):focus-visible {
-  border-color: var(--paper);
-  box-shadow: 0 0 0 2px var(--meme-orange);
+  outline: none;
+  border-color: color-mix(in srgb, var(--paper) 45%, transparent);
 }
 main:focus {
   outline: none;

@@ -5,6 +5,7 @@ import {
   chooseFunding,
   defaultStop,
   MIN_ORDER_USD,
+  preferredFunding,
   roundPrice,
   strategyMetrics,
   triggerConditionFor,
@@ -134,4 +135,12 @@ test("a missing rate never becomes a guess", () => {
 test("with balances unknown it defaults to SOL and says the balance isn't known", () => {
   const r = chooseFunding({ unit: "USD", value: 100, rates, balances: { sol: null, usdc: null } });
   assert.ok(r.ok && r.funding.asset === "SOL" && r.funding.balanceKnown === false);
+});
+
+test("the coin to pay with by default is the one the wallet holds most of; SOL when nothing is known", () => {
+  assert.equal(preferredFunding({ sol: 5, usdc: 20 }, rates), "SOL");
+  assert.equal(preferredFunding({ sol: 0.3, usdc: 900 }, rates), "USDC");
+  assert.equal(preferredFunding({ sol: 0.005, usdc: 3 }, rates), "USDC"); // SOL is only the fee cushion
+  assert.equal(preferredFunding({ sol: null, usdc: null }, rates), "SOL");
+  assert.equal(preferredFunding({ sol: null, usdc: 50 }, rates), "USDC");
 });

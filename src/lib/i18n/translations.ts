@@ -718,8 +718,8 @@ export const dict = {
     es: "Stop a",
   },
   "draw.stopHint": {
-    en: "Jupiter's engine requires a stop with every strategy, so PANDA suggests one 20% under your buy. Change it or draw it.",
-    es: "El motor de Jupiter exige un stop en cada estrategia, así que PANDA propone uno un 20% por debajo de tu compra. Cámbialo o dibújalo.",
+    en: "Jupiter needs a stop in every strategy: press Set Stop and mark it on the chart, below your buy price.",
+    es: "Jupiter exige un stop en cada estrategia: pulsa Fijar stop y márcalo en el gráfico, por debajo de tu precio de compra.",
   },
   "draw.priceDiff": {
     en: "Price difference",
