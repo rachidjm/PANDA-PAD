@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Coin } from "@/lib/types";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -35,6 +35,19 @@ const STATUS_TONE: Record<StrategyStatus, string> = {
 const money = (n: number) => `${n < 0 ? "-" : ""}${formatUsd(Math.abs(n))}`;
 const signedMoney = (n: number) => (n > 0 ? `+${money(n)}` : money(n));
 
+/** True from the `sm` breakpoint up. The server (and the first paint) assume a desktop. */
+function useIsDesktop(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      const mq = window.matchMedia("(min-width: 640px)");
+      mq.addEventListener("change", notify);
+      return () => mq.removeEventListener("change", notify);
+    },
+    () => window.matchMedia("(min-width: 640px)").matches,
+    () => true
+  );
+}
+
 export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Coin }) {
   const { t } = useLanguage();
   const target = draw.machine.target;
@@ -42,11 +55,28 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
   const canStop = !!draw.active?.buy;
   const busy = draw.step !== "idle" && draw.step !== "done";
 
+  // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
+  const isDesktop = useIsDesktop();
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = !!target || (userOpen ?? isDesktop);
+  const count = draw.views.length + draw.records.length;
+
   return (
-    <section className="mt-5 border-t border-paper/10 pt-5" aria-labelledby="draw-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="mt-4 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5" aria-labelledby="draw-title">
+      <button type="button" onClick={() => setUserOpen(!open)} aria-expanded={open} className="flex w-full items-center justify-between text-left sm:hidden">
+        <span className="font-display text-base font-bold">
+          {t("draw.title")}
+          {count > 0 && <span className="ml-2 rounded-full bg-paper/10 px-2 py-0.5 text-[11px] font-medium text-panda-grey">{count}</span>}
+        </span>
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`text-panda-grey transition-transform ${open ? "rotate-180" : ""}`} aria-hidden>
+          <path d="M2 4.5 6 8.5 10 4.5" />
+        </svg>
+      </button>
+      {open && (
+      <>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-3 sm:mt-0">
         <div className="max-w-md">
-          <h2 id="draw-title" className="font-display text-base font-bold">
+          <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
             {t("draw.title")}
           </h2>
           <p className="mt-0.5 text-xs text-panda-grey">{t("draw.subtitle")}</p>
@@ -113,6 +143,8 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
       {draw.records.length > 0 && <SavedStrategies draw={draw} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
+      </>
+      )}
     </section>
   );
 }

@@ -511,6 +511,7 @@ export const dict = {
     en: "Not enough SOL: this buy needs about {need} SOL (the amount + PANDA's fee + about 0.006 SOL for network fees and token accounts) and your wallet has {have} SOL.",
     es: "No tienes SOL suficiente: esta compra necesita unos {need} SOL (el importe + la comisión de PANDA + unos 0,006 SOL de comisiones de red y cuentas de token) y tu wallet tiene {have} SOL.",
   },
+  "trading.noRate": { en: "No live rate for this currency right now — pick SOL or try again in a moment.", es: "Ahora mismo no hay cotización real para esta moneda — elige SOL o inténtalo de nuevo en un momento." },
   "trading.useMax": { en: "Use the maximum ({max} SOL)", es: "Usar el máximo ({max} SOL)" },
   "trading.notEnoughTokens": { en: "You only have {have} ${ticker} to sell.", es: "Solo tienes {have} ${ticker} para vender." },
   "trading.notEnoughSolFee": { en: "You need a little SOL in your wallet to pay the network fee.", es: "Necesitas un poco de SOL en tu wallet para pagar la comisión de red." },

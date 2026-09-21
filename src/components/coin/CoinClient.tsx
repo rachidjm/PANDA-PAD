@@ -31,9 +31,11 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
   const positive = coin.changePct >= 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.5fr_1fr]">
-        <div>
+    <div className="mx-auto max-w-6xl px-5 py-4 sm:py-8">
+      {/* On a phone the order is: coin and chart, then buy/sell, then the trades/holders/rewards tabs, then market and pool info — the
+          buy/sell box is one of the first things to see. On a desktop it is the same two columns as always (the right column sticks). */}
+      <div className="grid grid-cols-1 gap-x-8 gap-y-5 lg:grid-cols-[1.5fr_1fr]">
+        <div className="order-1 lg:order-none lg:col-start-1 lg:row-start-1">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3.5">
               <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-paper/10 bg-[#171512]">
@@ -52,14 +54,18 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
             <Panda pose={positive ? "tradeUp" : "tradeDown"} size={56} />
           </div>
 
-          {coin.description && <p className="mt-4 max-w-xl text-sm leading-relaxed text-paper/75">{coin.description}</p>}
+          {coin.description && <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-relaxed text-paper/75 sm:mt-4 sm:line-clamp-none">{coin.description}</p>}
 
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:max-w-sm">
+          <p className="mt-2 text-xs text-panda-grey sm:hidden">
+            {t("coin.marketCap")} <span className="font-semibold text-paper/90">{formatCompact(coin.marketCap)}</span> · {t("coin.volume24h")} <span className="font-semibold text-paper/90">{formatCompact(coin.volume24h)}</span>
+          </p>
+
+          <div className="mt-5 hidden grid-cols-2 gap-3 sm:grid sm:max-w-sm">
             <Stat label={t("coin.marketCap")} value={formatCompact(coin.marketCap)} />
             <Stat label={t("coin.volume24h")} value={formatCompact(coin.volume24h)} />
           </div>
 
-          <div className="mt-6">
+          <div className="mt-3 sm:mt-6">
             <PriceChart
               poolAddress={coin.poolAddress}
               initialCloses={coin.priceHistory}
@@ -68,8 +74,21 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
               coin={coin}
             />
           </div>
+        </div>
 
-          <div className="mt-8 flex gap-1 border-b border-paper/10">
+        <div className="contents lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:block lg:space-y-4 lg:self-start">
+          <div className="order-2 space-y-4 lg:order-none">
+            <TradingPanel coin={coin} />
+            <StopLossTakeProfit coin={coin} />
+          </div>
+          <div className="order-4 space-y-4 lg:order-none">
+            <MarketActivityCard coin={coin} />
+            <PoolInfoCard coin={coin} />
+          </div>
+        </div>
+
+        <div className="order-3 lg:order-none lg:col-start-1 lg:row-start-2">
+          <div className="mt-2 flex gap-1 border-b border-paper/10 lg:mt-3">
             {tabs.map((tb) => (
               <button
                 key={tb}
@@ -88,16 +107,11 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
             {tab === "Holders" && <HoldersTab />}
             {tab === "Rewards" && <RewardsTab coin={coin} />}
           </div>
-        </div>
-
-        <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <TradingPanel coin={coin} />
-          <StopLossTakeProfit coin={coin} />
-          <MarketActivityCard coin={coin} />
-          <PoolInfoCard coin={coin} />
+        
         </div>
       </div>
     </div>
+
   );
 }
 

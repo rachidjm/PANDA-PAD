@@ -13,8 +13,10 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { TxFailedError } from "@/lib/solana/tx-errors";
 import { buyShortfall, maxBuyAmount, SELL_MIN_SOL } from "@/lib/trading/limits";
+import { BUY_PRESETS, maxInUnit, solToUnit, unitToSol, type BuyUnit } from "@/lib/trading/amount";
+import { useRates } from "@/components/coin/useRates";
 
-const buyPresets = [0.1, 0.5, 1];
+const UNIT_SYMBOL: Record<BuyUnit, string> = { SOL: "SOL", USD: "$", EUR: "€" };
 const sellPresets = [25, 50, 100];
 
 type Status = "idle" | "building" | "signing" | "sending" | "confirming" | "done" | "error";
@@ -27,6 +29,17 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const { t } = useLanguage();
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
+  // What is typed can be SOL, dollars or euros; a buy is always paid in SOL, converted with the real rates.
+  const [unit, setUnit] = useState<BuyUnit>("SOL");
+  const rates = useRates(coin.mint);
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      try {
+        const u = localStorage.getItem("panda.buy.unit");
+        if (u === "USD" || u === "EUR" || u === "SOL") setUnit(u);
+      } catch {}
+    });
+  }, []);
   const [solBalance, setSolBalance] = useState<number | null>(null);
   const [tokenBalance, setTokenBalance] = useState<number | null>(null);
   const [tokenDecimals, setTokenDecimals] = useState(6);
@@ -77,15 +90,30 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const displayTokens = connected ? tokenBalance : null;
 
   // Say "you don't have enough" BEFORE anything is signed: a transaction that runs out of SOL fails on-chain and still costs the network fee.
-  const amt = parseFloat(amount) || 0;
+  const typed = parseFloat(amount) || 0;
+  const buySol = unitToSol(unit, typed, rates); // null: this currency has no live rate right now
+  const amt = side === "buy" ? buySol ?? 0 : typed;
+  const noRate = side === "buy" && typed > 0 && buySol === null;
   const buyShort = side === "buy" && connected ? buyShortfall(amt, displaySol) : null;
   const sellNoTokens = side === "sell" && connected && displayTokens !== null && amt > displayTokens;
   const sellNoSol = side === "sell" && connected && displaySol !== null && amt > 0 && displaySol < SELL_MIN_SOL;
-  const blocked = !!buyShort || sellNoTokens || sellNoSol;
+  const blocked = !!buyShort || sellNoTokens || sellNoSol || noRate;
   const fmtSol = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+  function pickUnit(next: BuyUnit) {
+    if (next === unit) return;
+    // Keep the same value, shown in the new currency.
+    const converted = buySol && buySol > 0 ? solToUnit(next, buySol, rates) : null;
+    setUnit(next);
+    try {
+      localStorage.setItem("panda.buy.unit", next);
+    } catch {}
+    if (amount) setAmount(converted !== null ? String(Number(converted.toFixed(next === "SOL" ? 4 : 2))) : "");
+  }
 
   async function submit() {
     if (!connected || !publicKey || !amount) return;
+    if (side === "buy" && !(buySol && buySol > 0)) return;
     setError("");
     setSignature("");
     try {
@@ -96,7 +124,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       const poolAddress = graduated ? coin.poolAddress : undefined;
       const body =
         side === "buy"
-          ? { mint: coin.mint, user: publicKey.toBase58(), solAmount: parseFloat(amount), poolAddress }
+          ? { mint: coin.mint, user: publicKey.toBase58(), solAmount: buySol, poolAddress }
           : {
               mint: coin.mint,
               user: publicKey.toBase58(),
@@ -201,11 +229,25 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               disabled={busy}
               className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
             />
-            <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">{quote}</span>
+            <div className="flex shrink-0 gap-0.5 rounded-full bg-ink-raised p-0.5" role="group" aria-label={quote}>
+              {(["SOL", "USD", "EUR"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => pickUnit(u)}
+                  disabled={busy}
+                  aria-pressed={unit === u}
+                  aria-label={u}
+                  className={`min-w-8 rounded-full px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${unit === u ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"}`}
+                >
+                  {UNIT_SYMBOL[u]}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mt-2 grid grid-cols-4 gap-1.5">
-            {buyPresets.map((p) => (
+            {BUY_PRESETS[unit].map((p) => (
               <button
                 key={p}
                 onClick={() => setAmount(String(p))}
@@ -214,11 +256,14 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
                   amount === String(p) ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
                 }`}
               >
-                {p}
+                {unit === "SOL" ? p : `${UNIT_SYMBOL[unit]}${p}`}
               </button>
             ))}
             <button
-              onClick={() => displaySol !== null && setAmount(maxBuyAmount(displaySol) > 0 ? String(maxBuyAmount(displaySol)) : "")}
+              onClick={() => {
+                const m = displaySol !== null ? maxInUnit(unit, maxBuyAmount(displaySol), rates) : null;
+                setAmount(m && m > 0 ? String(m) : "");
+              }}
               disabled={busy}
               className="rounded-xl bg-paper/5 py-2 text-xs font-semibold text-paper/70 transition-colors hover:bg-paper/10 hover:text-paper disabled:opacity-50"
             >
@@ -226,19 +271,28 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
             </button>
           </div>
 
-          {!!parseFloat(amount) && (
+          {typed > 0 && !noRate && (
+            <p className="mt-2 text-xs text-panda-grey">
+              {unit === "SOL"
+                ? [solToUnit("USD", amt, rates) !== null && `≈ ${money(solToUnit("USD", amt, rates)!, "USD")}`, solToUnit("EUR", amt, rates) !== null && `≈ ${money(solToUnit("EUR", amt, rates)!, "EUR")}`].filter(Boolean).join(" · ")
+                : `≈ ${amt.toLocaleString(undefined, { maximumFractionDigits: 4 })} SOL`}
+            </p>
+          )}
+          {noRate && <p className="mt-2 text-xs text-clay-red">{t("trading.noRate")}</p>}
+
+          {amt > 0 && (
             <div className="mt-3 space-y-1 rounded-xl bg-ink px-3.5 py-3 text-xs">
               <div className="flex items-center justify-between text-panda-grey">
                 <span>{t("trading.amount")}</span>
-                <span>{parseFloat(amount).toFixed(4)} SOL</span>
+                <span>{amt.toFixed(4)} SOL</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
                 <span>{t("trading.pandaFee", { pct: PANDA_FEE_BPS / 100 })}</span>
-                <span>{((parseFloat(amount) * PANDA_FEE_BPS) / 10_000).toFixed(4)} SOL</span>
+                <span>{((amt * PANDA_FEE_BPS) / 10_000).toFixed(4)} SOL</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
                 <span>{t("trading.youPay")}</span>
-                <span>{(parseFloat(amount) * (1 + PANDA_FEE_BPS / 10_000)).toFixed(4)} SOL</span>
+                <span>{(amt * (1 + PANDA_FEE_BPS / 10_000)).toFixed(4)} SOL</span>
               </div>
             </div>
           )}
@@ -349,6 +403,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     </div>
   );
 }
+
+const money = (n: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
 
 /** A translated key for what went wrong, or the server's own message when it is already specific. */
 function explainError(err: unknown): DictKey | { key: DictKey } | string {

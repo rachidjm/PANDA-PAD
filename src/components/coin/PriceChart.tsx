@@ -107,7 +107,7 @@ export default function PriceChart({
   const high = closes.length ? Math.max(...closes) : 0;
 
   return (
-    <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-5 sm:p-6">
+    <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-display text-2xl font-bold sm:text-3xl">{formatPrice(shownPrice)}</p>
@@ -129,7 +129,7 @@ export default function PriceChart({
               key={tfOption}
               onClick={() => selectTimeframe(tfOption)}
               disabled={!poolAddress}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase transition-colors disabled:opacity-40 ${
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase transition-colors disabled:opacity-40 sm:px-3 sm:py-1.5 ${
                 tf === tfOption ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"
               }`}
             >
@@ -139,7 +139,7 @@ export default function PriceChart({
         </div>
       </div>
 
-      <div className={`mt-6 transition-opacity duration-500 ${loading ? "opacity-40" : "opacity-100"}`}>
+      <div className={`mt-4 transition-opacity duration-500 sm:mt-6 ${loading ? "opacity-40" : "opacity-100"}`}>
         <AreaChart
           candles={candles}
           positive={positive}
@@ -222,7 +222,7 @@ function AreaChart({
   const data = candles.map((c) => c.close);
 
   if (data.length < 2) {
-    return <div className="flex h-[260px] items-center justify-center text-sm text-panda-grey">{noDataLabel}</div>;
+    return <div className="flex h-[170px] items-center justify-center text-sm text-panda-grey sm:h-[260px]">{noDataLabel}</div>;
   }
 
   // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
@@ -298,7 +298,7 @@ function AreaChart({
         }
         onPointerUp={drawing ? (e) => overlay!.onPointer("up", priceAt(e), info(e)) : undefined}
         onPointerCancel={drawing ? () => overlay!.onPointer("leave", 0, { type: "touch", button: 0, pressed: false }) : undefined}
-        className="cursor-crosshair"
+        className="h-[170px] w-full cursor-crosshair sm:h-[260px]"
         // While placing a line the finger must move the line, not scroll the page; otherwise the page scrolls as usual.
         style={drawing ? { touchAction: "none" } : undefined}
       >
