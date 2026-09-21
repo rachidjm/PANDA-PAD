@@ -9,6 +9,8 @@ import { base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { TxFailedError } from "@/lib/solana/tx-errors";
+import { buyShortfall, maxBuyAmount } from "@/lib/trading/limits";
 
 const PANDA_MINT = process.env.NEXT_PUBLIC_PANDA_TOKEN_MINT || null;
 const presets = [0.1, 0.5, 1];
@@ -34,6 +36,20 @@ export default function BuyPandaWidget() {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [signature, setSignature] = useState("");
+  const [balance, setBalance] = useState<number | null>(null);
+
+  // The wallet's SOL, so the widget can say "not enough" before anything is signed.
+  useEffect(() => {
+    if (!open || !connected || !publicKey) return;
+    let cancelled = false;
+    connection
+      .getBalance(publicKey)
+      .then((lamports) => !cancelled && setBalance(lamports / 1e9))
+      .catch(() => !cancelled && setBalance(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connected, publicKey, connection, status]);
 
   useEffect(() => {
     if (!PANDA_MINT) return;
@@ -136,6 +152,7 @@ export default function BuyPandaWidget() {
   const feeSol = (sol * PANDA_FEE_BPS) / 10_000;
   const fmt = (n: number, max = 2) => n.toLocaleString(lang, { maximumFractionDigits: max });
   const impact = quote?.impactPct ?? 0;
+  const shortfall = connected ? buyShortfall(sol, balance) : null;
   const impactTone = impact >= IMPACT_HIGH_PCT ? "text-clay-red" : impact >= IMPACT_WARN_PCT ? "text-meme-orange" : "text-paper";
 
   return (
@@ -196,10 +213,20 @@ export default function BuyPandaWidget() {
         </p>
       )}
       {quoteFailed && status !== "quoting" && <p className="mt-2 text-xs text-panda-grey">{t("bp.noQuote")}</p>}
+      {shortfall && (
+        <div className="mt-2 rounded-xl bg-clay-red/10 px-3 py-2 text-xs text-clay-red" role="alert">
+          <p>{t("trading.notEnoughSol", { need: fmt(shortfall.need, 4), have: fmt(shortfall.have, 4) })}</p>
+          {shortfall.max > 0 && (
+            <button onClick={() => setAmount(String(shortfall.max))} className="mt-1.5 font-semibold underline underline-offset-2">
+              {t("trading.useMax", { max: fmt(maxBuyAmount(shortfall.have), 4) })}
+            </button>
+          )}
+        </div>
+      )}
 
       <button
         onClick={submit}
-        disabled={!connected || !amount || busy}
+        disabled={!connected || !amount || busy || !!shortfall}
         className="mt-3 w-full rounded-xl bg-bamboo py-3 text-sm font-bold text-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {!connected
@@ -240,11 +267,15 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function explainError(err: unknown): DictKey {
+  if (err instanceof TxFailedError) {
+    return err.reason === "insufficient_sol" ? "bp.err.insufficient" : err.reason === "slippage" ? "bp.err.slippage" : err.reason === "expired" ? "bp.err.expired" : "bp.err.failedOnchain";
+  }
   const message = err instanceof Error ? err.message : String(err);
   if (/reject|cancel/i.test(message)) return "bp.err.rejected";
   if (/insufficient/i.test(message)) return "bp.err.insufficient";
   if (/no route/i.test(message)) return "bp.err.noRoute";
   if (/blockhash|expired/i.test(message)) return "bp.err.expired";
   if (/429|too many requests/i.test(message)) return "bp.err.rateLimited";
+  if (/failed on-chain/i.test(message)) return "bp.err.failedOnchain";
   return "bp.err.generic";
 }

@@ -3,6 +3,7 @@ import BN from "bn.js";
 import { PUMP_AMM_PROGRAM_ID } from "@pump-fun/pump-sdk";
 import { getPumpAmmSdk, getOnlinePumpAmmSdk } from "./amm-client";
 import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./constants";
+import { ammPoolProblem, POOL_NOT_TRADABLE } from "./pool-check";
 
 /**
  * Real trading for a coin that's graduated off the bonding curve onto
@@ -30,14 +31,25 @@ async function assertRealPumpAmmPool(connection: Connection, poolAddress: Public
   }
 }
 
+/** Refuses a pool that can't trade `mint` against SOL (inverted, another token's, or empty) BEFORE anything is built — the wallet would only pay a fee for a failure. */
+function assertTradable(state: { pool: { baseMint: PublicKey; quoteMint: PublicKey }; poolBaseAmount: BN; poolQuoteAmount: BN }, mint: PublicKey) {
+  const problem = ammPoolProblem(
+    { baseMint: state.pool.baseMint.toBase58(), quoteMint: state.pool.quoteMint.toBase58(), baseReserve: state.poolBaseAmount, quoteReserve: state.poolQuoteAmount },
+    mint.toBase58()
+  );
+  if (problem) throw new Error(`${POOL_NOT_TRADABLE}: ${problem}.`);
+}
+
 export async function buildAmmBuyTransaction({
   connection,
+  mint,
   user,
   poolAddress,
   solAmount,
   slippagePct = DEFAULT_SLIPPAGE_PCT,
 }: {
   connection: Connection;
+  mint: PublicKey;
   user: PublicKey;
   poolAddress: PublicKey;
   solAmount: number;
@@ -49,6 +61,7 @@ export async function buildAmmBuyTransaction({
   const offline = getPumpAmmSdk();
 
   const state = await online.swapSolanaState(poolAddress, user);
+  assertTradable(state, mint);
 
   const solAmountLamports = new BN(Math.round(solAmount * 1e9));
   const instructions = await offline.buyQuoteInput(state, solAmountLamports, slippagePct);
@@ -66,12 +79,14 @@ export async function buildAmmBuyTransaction({
 
 export async function buildAmmSellTransaction({
   connection,
+  mint,
   user,
   poolAddress,
   tokenAmount,
   slippagePct = DEFAULT_SLIPPAGE_PCT,
 }: {
   connection: Connection;
+  mint: PublicKey;
   user: PublicKey;
   poolAddress: PublicKey;
   tokenAmount: BN;
@@ -83,6 +98,7 @@ export async function buildAmmSellTransaction({
   const offline = getPumpAmmSdk();
 
   const state = await online.swapSolanaState(poolAddress, user);
+  assertTradable(state, mint);
 
   const instructions = await offline.sellBaseInput(state, tokenAmount, slippagePct);
 

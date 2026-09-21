@@ -504,6 +504,46 @@ export const dict = {
   "bp.err.rateLimited": { en: "The Solana RPC is rate-limiting us — wait a moment and retry.", es: "El RPC de Solana nos está limitando — espera un momento y reintenta." },
   "bp.err.generic": { en: "Trade failed. Please try again.", es: "La operación falló. Inténtalo de nuevo." },
 
+  // Trading: balance checks and failure reasons
+  "trading.notEnoughSol": {
+    en: "Not enough SOL: this buy needs about {need} SOL (the amount + PANDA's fee + about 0.006 SOL for network fees and token accounts) and your wallet has {have} SOL.",
+    es: "No tienes SOL suficiente: esta compra necesita unos {need} SOL (el importe + la comisión de PANDA + unos 0,006 SOL de comisiones de red y cuentas de token) y tu wallet tiene {have} SOL.",
+  },
+  "trading.useMax": { en: "Use the maximum ({max} SOL)", es: "Usar el máximo ({max} SOL)" },
+  "trading.notEnoughTokens": { en: "You only have {have} ${ticker} to sell.", es: "Solo tienes {have} ${ticker} para vender." },
+  "trading.notEnoughSolFee": { en: "You need a little SOL in your wallet to pay the network fee.", es: "Necesitas un poco de SOL en tu wallet para pagar la comisión de red." },
+  "trading.sold": { en: "Sold!", es: "¡Vendido!" },
+  "trading.err.rejected": { en: "You rejected the transaction.", es: "Rechazaste la transacción." },
+  "trading.err.insufficientSol": {
+    en: "Not enough SOL: the transaction failed on-chain and only the network fee was spent. Nothing was bought or sold.",
+    es: "No había SOL suficiente: la transacción falló on-chain y solo se gastó la comisión de red. No se compró ni se vendió nada.",
+  },
+  "trading.err.insufficientTokens": { en: "You don't hold enough of this coin to sell that amount. Nothing was sold; only the network fee was spent.", es: "No tienes suficientes de esta moneda para vender esa cantidad. No se vendió nada; solo se gastó la comisión de red." },
+  "trading.err.slippage": {
+    en: "The price moved more than the allowed tolerance while the transaction was landing. Nothing was bought or sold — try again.",
+    es: "El precio se movió más de lo permitido mientras la transacción se ejecutaba. No se compró ni se vendió nada — inténtalo de nuevo.",
+  },
+  "trading.err.accountMissing": {
+    en: "The pool didn't have what this trade needs, so nothing was bought or sold. This coin may not be tradable right now.",
+    es: "El pool no tenía lo que necesita esta operación, así que no se compró ni se vendió nada. Puede que esta moneda no sea operable ahora mismo.",
+  },
+  "trading.err.expired": { en: "The transaction expired — try again.", es: "La transacción expiró — inténtalo de nuevo." },
+  "trading.err.rateLimited": { en: "The Solana RPC is rate-limiting us — wait a moment and retry.", es: "El RPC de Solana nos está limitando — espera un momento y reintenta." },
+  "trading.err.network": { en: "Network error reaching Solana — check your connection and retry.", es: "Error de red al conectar con Solana — revisa tu conexión y reintenta." },
+  "trading.err.failedOnchain": {
+    en: "The transaction failed on-chain — nothing was bought or sold; you only paid the network fee.",
+    es: "La transacción falló on-chain — no se compró ni se vendió nada; solo pagaste la comisión de red.",
+  },
+  "trading.err.confirmTimeout": { en: "Sent, but confirmation timed out — check your wallet's activity before retrying.", es: "Enviada, pero la confirmación tardó demasiado — mira la actividad de tu wallet antes de reintentar." },
+  "trading.err.noRoute": { en: "No trading route found for this pair right now — try again shortly.", es: "No se encontró ruta para este par ahora mismo — inténtalo de nuevo en breve." },
+  "trading.err.poolNotTradable": {
+    en: "This coin's PumpSwap pool can't be traded with SOL right now (it is empty or set up the other way round). PANDA didn't send anything to your wallet, so you paid nothing.",
+    es: "El pool de PumpSwap de esta moneda no se puede operar con SOL ahora mismo (está vacío o montado al revés). PANDA no envió nada a tu wallet, así que no pagaste nada.",
+  },
+  "trading.err.generic": { en: "Trade failed. Please try again.", es: "La operación falló. Inténtalo de nuevo." },
+  "bp.err.slippage": { en: "The price moved more than the allowed tolerance while the transaction was landing. Nothing was bought — try again.", es: "El precio se movió más de lo permitido mientras se ejecutaba. No se compró nada — inténtalo de nuevo." },
+  "bp.err.failedOnchain": { en: "The transaction failed on-chain — nothing was bought; you only paid the network fee.", es: "La transacción falló on-chain — no se compró nada; solo pagaste la comisión de red." },
+
   // Wallet dropdown
   "wp.value": { en: "Portfolio value", es: "Valor del portfolio" },
   "wp.readError": { en: "Couldn't read your wallet right now — try again in a moment.", es: "No se pudo leer tu wallet ahora — inténtalo de nuevo en un momento." },

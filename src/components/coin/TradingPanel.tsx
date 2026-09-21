@@ -10,6 +10,9 @@ import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wi
 import { dexLabel } from "@/lib/dex-labels";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import type { DictKey } from "@/lib/i18n/translations";
+import { TxFailedError } from "@/lib/solana/tx-errors";
+import { buyShortfall, maxBuyAmount, SELL_MIN_SOL } from "@/lib/trading/limits";
 
 const buyPresets = [0.1, 0.5, 1];
 const sellPresets = [25, 50, 100];
@@ -73,6 +76,14 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const displaySol = connected ? solBalance : null;
   const displayTokens = connected ? tokenBalance : null;
 
+  // Say "you don't have enough" BEFORE anything is signed: a transaction that runs out of SOL fails on-chain and still costs the network fee.
+  const amt = parseFloat(amount) || 0;
+  const buyShort = side === "buy" && connected ? buyShortfall(amt, displaySol) : null;
+  const sellNoTokens = side === "sell" && connected && displayTokens !== null && amt > displayTokens;
+  const sellNoSol = side === "sell" && connected && displaySol !== null && amt > 0 && displaySol < SELL_MIN_SOL;
+  const blocked = !!buyShort || sellNoTokens || sellNoSol;
+  const fmtSol = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
   async function submit() {
     if (!connected || !publicKey || !amount) return;
     setError("");
@@ -132,7 +143,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       }, 4000);
     } catch (err) {
       setStatus("error");
-      setError(explainError(err));
+      const e = explainError(err);
+      setError(typeof e === "string" ? e : t(e.key));
     }
   }
 
@@ -206,7 +218,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               </button>
             ))}
             <button
-              onClick={() => displaySol !== null && setAmount(Math.max(displaySol - 0.01, 0).toFixed(2))}
+              onClick={() => displaySol !== null && setAmount(maxBuyAmount(displaySol) > 0 ? String(maxBuyAmount(displaySol)) : "")}
               disabled={busy}
               className="rounded-xl bg-paper/5 py-2 text-xs font-semibold text-paper/70 transition-colors hover:bg-paper/10 hover:text-paper disabled:opacity-50"
             >
@@ -266,9 +278,30 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
         </div>
       )}
 
+      {buyShort && (
+        <div className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
+          <p>{t("trading.notEnoughSol", { need: fmtSol(buyShort.need), have: fmtSol(buyShort.have) })}</p>
+          {buyShort.max > 0 && (
+            <button onClick={() => setAmount(String(buyShort.max))} className="mt-2 font-semibold underline underline-offset-2">
+              {t("trading.useMax", { max: fmtSol(buyShort.max) })}
+            </button>
+          )}
+        </div>
+      )}
+      {sellNoTokens && (
+        <p className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
+          {t("trading.notEnoughTokens", { have: (displayTokens ?? 0).toLocaleString(), ticker: coin.ticker })}
+        </p>
+      )}
+      {sellNoSol && (
+        <p className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
+          {t("trading.notEnoughSolFee")}
+        </p>
+      )}
+
       <button
         onClick={submit}
-        disabled={!connected || !amount || busy}
+        disabled={!connected || !amount || busy || blocked}
         className={`mt-3 w-full rounded-xl py-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
           side === "buy" ? "bg-bamboo text-ink hover:brightness-110" : "bg-clay-red text-ink hover:brightness-110"
         }`}
@@ -284,11 +317,15 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           : status === "confirming"
           ? t("trading.confirmingOnChain")
           : status === "done"
-          ? t("trading.bought")
+          ? t(side === "buy" ? "trading.bought" : "trading.sold")
           : t(side === "buy" ? "trading.buyLabel" : "trading.sellLabel", { ticker: coin.ticker })}
       </button>
 
-      {status === "error" && error && <p className="mt-3 text-center text-xs text-clay-red">{error}</p>}
+      {status === "error" && error && (
+        <p className="mt-3 text-center text-xs text-clay-red" role="alert">
+          {error}
+        </p>
+      )}
       {status === "done" && signature && (
         <a
           href={`https://solscan.io/tx/${signature}`}
@@ -313,17 +350,31 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   );
 }
 
-function explainError(err: unknown): string {
+/** A translated key for what went wrong, or the server's own message when it is already specific. */
+function explainError(err: unknown): DictKey | { key: DictKey } | string {
+  if (err instanceof TxFailedError) {
+    const byReason: Record<TxFailedError["reason"], DictKey> = {
+      insufficient_sol: "trading.err.insufficientSol",
+      insufficient_tokens: "trading.err.insufficientTokens",
+      slippage: "trading.err.slippage",
+      account_missing: "trading.err.accountMissing",
+      expired: "trading.err.expired",
+      unknown: "trading.err.failedOnchain",
+    };
+    return { key: byReason[err.reason] };
+  }
   const message = err instanceof Error ? err.message : String(err);
-  if (/reject|cancel/i.test(message)) return "You rejected the transaction.";
-  if (/insufficient/i.test(message)) return "Insufficient balance for this trade plus fees.";
-  if (/slippage/i.test(message)) return "Price moved too much — try again or raise slippage.";
+  const key = (k: DictKey) => ({ key: k });
+  if (/reject|cancel/i.test(message)) return key("trading.err.rejected");
+  if (/can't be traded with SOL/i.test(message)) return key("trading.err.poolNotTradable");
+  if (/insufficient/i.test(message)) return key("trading.err.insufficientSol");
+  if (/slippage/i.test(message)) return key("trading.err.slippage");
   if (/graduated|PumpSwap/i.test(message)) return message;
-  if (/no route/i.test(message)) return "No trading route found for this pair right now — try again shortly.";
-  if (/blockhash|expired/i.test(message)) return "Transaction expired — try again.";
-  if (/429|too many requests/i.test(message)) return "The Solana RPC is rate-limiting us — wait a moment and retry.";
-  if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return "Network error reaching Solana — check your connection and retry.";
-  if (/failed on-chain/i.test(message)) return "The transaction failed on-chain — nothing was bought or sold; you only paid the network fee.";
-  if (/failed to confirm/i.test(message)) return "Sent, but confirmation timed out — check the wallet's activity before retrying.";
-  return "Trade failed. Please try again.";
+  if (/no route/i.test(message)) return key("trading.err.noRoute");
+  if (/blockhash|expired/i.test(message)) return key("trading.err.expired");
+  if (/429|too many requests/i.test(message)) return key("trading.err.rateLimited");
+  if (/fetch failed|network|ECONNRESET|timeout/i.test(message)) return key("trading.err.network");
+  if (/failed on-chain/i.test(message)) return key("trading.err.failedOnchain");
+  if (/failed to confirm/i.test(message)) return key("trading.err.confirmTimeout");
+  return key("trading.err.generic");
 }

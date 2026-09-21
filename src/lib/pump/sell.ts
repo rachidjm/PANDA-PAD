@@ -29,7 +29,7 @@ export async function buildSellTransaction({
   slippagePct?: number;
 }): Promise<Transaction> {
   if (poolAddress) {
-    return buildAmmSellTransaction({ connection, user, poolAddress, tokenAmount, slippagePct });
+    return buildAmmSellTransaction({ connection, mint, user, poolAddress, tokenAmount, slippagePct });
   }
 
   const online = getOnlinePumpSdk(connection);
