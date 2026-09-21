@@ -6,6 +6,7 @@ const PRESETS: Record<string, { timeframe: GeckoOhlcvTimeframe; aggregate: numbe
   "5m": { timeframe: "minute", aggregate: 5, limit: 72 },
   "1h": { timeframe: "hour", aggregate: 1, limit: 48 },
   "4h": { timeframe: "hour", aggregate: 4, limit: 42 },
+  "1w": { timeframe: "hour", aggregate: 1, limit: 168 }, // one week of hourly candles
   "1d": { timeframe: "day", aggregate: 1, limit: 30 },
 };
 

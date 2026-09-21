@@ -143,6 +143,14 @@ export function amountToUsd(unit: AmountUnit, value: number, rates: Rates): numb
   return rate && rate > 0 ? value * rate : null;
 }
 
+/** The same amount expressed in another unit. null when a rate that is needed isn't available. */
+export function convertAmount(from: AmountUnit, value: number, to: AmountUnit, rates: Rates): number | null {
+  const usd = amountToUsd(from, value, rates);
+  if (usd === null) return null;
+  const rate = to === "USD" ? 1 : to === "EUR" ? rates.eurUsd : to === "SOL" ? rates.solUsd : rates.usdcUsd;
+  return rate && rate > 0 ? usd / rate : null;
+}
+
 export type Funding = {
   asset: FundingAsset;
   mint: string;

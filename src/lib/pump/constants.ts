@@ -17,7 +17,7 @@ export const DEFAULT_SLIPPAGE_PCT = 5;
  * Only applies to trades on existing coins; it is unrelated to Pump.fun's
  * own protocol/creator fees, which are unchanged.
  */
-export const PANDA_FEE_BPS = 100; // 1%
+export const PANDA_FEE_BPS = 50; // 0.5% on each buy and each sell (1% for a round trip)
 
 export const PANDA_TREASURY = new PublicKey(
   process.env.NEXT_PUBLIC_PANDA_TREASURY || "GJvaNLciu58gCyJap2tzGam76SS1w2Bg9bHbfKyzxb8m"

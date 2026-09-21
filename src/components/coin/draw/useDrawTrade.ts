@@ -10,6 +10,7 @@ import { useWalletSession } from "@/lib/auth/useWalletSession";
 import { base64ToVersionedTransaction, versionedTransactionToBase64 } from "@/lib/pump/wire";
 import {
   amountToUsd,
+  type AmountUnit,
   chooseFunding,
   preferredFunding,
   roundPrice,
@@ -38,9 +39,13 @@ export type Draft = {
   sell?: number;
   stop?: number;
   amount: string;
-  /** The coin that pays (the amount is typed in it). null = not chosen yet: the coin the wallet holds most of. */
-  unit: FundingAsset | null;
+  /** What the amount is typed in. */
+  unit: BuyUnit;
+  /** The coin that pays when the amount is in dollars or euros. null = the one the wallet holds most of. */
+  pay: FundingAsset | null;
 };
+
+export type BuyUnit = Extract<AmountUnit, "SOL" | "USD" | "EUR">;
 
 export type ChartLine = { key: string; groupId: string; kind: DrawTarget; price: number; tag: string; live: boolean; active: boolean };
 
@@ -112,7 +117,12 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             parsed
               .filter((d) => d && typeof d.id === "string" && d.buy !== undefined)
               .slice(0, 20)
-              .map((d) => ({ id: d.id, n: d.n, buy: d.buy, sell: d.sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit: d.unit === "SOL" || d.unit === "USDC" ? d.unit : null }))
+              .map((d) => {
+                const old = d as unknown as { unit?: string; pay?: string };
+                const unit: BuyUnit = old.unit === "USD" || old.unit === "EUR" ? old.unit : old.unit === "USDC" ? "USD" : "SOL";
+                const pay = old.pay === "SOL" || old.pay === "USDC" ? old.pay : old.unit === "USDC" ? "USDC" : null;
+                return { id: d.id, n: d.n, buy: d.buy, sell: d.sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay };
+              })
           );
         }
       } catch {}
@@ -202,10 +212,10 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const views: DraftView[] = useMemo(
     () =>
       drafts.map((draft) => {
-        const asset = draft.unit ?? preferredFunding(balances, rates);
         const value = parseFloat(draft.amount);
-        const amountUsd = Number.isFinite(value) ? amountToUsd(asset, value, rates) : null;
-        const funding = value > 0 ? chooseFunding({ unit: asset, value, rates, balances }) : null;
+        const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
+        const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay }) : null;
+        const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
         const complete = draft.buy !== undefined && draft.sell !== undefined && draft.stop !== undefined;
         const issues = complete ? validateStrategy({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }) : [];
         const metrics = complete && amountUsd && !issues.includes("invalid_price") && draft.buy! > 0 ? strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd }) : null;
@@ -239,7 +249,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const patchDraft = useCallback((id: string, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))), []);
 
   const newDraft = useCallback((): Draft => {
-    const d: Draft = { id: newId(), n: nextNumber(), amount: "", unit: readUnit() };
+    const d: Draft = { id: newId(), n: nextNumber(), amount: "", unit: readUnit(), pay: null };
     setDrafts((ds) => [...ds, d]);
     setActiveId(d.id);
     return d;
@@ -360,7 +370,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             buyUsd: d.buy,
             sellUsd: d.sell,
             stopUsd: d.stop,
-            amount: { unit: view.asset, value: parseFloat(d.amount) },
+            amount: { unit: d.unit, value: parseFloat(d.amount) },
             fundingAsset: view.asset,
           }),
         });
@@ -493,16 +503,17 @@ class ApiError extends Error {
   }
 }
 
-function readUnit(): FundingAsset | null {
+/** The unit last used to type an amount — shared with the buy box, so both start the way you left them. */
+function readUnit(): BuyUnit {
   try {
-    const u = localStorage.getItem("panda.draw.pay");
-    if (u === "SOL" || u === "USDC") return u;
+    const u = localStorage.getItem("panda.buy.unit");
+    if (u === "SOL" || u === "USD" || u === "EUR") return u;
   } catch {}
-  return null;
+  return "SOL";
 }
 
-export function rememberUnit(u: FundingAsset) {
+export function rememberUnit(u: BuyUnit) {
   try {
-    localStorage.setItem("panda.draw.pay", u);
+    localStorage.setItem("panda.buy.unit", u);
   } catch {}
 }

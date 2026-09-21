@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   amountToUsd,
   chooseFunding,
+  convertAmount,
   defaultStop,
   MIN_ORDER_USD,
   preferredFunding,
@@ -143,4 +144,12 @@ test("the coin to pay with by default is the one the wallet holds most of; SOL w
   assert.equal(preferredFunding({ sol: 0.005, usdc: 3 }, rates), "USDC"); // SOL is only the fee cushion
   assert.equal(preferredFunding({ sol: null, usdc: null }, rates), "SOL");
   assert.equal(preferredFunding({ sol: null, usdc: 50 }, rates), "USDC");
+});
+
+test("an amount can be shown in another unit with the real rates, and not at all without them", () => {
+  assert.equal(convertAmount("USD", 100, "SOL", rates), 0.5);
+  assert.ok(Math.abs((convertAmount("EUR", 100, "USD", rates) ?? 0) - 110) < 1e-9);
+  assert.ok(Math.abs((convertAmount("SOL", 0.55, "EUR", rates) ?? 0) - 100) < 1e-9);
+  assert.equal(convertAmount("USD", 100, "EUR", { ...rates, eurUsd: null }), null);
+  assert.equal(convertAmount("USD", 0, "SOL", rates), null);
 });

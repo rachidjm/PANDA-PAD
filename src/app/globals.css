@@ -61,6 +61,53 @@ main:focus {
   outline: none;
 }
 
+/* Coin chart background: vertical lines drifting left (time moving on) and a soft light sweeping across. Transforms only, so it stays smooth on phones. */
+.chart-flow-grid {
+  position: absolute;
+  inset: 0 -48px 0 0;
+  background-image: repeating-linear-gradient(90deg, rgba(247, 244, 236, 0.07) 0 1px, transparent 1px 48px);
+  animation: chart-flow 6s linear infinite;
+  will-change: transform;
+}
+.chart-flow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgba(247, 244, 236, 0.07), transparent);
+  animation: chart-sweep 7s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes chart-flow {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-48px, 0, 0);
+  }
+}
+@keyframes chart-sweep {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(300%, 0, 0);
+  }
+}
+/* Like the NFT band, this keeps moving when the device asks for reduced motion (many people have it on without knowing), at the same gentle pace. */
+@media (prefers-reduced-motion: reduce) {
+  .chart-flow-grid {
+    animation-duration: 6s !important;
+    animation-iteration-count: infinite !important;
+  }
+  .chart-flow::after {
+    animation-duration: 7s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
 /* The NFT "coming soon" band: one transform on one layer, so it runs on the GPU and stays smooth on phones. The row is drawn twice; moving by half of it loops without a seam. */
 .nft-marquee-track {
   --nft-secs: 65;

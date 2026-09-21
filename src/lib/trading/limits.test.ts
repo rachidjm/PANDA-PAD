@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buyShortfall, maxBuyAmount, NETWORK_BUFFER_SOL, requiredSolForBuy } from "./limits";
 
-test("what a buy needs: the amount, PANDA's 1% on top, and a cushion for network fees and token accounts", () => {
-  assert.ok(Math.abs(requiredSolForBuy(0.5) - (0.505 + NETWORK_BUFFER_SOL)) < 1e-12);
+test("what a buy needs: the amount, PANDA's fee on top, and a cushion for network fees and token accounts", () => {
+  assert.ok(Math.abs(requiredSolForBuy(0.5) - (0.5025 + NETWORK_BUFFER_SOL)) < 1e-12);
   assert.equal(requiredSolForBuy(0), 0);
   assert.equal(requiredSolForBuy(-1), 0);
   assert.equal(requiredSolForBuy(NaN), 0);
@@ -12,9 +12,9 @@ test("what a buy needs: the amount, PANDA's 1% on top, and a cushion for network
 test("THE REPORTED CASE: 0.02 SOL in the wallet cannot buy 0.5 SOL, and the app says so with the real numbers", () => {
   const s = buyShortfall(0.5, 0.02)!;
   assert.ok(s);
-  assert.ok(Math.abs(s.need - 0.511) < 1e-9);
+  assert.ok(Math.abs(s.need - 0.5085) < 1e-9);
   assert.equal(s.have, 0.02);
-  assert.equal(s.max, 0.0138, "0.02 SOL can buy at most 0.0138 SOL worth");
+  assert.equal(s.max, 0.0139, "0.02 SOL can buy at most 0.0139 SOL worth");
 });
 
 test("an affordable buy has no shortfall; an unknown balance never blocks", () => {

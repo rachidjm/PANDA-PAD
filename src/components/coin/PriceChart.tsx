@@ -9,7 +9,7 @@ import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
 
-const timeframes = ["1m", "5m", "1h", "4h", "1d"] as const;
+const timeframes = ["1m", "5m", "1h", "4h", "1w", "1d"] as const;
 type Timeframe = (typeof timeframes)[number];
 
 type Candle = { time: number; close: number };
@@ -159,7 +159,7 @@ export default function PriceChart({
         </div>
       )}
 
-      {coin && <DrawTradePanel draw={draw} coin={coin} />}
+      {coin && <DrawTradePanel draw={draw} />}
     </div>
   );
 }
@@ -189,7 +189,7 @@ function smoothPath(points: { x: number; y: number }[]): string {
 /** `real` picks a fuller "day, HH:MM" format for the small inline caption; the x-axis ticks stay short. */
 function formatAxisTime(epochSeconds: number, tf: Timeframe, real = false): string {
   const d = new Date(epochSeconds * 1000);
-  if (tf === "1d") {
+  if (tf === "1d" || tf === "1w") {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -277,6 +277,10 @@ function AreaChart({
 
   return (
     <div className="relative">
+      {/* A quiet sign that time is moving forward: faint vertical lines drifting left and a soft light passing across. */}
+      <div className="chart-flow pointer-events-none absolute inset-x-0 top-0 h-[170px] overflow-hidden rounded-xl sm:h-[260px]" aria-hidden>
+        <div className="chart-flow-grid" />
+      </div>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}

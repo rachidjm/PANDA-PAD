@@ -1,15 +1,14 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import type { Coin } from "@/lib/types";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import type { Funding, FundingAsset, StrategyIssue } from "@/lib/strategy/plan";
+import { convertAmount, type FundingAsset, type StrategyIssue } from "@/lib/strategy/plan";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
 import { LINE_COLOR } from "./ChartOverlay";
-import { rememberUnit, type DrawApi, type DraftView } from "./useDrawTrade";
+import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
 const PAY_WITH: FundingAsset[] = ["SOL", "USDC"];
 const STEP_KEYS: Record<string, DictKey> = {
@@ -48,7 +47,7 @@ function useIsDesktop(): boolean {
   );
 }
 
-export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Coin }) {
+export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
   const { t } = useLanguage();
   const target = draw.machine.target;
   const canSell = !!draw.active?.buy;
@@ -126,7 +125,7 @@ export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Co
       {draw.views.length > 0 && (
         <div className="mt-4 space-y-3">
           {draw.views.map((v) => (
-            <DraftCard key={v.draft.id} view={v} draw={draw} coin={coin} expanded={v.draft.id === draw.activeId} />
+            <DraftCard key={v.draft.id} view={v} draw={draw} expanded={v.draft.id === draw.activeId} />
           ))}
         </div>
       )}
@@ -197,8 +196,8 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
   );
 }
 
-function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: DrawApi; coin: Coin; expanded: boolean }) {
-  const { t } = useLanguage();
+function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; expanded: boolean }) {
+  const { t, lang } = useLanguage();
   const { draft } = view;
   const [ack, setAck] = useState(false);
   const confirming = draw.step !== "idle" && draw.step !== "done";
@@ -230,7 +229,26 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
   const rateMissing = f && !f.ok && f.reason === "price_unavailable";
   const short = f && !f.ok && f.reason === "insufficient" ? f.shortfallUsd : undefined;
   const m = view.metrics;
-  const ticker = coin.ticker;
+  const q = draw.quote;
+  const rates = { solUsd: q?.solUsd ?? null, usdcUsd: q?.usdcUsd ?? null, eurUsd: q?.eurUsd ?? null };
+
+  // The same amount in the other two currencies, so "10" always means something.
+  const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
+  const others = funding
+    ? [
+        draft.unit !== "USD" && cur(funding.usd, "USD"),
+        draft.unit !== "EUR" && rates.eurUsd && cur(funding.usd / rates.eurUsd, "EUR"),
+        draft.unit !== "SOL" && rates.solUsd && `${(funding.usd / rates.solUsd).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL`,
+      ].filter(Boolean)
+    : [];
+
+  function pickUnit(u: BuyUnit) {
+    if (u === draft.unit) return;
+    rememberUnit(u);
+    const value = parseFloat(draft.amount);
+    const converted = value > 0 ? convertAmount(draft.unit, value, u, rates) : null;
+    draw.patchDraft(draft.id, { unit: u, amount: converted !== null ? String(Number(converted.toFixed(u === "SOL" ? 4 : 2))) : "" });
+  }
 
   return (
     <div className="rounded-2xl border border-paper/15 bg-ink px-4 py-4">
@@ -254,61 +272,64 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-panda-grey">{t("draw.typeHint")}</p>
-      {draft.stop === undefined && <p className="mt-1 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
+      {draft.stop === undefined && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
 
       {complete && (
         <>
-          <div className="mt-4">
-            <p className="mb-1.5 text-xs font-medium text-paper/80">{t("draw.amount")}</p>
-            <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
-              <input
-                value={draft.amount}
-                onChange={(e) => draw.patchDraft(draft.id, { amount: e.target.value.replace(/[^0-9.]/g, "") })}
-                placeholder="0"
-                inputMode="decimal"
-                aria-label={t("draw.amount")}
-                disabled={confirming}
-                className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
-              />
-              <div className="flex shrink-0 gap-1 rounded-full bg-ink p-0.5" role="group" aria-label="Unit">
-                {PAY_WITH.map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => {
-                      rememberUnit(u);
-                      draw.patchDraft(draft.id, { unit: u });
-                    }}
-                    aria-pressed={view.asset === u}
-                    className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${view.asset === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
+          <div className="mt-4 flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
+            <input
+              value={draft.amount}
+              onChange={(e) => draw.patchDraft(draft.id, { amount: e.target.value.replace(/[^0-9.]/g, "") })}
+              placeholder="0"
+              inputMode="decimal"
+              aria-label={t("draw.amount")}
+              disabled={confirming}
+              className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
+            />
+            <div className="flex shrink-0 gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={t("draw.amount")}>
+              {(["SOL", "USD", "EUR"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => pickUnit(u)}
+                  aria-pressed={draft.unit === u}
+                  aria-label={u}
+                  className={`min-w-8 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${draft.unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
+                >
+                  {u === "SOL" ? "SOL" : u === "USD" ? "$" : "€"}
+                </button>
+              ))}
             </div>
-
-            {(draw.balances.sol !== null || draw.balances.usdc !== null) && (
-              <p className="mt-2 text-[11px] text-panda-grey">{t("draw.balances", { sol: draw.balances.sol?.toFixed(4) ?? "—", usdc: draw.balances.usdc?.toFixed(2) ?? "—" })}</p>
-            )}
-
-            {funding && <Conversion funding={funding} ticker={ticker} eurUsd={draw.quote?.eurUsd ?? null} />}
-            {rateMissing && <p className="mt-2 text-xs text-clay-red">{t("draw.noRate")}</p>}
-            {short !== undefined && <p className="mt-2 text-xs text-clay-red">{t("draw.notEnough", { short: money(short) })}</p>}
           </div>
 
+          {others.length > 0 && <p className="mt-2 text-xs text-panda-grey">≈ {others.join(" · ≈ ")}</p>}
+          {draft.unit !== "SOL" && (
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-panda-grey">
+              <span>{t("draw.payWith")}</span>
+              {PAY_WITH.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => draw.patchDraft(draft.id, { pay: a })}
+                  aria-pressed={view.asset === a}
+                  className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${view.asset === a ? "bg-paper/15 text-paper" : "bg-paper/5 text-paper/70 hover:bg-paper/10"}`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          )}
+          {rateMissing && <p className="mt-2 text-xs text-clay-red">{t("draw.noRate")}</p>}
+          {short !== undefined && <p className="mt-2 text-xs text-clay-red">{t("draw.notEnough", { short: money(short) })}</p>}
+
           {m && view.amountUsd && (
-            <dl className="mt-4 space-y-1.5 rounded-xl bg-ink-raised px-3.5 py-3 text-xs">
-              <Row label={t("draw.priceDiff")} value={`${formatPrice(m.diff)}`} />
-              <Row label={t("draw.potential")} value={formatPct(m.pct)} tone={m.pct >= 0 ? "text-bamboo" : "text-clay-red"} />
-              <Row label={t("draw.investment")} value={money(view.amountUsd)} />
-              <Row label={t("draw.gross")} value={money(m.grossReturnUsd)} />
-              <Row label={t("draw.fees")} value={t("draw.feesValue")} muted />
-              <Row label={t("draw.net")} value={signedMoney(m.grossProfitUsd)} tone={m.grossProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} strong />
-              <Row label={t("draw.stopResult")} value={`${signedMoney(m.stopLossUsd)} (${formatPct(m.stopLossPct)})`} tone="text-clay-red" />
-              <Row label={t("draw.worst")} value={signedMoney(m.worstCaseProfitUsd)} muted />
-            </dl>
+            <>
+              <dl className="mt-3 space-y-1.5 rounded-xl bg-ink-raised px-3.5 py-3 text-xs">
+                <Row label={t("draw.ifSell")} value={`${signedMoney(m.grossProfitUsd)} (${formatPct(m.pct)})`} tone={m.grossProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} strong />
+                <Row label={t("draw.stopResult")} value={`${signedMoney(m.stopLossUsd)} (${formatPct(m.stopLossPct)})`} tone="text-clay-red" />
+              </dl>
+              <p className="mt-1.5 text-[11px] text-panda-grey">{t("draw.estimateShort")}</p>
+            </>
           )}
 
           {view.issues.length > 0 && draft.amount !== "" && (
@@ -319,18 +340,14 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
             </ul>
           )}
 
-          <p className="mt-3 text-[11px] leading-relaxed text-panda-grey">{t("draw.disclaimer")}</p>
-
           {funding && (
-            <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-meme-orange/30 bg-meme-orange/10 px-3.5 py-3 text-xs leading-relaxed text-paper/85">
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-paper/80">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--meme-orange)]" />
-              <span>
-                {t("draw.custody", { asset: funding.asset })} <span className="font-semibold">{t("draw.understand")}</span>
-              </span>
+              <span>{t("draw.custodyShort")}</span>
             </label>
           )}
 
-          {!draw.engine && <p className="mt-3 text-xs text-panda-grey">{t("draw.engineOff")}</p>}
+          {!draw.engine && <p className="mt-3 text-xs text-panda-grey">{t("draw.engineOffShort")}</p>}
           {!draw.connected && <p className="mt-3 text-xs text-panda-grey">{t("draw.connect")}</p>}
 
           <button
@@ -344,18 +361,6 @@ function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: Draw
         </>
       )}
     </div>
-  );
-}
-
-/** USD and EUR are only here so the amount means something: the user pays in SOL or USDC. */
-function Conversion({ funding, ticker, eurUsd }: { funding: Funding; ticker: string; eurUsd: number | null }) {
-  const { t, lang } = useLanguage();
-  const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
-  return (
-    <dl className="mt-2 space-y-1 rounded-xl bg-ink-raised px-3.5 py-2.5 text-xs">
-      <Row label={t("draw.equivalent")} value={eurUsd ? `≈ ${cur(funding.usd, "USD")} · ≈ ${cur(funding.usd / eurUsd, "EUR")}` : `≈ ${cur(funding.usd, "USD")}`} />
-      <Row label={t("draw.route")} value={`${funding.asset} → $${ticker}`} strong />
-    </dl>
   );
 }
 
