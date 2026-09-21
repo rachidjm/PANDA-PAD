@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Panda from "@/components/panda/Panda";
+import Logo from "@/components/Logo";
 import { LEGAL_PAGES, LEGAL_SLUGS } from "@/lib/legal-content";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
@@ -21,7 +21,7 @@ export default function Footer() {
       <div className="mx-auto max-w-6xl px-5 py-10">
         <div className="grid grid-cols-1 gap-8 sm:grid-cols-[1.2fr_1fr_1fr]">
           <div className="flex items-center gap-2">
-            <Panda mark size={26} />
+            <Logo size={26} />
             <span className="font-display text-base font-bold tracking-tight">PANDA</span>
           </div>
 

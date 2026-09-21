@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import WalletButton from "@/components/WalletButton";
-import Panda from "@/components/panda/Panda";
+import Logo from "@/components/Logo";
 import CoinSearchBox from "@/components/CoinSearchBox";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
@@ -32,7 +32,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3.5">
         <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="PANDA">
-          <Panda mark size={30} />
+          <Logo size={34} />
           <span className="font-display text-lg font-bold tracking-tight">PANDA</span>
         </Link>
 
