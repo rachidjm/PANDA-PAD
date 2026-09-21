@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const COUNT = 8;
@@ -14,10 +13,9 @@ const tiles = Array.from({ length: COUNT }, (_, i) => `/nft-soon/${i + 1}.webp`)
  */
 export default function NftComingSoon() {
   const { t } = useLanguage();
-  const [paused, setPaused] = useState(false);
   return (
     <section className="relative my-4 overflow-hidden rounded-[26px] border border-paper/10 bg-ink-raised sm:my-8" aria-labelledby="nft-soon-title">
-      <div className="nft-marquee-track flex w-max" data-paused={paused} aria-hidden>
+      <div className="nft-marquee-track flex w-max" aria-hidden>
         {[...tiles, ...tiles].map((src, i) => (
           // eslint-disable-next-line @next/next/no-img-element -- already sized and blurred; a plain image is what keeps the loop cheap
           <img key={i} src={src} alt="" width={720} height={424} draggable={false} decoding="async" className="nft-marquee-tile h-[130px] w-auto flex-none select-none sm:h-[240px] lg:h-[280px]" />
@@ -34,18 +32,6 @@ export default function NftComingSoon() {
           {t("nft.soon.title")}
         </h2>
       </div>
-
-      <button
-        type="button"
-        onClick={() => setPaused((p) => !p)}
-        aria-pressed={paused}
-        aria-label={paused ? t("nft.soon.play") : t("nft.soon.pause")}
-        className="absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-paper/25 bg-ink/60 text-paper/80 backdrop-blur transition-colors hover:text-paper"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
-          {paused ? <path d="M2.5 1.2v9.6L10.5 6z" /> : <path d="M2.5 1h2.6v10H2.5zM6.9 1h2.6v10H6.9z" />}
-        </svg>
-      </button>
     </section>
   );
 }

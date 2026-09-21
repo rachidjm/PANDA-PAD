@@ -68,9 +68,6 @@ main:focus {
   will-change: transform;
   backface-visibility: hidden;
 }
-.nft-marquee-track[data-paused="true"] {
-  animation-play-state: paused;
-}
 .nft-marquee-tile {
   margin-right: 10px;
   border-radius: 14px;
@@ -89,7 +86,7 @@ main:focus {
   }
 }
 /* This band is the one animation that keeps moving when the device asks for reduced motion: many phones and PCs have that switched on
-   without their owner knowing (battery saver, "remove animations"), and then the band would look broken. It keeps the same slow drift, and it has a pause button. */
+   without their owner knowing (battery saver, "remove animations"), and then the band would look broken. It keeps the same slow drift, */
 @media (prefers-reduced-motion: reduce) {
   .nft-marquee-track {
     animation-duration: calc(var(--nft-secs) * 1s) !important;

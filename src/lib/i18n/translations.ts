@@ -38,8 +38,6 @@ export const dict = {
 
   // Home hero
   "nft.soon.kicker": { en: "PANDA NFTs", es: "NFTs de PANDA" },
-  "nft.soon.pause": { en: "Pause the animation", es: "Pausar la animación" },
-  "nft.soon.play": { en: "Play the animation", es: "Reanudar la animación" },
   "nft.soon.title": { en: "Coming soon", es: "Próximamente" },
   "home.kicker": { en: "PANDA", es: "PANDA" },
   "home.title1": { en: "The Solana", es: "El launchpad de" },
