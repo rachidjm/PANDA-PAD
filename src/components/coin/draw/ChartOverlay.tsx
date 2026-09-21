@@ -60,7 +60,7 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
   );
 }
 
-/** Price tags on the right edge. HTML, not SVG: the SVG is stretched to the card width, which would stretch the text too. */
+/** Price tags on the right edge (the tag of the line being placed sits on the left, out of the way of a finger coming from the right). HTML, not SVG: the SVG is stretched to the card width, which would stretch the text too. */
 export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
   const items = overlay.lines.map((l) => ({
     key: l.key,
@@ -88,7 +88,7 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
       ))}
       {previewY !== null && overlay.drawing && (
         <span
-          className="absolute right-1 z-10 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-bold leading-none text-ink shadow-lg"
+          className="absolute left-2 z-10 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-bold leading-none text-ink shadow-lg"
           style={{ top: Math.min(Math.max(10, previewY), CHART.height - 10), background: LINE_COLOR[overlay.drawing] }}
         >
           {overlay.previewLabels[overlay.drawing]} · {formatPrice(overlay.preview!)}
