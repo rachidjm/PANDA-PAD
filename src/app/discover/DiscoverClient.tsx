@@ -157,7 +157,7 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
       {list.length === 0 && !searching ? (
         <EmptyState query={urlQuery} error={searchError} />
       ) : (
-        <div className={`mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 transition-opacity ${searching ? "opacity-60" : ""}`}>
+        <div className={`mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 transition-opacity ${searching ? "opacity-60" : ""}`}>
           {list.map((coin) => (
             <CoinCard key={coin.mint} coin={coin} />
           ))}

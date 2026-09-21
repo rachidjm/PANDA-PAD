@@ -26,7 +26,7 @@ export default function HomeSection({ titleKey, coins }: { titleKey: DictKey; co
       {/* Each card animates itself when it mounts. They deliberately do NOT inherit a parent variant:
           a card that mounts after a Refresh (new coin) would otherwise miss the parent's "show"
           transition and stay at opacity 0 — invisible but still clickable. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3">
         {coins.map((coin, i) => (
           <motion.div
             key={coin.mint}
