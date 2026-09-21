@@ -1,5 +1,5 @@
 import HomeFeed from "@/components/HomeFeed";
-import Hero from "@/components/home/Hero";
+import NftComingSoon from "@/components/home/NftComingSoon";
 import { getLiveCoins, getRecentActivity } from "@/lib/live-coins";
 
 export default async function Home() {
@@ -7,7 +7,8 @@ export default async function Home() {
 
   return (
     <div className="mx-auto max-w-6xl px-5">
-      <Hero />
+      <h1 className="sr-only">PANDA — The Solana coin launchpad</h1>
+      <NftComingSoon />
       <HomeFeed coins={coins} live={live} activityEvents={events} />
     </div>
   );

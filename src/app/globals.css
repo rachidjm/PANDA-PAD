@@ -61,6 +61,30 @@ main:focus {
   outline: none;
 }
 
+/* The NFT "coming soon" band: one transform on one layer, so it runs on the GPU and stays smooth on phones. The row is drawn twice; moving by half of it loops without a seam. */
+.nft-marquee-track {
+  animation: nft-marquee 90s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.nft-marquee-tile {
+  margin-right: 10px;
+  border-radius: 14px;
+}
+@keyframes nft-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@media (max-width: 639px) {
+  .nft-marquee-track {
+    animation-duration: 60s;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -37,6 +37,8 @@ export const dict = {
   },
 
   // Home hero
+  "nft.soon.kicker": { en: "PANDA NFTs", es: "NFTs de PANDA" },
+  "nft.soon.title": { en: "Coming soon", es: "Próximamente" },
   "home.kicker": { en: "PANDA", es: "PANDA" },
   "home.title1": { en: "The Solana", es: "El launchpad de" },
   "home.title2": { en: "coin launchpad", es: "monedas de Solana" },
