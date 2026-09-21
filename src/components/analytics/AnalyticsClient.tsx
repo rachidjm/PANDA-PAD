@@ -124,7 +124,7 @@ function TrendingRow({ coin }: { coin: Coin }) {
         className="h-8 w-8 shrink-0 overflow-hidden rounded-full"
         style={{ backgroundColor: coin.image ? undefined : coin.bg }}
       >
-        <CoinAvatar image={coin.image} ticker={coin.ticker} />
+        <CoinAvatar image={coin.image} ticker={coin.ticker} mint={coin.mint} />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">${coin.ticker}</p>

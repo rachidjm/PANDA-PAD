@@ -11,6 +11,7 @@ import {
   GeckoIncludedToken,
 } from "./gecko/client";
 import { fetchPumpCoins, fetchPumpCoinPage, PumpCoin } from "./pump/frontend-api";
+import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
@@ -215,7 +216,7 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
   coins = dedupeByIdentity(coins);
 
   if (coins.length > 0) {
-    coins = await fillMissingImages(coins);
+    coins = (await fillMissingImages(coins)).map(withBestImage);
     cache = { coins, expires: Date.now() + 60_000 };
     lastGood = coins;
     return { coins, live: true };
@@ -493,7 +494,7 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; l
     }
   }
 
-  coins = coins.sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40);
+  coins = coins.sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40).map(withBestImage);
   searchCache.set(q, { coins, expires: Date.now() + 15_000 });
   return { coins, live: true };
 }
@@ -538,6 +539,7 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
     const p = (await fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>())).get(coin.mint);
     if (p) coin = applyPump(coin, p);
   }
+  if (coin) coin = withBestImage(coin);
   return { coin, live };
 }
 

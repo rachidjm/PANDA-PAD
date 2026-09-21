@@ -103,7 +103,8 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   }
 
   const list = useMemo(() => {
-    const base = urlQuery.trim() ? searchResults ?? [] : coins;
+    // Browsing hides coins with no picture at all (a missing logo looks broken); a search still finds everything.
+    const base = urlQuery.trim() ? searchResults ?? [] : coins.filter((c) => !!c.image);
     const sorted = [...base];
     switch (sort) {
       case "new":

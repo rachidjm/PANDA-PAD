@@ -1343,6 +1343,9 @@ export const dict = {
 
   // Live badge / refresh
   "live.live": { en: "Live from Solana", es: "En vivo desde Solana" },
+  "live.short": { en: "Live", es: "En vivo" },
+  "home.refreshNote": { en: "Updated · {fresh} new · {moved} with new prices", es: "Actualizado · {fresh} nuevas · {moved} con precios nuevos" },
+  "home.refreshSame": { en: "Already up to date — nothing has changed yet", es: "Ya está al día — todavía no ha cambiado nada" },
   "live.demo": { en: "Demo data", es: "Datos de demostración" },
   "refresh.refresh": { en: "Refresh", es: "Actualizar" },
   "refresh.refreshing": { en: "Refreshing…", es: "Actualizando…" },

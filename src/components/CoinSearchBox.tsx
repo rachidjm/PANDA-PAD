@@ -113,7 +113,7 @@ export default function CoinSearchBox() {
                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-paper/5"
                 >
                   <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full">
-                    <CoinAvatar image={c.image} ticker={c.ticker} />
+                    <CoinAvatar image={c.image} ticker={c.ticker} mint={c.mint} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">${c.ticker}</p>

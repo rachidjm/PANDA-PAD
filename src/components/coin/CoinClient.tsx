@@ -37,7 +37,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3.5">
               <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-paper/10 bg-[#171512]">
-                <CoinAvatar image={coin.image} ticker={coin.ticker} />
+                <CoinAvatar image={coin.image} ticker={coin.ticker} mint={coin.mint} />
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">

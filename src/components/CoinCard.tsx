@@ -19,7 +19,7 @@ export default function CoinCard({ coin }: { coin: Coin }) {
     >
       <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#171512] p-3 sm:aspect-[4/3] sm:p-8">
         <div className="h-full w-full overflow-hidden">
-          <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" />
+          <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} />
         </div>
         <span className="absolute right-1.5 top-1.5 rounded-full bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper/80 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />

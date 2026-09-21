@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isPumpCoin, pumpImageUrl } from "@/lib/coin-image";
 
 /**
  * A coin's real logo, or — when it has none (or the image fails to load) —
@@ -11,17 +12,22 @@ export default function CoinAvatar({
   image,
   ticker,
   size = "sm",
+  mint,
 }: {
   image?: string | null;
   ticker: string;
   size?: "sm" | "lg";
+  /** The coin's address, when known: a picture that fails to load is retried once from Pump.fun's image CDN. */
+  mint?: string;
 }) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string[]>([]);
+  const backup = mint && isPumpCoin({ mint }) ? pumpImageUrl(mint) : null;
+  const src = [image, backup].find((s): s is string => !!s && !failed.includes(s));
 
-  if (image && failedSrc !== image) {
+  if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={image} alt="" loading="lazy" onError={() => setFailedSrc(image)} className="h-full w-full object-cover" />
+      <img key={src} src={src} alt="" loading="lazy" onError={() => setFailed((f) => [...f, src])} className="h-full w-full object-cover" />
     );
   }
 
