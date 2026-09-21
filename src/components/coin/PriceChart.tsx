@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import type { Coin } from "@/lib/types";
+import { CHART, clientYToChartY, domainFor, priceToY, yToPrice } from "@/lib/strategy/scale";
+import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
+import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
+import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
 
 const timeframes = ["1m", "5m", "1h", "4h", "1d"] as const;
 type Timeframe = (typeof timeframes)[number];
@@ -14,7 +19,10 @@ export default function PriceChart({
   initialCloses,
   changePct,
   marketCap,
+  coin,
 }: {
+  /** When given, the chart also offers "Draw Your Trade" (strategy lines drawn on top of it). */
+  coin?: Coin;
   poolAddress?: string;
   initialCloses: number[];
   changePct: number;
@@ -76,6 +84,18 @@ export default function PriceChart({
   // Dexscreener, or the OHLCV endpoint expose a market-cap history.
   const supply = marketCap && lastClose > 0 ? marketCap / lastClose : undefined;
 
+  const draw = useDrawTrade(coin ?? null, lastClose);
+  const overlay: ChartOverlayData | undefined = coin
+    ? {
+        lines: draw.lines,
+        drawing: draw.machine.target,
+        preview: draw.machine.preview,
+        onPointer: draw.onPointer,
+        labels: { buy: t("draw.line.buy"), sell: t("draw.line.sell"), stop: t("draw.line.stop") },
+        previewLabels: { buy: t("draw.line.buyTarget"), sell: t("draw.line.sellTarget"), stop: t("draw.line.stopTarget") },
+      }
+    : undefined;
+
   const shown = hoverIndex !== null ? hoverIndex : closes.length - 1;
   const shownPrice = closes[shown] ?? 0;
   const shownMarketCap = supply !== undefined ? shownPrice * supply : undefined;
@@ -128,6 +148,7 @@ export default function PriceChart({
           tf={tf}
           hoverIndex={hoverIndex}
           onHover={setHoverIndex}
+          overlay={overlay}
         />
       </div>
 
@@ -137,9 +158,12 @@ export default function PriceChart({
           <span>{t("chart.high", { value: formatPrice(high) })}</span>
         </div>
       )}
+
+      {coin && <DrawTradePanel draw={draw} coin={coin} />}
     </div>
   );
 }
+
 
 /** Catmull-Rom-ish smoothing: turns the polyline into a fluid curve through
  * every real data point (no data is invented, only how it's connected). */
@@ -182,7 +206,9 @@ function AreaChart({
   tf,
   hoverIndex,
   onHover,
+  overlay,
 }: {
+  overlay?: ChartOverlayData;
   candles: Candle[];
   positive: boolean;
   noDataLabel: string;
@@ -191,9 +217,7 @@ function AreaChart({
   hoverIndex: number | null;
   onHover: (index: number | null) => void;
 }) {
-  const width = 720;
-  const height = 260;
-  const padding = 8;
+  const { width, height, padding } = CHART;
   const svgRef = useRef<SVGSVGElement>(null);
   const data = candles.map((c) => c.close);
 
@@ -201,15 +225,15 @@ function AreaChart({
     return <div className="flex h-[260px] items-center justify-center text-sm text-panda-grey">{noDataLabel}</div>;
   }
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
+  // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
+  // lines that already exist stay in view, and while drawing there is headroom to place a target beyond the recent range.
+  const domain = domainFor(data, overlay ? overlay.lines.map((l) => l.price) : [], overlay?.drawing ? 0.25 : 0);
   const step = (width - padding * 2) / (data.length - 1);
   const color = positive ? "var(--bamboo)" : "var(--clay-red)";
 
   const points = data.map((v, i) => {
     const x = padding + i * step;
-    const y = padding + (height - padding * 2) * (1 - (v - min) / range);
+    const y = priceToY(v, domain);
     return { x, y };
   });
 
@@ -219,9 +243,22 @@ function AreaChart({
   const activeIndex = hoverIndex !== null ? hoverIndex : points.length - 1;
   const active = points[activeIndex];
 
+  const drawing = !!overlay?.drawing;
+
+  /** The price under a pointer event, from the chart's own scale (the same one that draws the curve). */
+  function priceAt(e: React.PointerEvent<SVGSVGElement>): number {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return yToPrice(clientYToChartY(e.clientY, rect.top, rect.height), domain);
+  }
+  const info = (e: React.PointerEvent<SVGSVGElement>) => ({ type: e.pointerType, button: e.button, pressed: e.buttons > 0 });
+
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
     if (!svg) return;
+    if (drawing) {
+      overlay!.onPointer("move", priceAt(e), info(e));
+      return;
+    }
     const rect = svg.getBoundingClientRect();
     const relX = (e.clientX - rect.left) / rect.width;
     const idx = Math.round(relX * (points.length - 1));
@@ -247,8 +284,23 @@ function AreaChart({
         height={height}
         preserveAspectRatio="none"
         onPointerMove={handleMove}
-        onPointerLeave={() => onHover(null)}
+        onPointerLeave={() => (drawing ? overlay!.onPointer("leave", 0, { type: "mouse", button: 0, pressed: false }) : onHover(null))}
+        onPointerDown={
+          drawing
+            ? (e) => {
+                // Keep receiving the finger's moves and its lift even if it slides off the chart.
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                } catch {}
+                overlay!.onPointer("down", priceAt(e), info(e));
+              }
+            : undefined
+        }
+        onPointerUp={drawing ? (e) => overlay!.onPointer("up", priceAt(e), info(e)) : undefined}
+        onPointerCancel={drawing ? () => overlay!.onPointer("leave", 0, { type: "touch", button: 0, pressed: false }) : undefined}
         className="cursor-crosshair"
+        // While placing a line the finger must move the line, not scroll the page; otherwise the page scrolls as usual.
+        style={drawing ? { touchAction: "none" } : undefined}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -280,12 +332,14 @@ function AreaChart({
           style={{ animation: "panda-chart-draw 900ms ease-out" }}
         />
 
-        {hoverIndex !== null && (
+        {overlay && <StrategyLines overlay={overlay} domain={domain} />}
+
+        {hoverIndex !== null && !drawing && (
           <line x1={active.x} x2={active.x} y1={padding} y2={height - padding} stroke="var(--paper)" strokeOpacity="0.25" strokeDasharray="3 3" />
         )}
 
-        <circle cx={active.x} cy={active.y} r={hoverIndex !== null ? 5 : 4} fill={color}>
-          {hoverIndex === null && (
+        <circle cx={active.x} cy={active.y} r={hoverIndex !== null && !drawing ? 5 : 4} fill={color}>
+          {(hoverIndex === null || drawing) && (
             <>
               <animate attributeName="r" values="4;7;4" dur="1.8s" repeatCount="indefinite" />
               <animate attributeName="opacity" values="1;0.35;1" dur="1.8s" repeatCount="indefinite" />
@@ -299,6 +353,8 @@ function AreaChart({
           }
         `}</style>
       </svg>
+
+      {overlay && <PriceTags overlay={overlay} domain={domain} />}
 
       {axisTicks.length > 0 && (
         <div className="relative mt-1 h-4 text-[10px] text-panda-grey">

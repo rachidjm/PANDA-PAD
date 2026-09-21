@@ -70,8 +70,9 @@ export function craftDeposit(params: {
   amount: string;
   orderType: "price" | "dca";
   orderSubType?: "single" | "oco" | "otoco";
-}): Promise<DepositCraft> {
-  return triggerFetch<DepositCraft>("/deposit/craft", { method: "POST", body: JSON.stringify(params) });
+}, token?: string): Promise<DepositCraft> {
+  // The docs say `userAddress` must match the JWT, so the JWT goes with the request.
+  return triggerFetch<DepositCraft>("/deposit/craft", { method: "POST", body: JSON.stringify(params), token });
 }
 
 export type CreateOrderParams = {
@@ -100,6 +101,19 @@ export function createOrder(params: CreateOrderParams, token: string): Promise<C
   return triggerFetch<CreatedOrder>("/orders/price", { method: "POST", body: JSON.stringify(params), token });
 }
 
+/** One entry of an order's history; `orderContext` names what the movement was ("buy_below", "take_profit", "stop_loss"…). */
+export type TriggerEvent = {
+  type?: string;
+  timestamp?: number;
+  state?: string;
+  txSignature?: string;
+  mint?: string;
+  amount?: string;
+  outputMint?: string;
+  outputAmount?: string;
+  orderContext?: string;
+};
+
 export type TriggerOrder = {
   id: string;
   orderType: string;
@@ -114,15 +128,22 @@ export type TriggerOrder = {
   expiresAt: number;
   createdAt: number;
   updatedAt: number;
+  userPubkey?: string;
+  triggeredAt?: number;
+  outputAmount?: string;
+  fillPercent?: number;
+  events?: TriggerEvent[];
 };
 
 export function listOrders(
   token: string,
-  params: { state?: "active" | "past"; mint?: string } = {}
+  params: { state?: "active" | "past"; mint?: string; limit?: number; offset?: number } = {}
 ): Promise<{ orders: TriggerOrder[] }> {
   const qs = new URLSearchParams();
   if (params.state) qs.set("state", params.state);
   if (params.mint) qs.set("mint", params.mint);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();
   return triggerFetch<{ orders: TriggerOrder[] }>(`/orders/history${query ? `?${query}` : ""}`, {
     method: "GET",

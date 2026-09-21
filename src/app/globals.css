@@ -9,6 +9,8 @@
   --meme-orange: #ff6a1a;
   --bamboo: #c9d94c;
   --clay-red: #e8543e;
+  --draw-buy: #ff4d6d;
+  --draw-sell: #5cc8ff;
   --font-display: var(--font-bricolage);
   --font-body: var(--font-inter);
 }

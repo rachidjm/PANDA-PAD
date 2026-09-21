@@ -7,7 +7,8 @@ export async function POST(req: Request) {
     if (!inputMint || !outputMint || !userAddress || !amount) {
       return NextResponse.json({ error: "Missing inputMint, outputMint, userAddress or amount." }, { status: 400 });
     }
-    const craft = await craftDeposit({ inputMint, outputMint, userAddress, amount, orderType: "price", orderSubType });
+    const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") || undefined;
+    const craft = await craftDeposit({ inputMint, outputMint, userAddress, amount, orderType: "price", orderSubType }, token);
     return NextResponse.json(craft);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to craft the deposit transaction.";

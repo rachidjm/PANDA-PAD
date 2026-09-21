@@ -1,0 +1,111 @@
+"use client";
+
+import { formatPrice } from "@/lib/format";
+import type { DrawTarget } from "@/lib/strategy/draw-machine";
+import { CHART, priceToY, spreadLabels, type Domain } from "@/lib/strategy/scale";
+import type { ChartLine } from "./useDrawTrade";
+
+export type ChartOverlayData = {
+  lines: ChartLine[];
+  /** Which line the user is placing right now, if any. */
+  drawing: DrawTarget | null;
+  preview: number | null;
+  onPointer: (phase: "move" | "down" | "up" | "leave", price: number, info: { type: string; button: number; pressed: boolean }) => void;
+  labels: Record<DrawTarget, string>;
+  previewLabels: Record<DrawTarget, string>;
+};
+
+/** Buy = red (as asked) — a crimson, so it stays readable on the orange-red curve of a falling coin; sell = a cool blue that can be mistaken neither for the red nor for the curve; stop = the site's orange. */
+export const LINE_COLOR: Record<DrawTarget, string> = { buy: "var(--draw-buy)", sell: "var(--draw-sell)", stop: "var(--meme-orange)" };
+
+/** The dashed lines (and the tint between a strategy's BUY and SELL) inside the chart's own SVG. */
+export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
+  const groups = new Map<string, ChartLine[]>();
+  for (const l of overlay.lines) groups.set(l.groupId, [...(groups.get(l.groupId) ?? []), l]);
+  const bands = [...groups.values()].flatMap((g) => {
+    const buy = g.find((l) => l.kind === "buy");
+    const sell = g.find((l) => l.kind === "sell");
+    if (!buy || !sell) return [];
+    const [y1, y2] = [priceToY(buy.price, domain), priceToY(sell.price, domain)].sort((a, b) => a - b);
+    return [{ key: buy.groupId, y: y1, h: y2 - y1, dim: !buy.live && !buy.active }];
+  });
+  return (
+    <g pointerEvents="none">
+      {bands.map((b) => (
+        <rect key={b.key} x={0} width={CHART.width} y={b.y} height={b.h} fill="var(--draw-sell)" opacity={b.dim ? 0.04 : 0.08} />
+      ))}
+      {overlay.lines.map((l) => {
+        const y = priceToY(l.price, domain);
+        return (
+          <g key={l.key}>
+          {/* a dark halo under every line keeps it readable over the curve and the gridlines */}
+          <line x1={0} x2={CHART.width} y1={y} y2={y} stroke="var(--ink)" strokeOpacity={0.55} strokeWidth={4.5} vectorEffect="non-scaling-stroke" />
+          <line
+            x1={0}
+            x2={CHART.width}
+            y1={y}
+            y2={y}
+            stroke={LINE_COLOR[l.kind]}
+            strokeWidth={l.active || l.live ? 2 : 1.5}
+            strokeDasharray={l.kind === "stop" ? "2 4" : "8 4"}
+            strokeOpacity={l.live || l.active ? 0.95 : 0.7}
+            vectorEffect="non-scaling-stroke"
+          />
+          </g>
+        );
+      })}
+      {overlay.drawing && overlay.preview !== null && (
+        <>
+        <line x1={0} x2={CHART.width} y1={priceToY(overlay.preview, domain)} y2={priceToY(overlay.preview, domain)} stroke="var(--ink)" strokeOpacity={0.55} strokeWidth={5.5} vectorEffect="non-scaling-stroke" />
+        <line
+          x1={0}
+          x2={CHART.width}
+          y1={priceToY(overlay.preview, domain)}
+          y2={priceToY(overlay.preview, domain)}
+          stroke={LINE_COLOR[overlay.drawing]}
+          strokeWidth={2.5}
+          vectorEffect="non-scaling-stroke"
+        />
+        </>
+      )}
+    </g>
+  );
+}
+
+/** Price tags on the right edge. HTML, not SVG: the SVG is stretched to the card width, which would stretch the text too. */
+export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
+  const items = overlay.lines.map((l) => ({
+    key: l.key,
+    kind: l.kind,
+    text: `${overlay.labels[l.kind]} ${l.tag} · ${formatPrice(l.price)}`,
+    y: priceToY(l.price, domain),
+    strong: l.live || l.active,
+  }));
+  const previewY = overlay.drawing && overlay.preview !== null ? priceToY(overlay.preview, domain) : null;
+  const spread = spreadLabels(
+    items.map((i) => i.y),
+    18,
+    CHART.height - 9
+  );
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0" style={{ height: CHART.height }} aria-hidden>
+      {items.map((it, i) => (
+        <span
+          key={it.key}
+          className="absolute right-1 -translate-y-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none text-ink"
+          style={{ top: Math.max(9, spread[i]), background: LINE_COLOR[it.kind], opacity: it.strong ? 1 : 0.75 }}
+        >
+          {it.text}
+        </span>
+      ))}
+      {previewY !== null && overlay.drawing && (
+        <span
+          className="absolute right-1 z-10 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-bold leading-none text-ink shadow-lg"
+          style={{ top: Math.min(Math.max(10, previewY), CHART.height - 10), background: LINE_COLOR[overlay.drawing] }}
+        >
+          {overlay.previewLabels[overlay.drawing]} · {formatPrice(overlay.preview!)}
+        </span>
+      )}
+    </div>
+  );
+}

@@ -544,6 +544,416 @@ export const dict = {
   "bp.err.slippage": { en: "The price moved more than the allowed tolerance while the transaction was landing. Nothing was bought — try again.", es: "El precio se movió más de lo permitido mientras se ejecutaba. No se compró nada — inténtalo de nuevo." },
   "bp.err.failedOnchain": { en: "The transaction failed on-chain — nothing was bought; you only paid the network fee.", es: "La transacción falló on-chain — no se compró nada; solo pagaste la comisión de red." },
 
+  // Draw Your Trade
+  "draw.title": {
+    en: "Draw your trade",
+    es: "Dibuja tu operación",
+  },
+  "draw.subtitle": {
+    en: "Mark where to buy and where to sell right on the chart. Nothing runs until you confirm.",
+    es: "Marca en el gráfico dónde comprar y dónde vender. No se ejecuta nada hasta que confirmes.",
+  },
+  "draw.setBuy": {
+    en: "Set Buy",
+    es: "Fijar compra",
+  },
+  "draw.setSell": {
+    en: "Set Sell",
+    es: "Fijar venta",
+  },
+  "draw.setStop": {
+    en: "Set Stop",
+    es: "Fijar stop",
+  },
+  "draw.add": {
+    en: "+ Add Strategy",
+    es: "+ Añadir estrategia",
+  },
+  "draw.cancelMode": {
+    en: "Cancel",
+    es: "Cancelar",
+  },
+  "draw.sellNeedsBuy": {
+    en: "Set the buy first: a sale can only happen after a purchase.",
+    es: "Fija primero la compra: solo se puede vender después de comprar.",
+  },
+  "draw.mode.buy": {
+    en: "BUY TARGET — move over the chart and click (or tap) to place it. Nothing is bought.",
+    es: "PRECIO DE COMPRA — mueve el ratón sobre el gráfico y haz clic (o toca) para fijarlo. No se compra nada.",
+  },
+  "draw.mode.sell": {
+    en: "SELL TARGET — move over the chart and click (or tap) to place it. Nothing is sold.",
+    es: "PRECIO DE VENTA — mueve el ratón sobre el gráfico y haz clic (o toca) para fijarlo. No se vende nada.",
+  },
+  "draw.mode.stop": {
+    en: "STOP — move over the chart and click (or tap) to place it.",
+    es: "STOP — mueve el ratón sobre el gráfico y haz clic (o toca) para fijarlo.",
+  },
+  "draw.line.buy": {
+    en: "BUY",
+    es: "COMPRA",
+  },
+  "draw.line.sell": {
+    en: "SELL",
+    es: "VENTA",
+  },
+  "draw.line.stop": {
+    en: "STOP",
+    es: "STOP",
+  },
+  "draw.line.buyTarget": {
+    en: "BUY TARGET",
+    es: "PRECIO DE COMPRA",
+  },
+  "draw.line.sellTarget": {
+    en: "SELL TARGET",
+    es: "PRECIO DE VENTA",
+  },
+  "draw.line.stopTarget": {
+    en: "STOP",
+    es: "STOP",
+  },
+  "draw.set.buy": {
+    en: "Buy target: {price}",
+    es: "Precio de compra: {price}",
+  },
+  "draw.set.sell": {
+    en: "Sell target: {price}",
+    es: "Precio de venta: {price}",
+  },
+  "draw.set.stop": {
+    en: "Stop: {price}",
+    es: "Stop: {price}",
+  },
+  "draw.strategy": {
+    en: "Strategy #{n}",
+    es: "Estrategia #{n}",
+  },
+  "draw.draft": {
+    en: "Draft",
+    es: "Borrador",
+  },
+  "draw.status.waiting": {
+    en: "Waiting",
+    es: "En espera",
+  },
+  "draw.status.buy_triggered": {
+    en: "Buy triggered",
+    es: "Compra disparada",
+  },
+  "draw.status.position_open": {
+    en: "Position open",
+    es: "Posición abierta",
+  },
+  "draw.status.sell_triggered": {
+    en: "Sell triggered",
+    es: "Venta disparada",
+  },
+  "draw.status.completed": {
+    en: "Completed",
+    es: "Completada",
+  },
+  "draw.status.failed": {
+    en: "Failed",
+    es: "Fallida",
+  },
+  "draw.status.cancelled": {
+    en: "Cancelled",
+    es: "Cancelada",
+  },
+  "draw.help.waiting": {
+    en: "Waiting for the price to reach {price}. It keeps running on Jupiter even if you close this page.",
+    es: "Esperando a que el precio llegue a {price}. Sigue funcionando en Jupiter aunque cierres esta página.",
+  },
+  "draw.help.buy_triggered": {
+    en: "The buy is being executed. It counts as bought only once the transaction is confirmed.",
+    es: "La compra se está ejecutando. Cuenta como comprada solo cuando la transacción esté confirmada.",
+  },
+  "draw.help.position_open": {
+    en: "Bought (confirmed on-chain). Now waiting for the sell target or the stop.",
+    es: "Comprado (confirmado on-chain). Ahora espera al precio de venta o al stop.",
+  },
+  "draw.help.sell_triggered": {
+    en: "The sale is being executed. It counts as done only once the transaction is confirmed.",
+    es: "La venta se está ejecutando. Cuenta como hecha solo cuando la transacción esté confirmada.",
+  },
+  "draw.help.cancelled": {
+    en: "Cancelled. Check your wallet: the funds are returned by Jupiter's vault.",
+    es: "Cancelada. Mira tu wallet: Jupiter devuelve los fondos desde su bóveda.",
+  },
+  "draw.closedTarget": {
+    en: "Sold at the sell target.",
+    es: "Vendida en el precio de venta.",
+  },
+  "draw.closedStop": {
+    en: "Closed by the stop.",
+    es: "Cerrada por el stop.",
+  },
+  "draw.holds": {
+    en: "The purchase went through but the exit ended without selling: you may still hold the tokens. Check your wallet and your Jupiter vault.",
+    es: "La compra se hizo pero la salida terminó sin vender: puede que aún tengas los tokens. Revisa tu wallet y tu bóveda de Jupiter.",
+  },
+  "draw.txBuy": {
+    en: "Buy transaction",
+    es: "Transacción de compra",
+  },
+  "draw.txSell": {
+    en: "Sell transaction",
+    es: "Transacción de venta",
+  },
+  "draw.priceIn": {
+    en: "{label} (USD)",
+    es: "{label} (USD)",
+  },
+  "draw.label.buy": {
+    en: "Buy at",
+    es: "Comprar a",
+  },
+  "draw.label.sell": {
+    en: "Sell at",
+    es: "Vender a",
+  },
+  "draw.label.stop": {
+    en: "Stop at",
+    es: "Stop a",
+  },
+  "draw.stopHint": {
+    en: "Jupiter's engine requires a stop with every strategy, so PANDA suggests one 20% under your buy. Change it or draw it.",
+    es: "El motor de Jupiter exige un stop en cada estrategia, así que PANDA propone uno un 20% por debajo de tu compra. Cámbialo o dibújalo.",
+  },
+  "draw.priceDiff": {
+    en: "Price difference",
+    es: "Diferencia de precio",
+  },
+  "draw.potential": {
+    en: "Potential move",
+    es: "Movimiento potencial",
+  },
+  "draw.investment": {
+    en: "Investment amount",
+    es: "Importe a invertir",
+  },
+  "draw.gross": {
+    en: "Estimated gross return",
+    es: "Retorno bruto estimado",
+  },
+  "draw.fees": {
+    en: "Estimated fees",
+    es: "Comisiones estimadas",
+  },
+  "draw.feesValue": {
+    en: "Not included: Jupiter's fee and network fees",
+    es: "No incluidas: comisión de Jupiter y de red",
+  },
+  "draw.net": {
+    en: "Estimated result (before fees)",
+    es: "Resultado estimado (antes de comisiones)",
+  },
+  "draw.stopResult": {
+    en: "If the stop triggers",
+    es: "Si salta el stop",
+  },
+  "draw.worst": {
+    en: "Worst case with full slippage",
+    es: "Peor caso con todo el slippage",
+  },
+  "draw.disclaimer": {
+    en: "Estimates at the exact target prices — not a promise. The real price can differ because of slippage, liquidity, routing, network conditions and failed transactions.",
+    es: "Estimaciones a los precios exactos — no una promesa. El precio real puede variar por slippage, liquidez, enrutado, condiciones de red y transacciones fallidas.",
+  },
+  "draw.amount": {
+    en: "Amount to invest",
+    es: "Cantidad a invertir",
+  },
+  "draw.equivalent": {
+    en: "Equivalent",
+    es: "Equivalente",
+  },
+  "draw.route": {
+    en: "Route",
+    es: "Ruta",
+  },
+  "draw.payWith": {
+    en: "Pay with",
+    es: "Pagar con",
+  },
+  "draw.auto": {
+    en: "Auto",
+    es: "Auto",
+  },
+  "draw.balances": {
+    en: "Your wallet: {sol} SOL · {usdc} USDC",
+    es: "Tu wallet: {sol} SOL · {usdc} USDC",
+  },
+  "draw.autoWhy": {
+    en: "PANDA pays with the coin you hold the most of.",
+    es: "PANDA paga con la moneda de la que más tienes.",
+  },
+  "draw.noRate": {
+    en: "No live rate for this unit right now, so it can't be converted.",
+    es: "Ahora mismo no hay cotización real para esta unidad, así que no se puede convertir.",
+  },
+  "draw.notEnough": {
+    en: "Not enough in your wallet: about {short} more needed.",
+    es: "No tienes suficiente en la wallet: faltan unos {short}.",
+  },
+  "draw.custody": {
+    en: "Confirming moves your {asset} into a Jupiter-managed vault (held by Privy — not PANDA, and not your wallet) until the strategy finishes or you cancel it. PANDA never holds your keys. This is a different trust model from a normal trade.",
+    es: "Al confirmar, tus {asset} pasan a una bóveda gestionada por Jupiter (custodiada por Privy — no por PANDA ni por tu wallet) hasta que la estrategia termine o la canceles. PANDA nunca tiene tus claves. Es un modelo de confianza distinto al de un trade normal.",
+  },
+  "draw.understand": {
+    en: "I understand my funds are held in Jupiter's vault until it finishes or I cancel.",
+    es: "Entiendo que mis fondos quedan en la bóveda de Jupiter hasta que termine o cancele.",
+  },
+  "draw.confirm": {
+    en: "Confirm Strategy",
+    es: "Confirmar estrategia",
+  },
+  "draw.step.session": {
+    en: "Sign in to PANDA in your wallet…",
+    es: "Inicia sesión en PANDA con tu wallet…",
+  },
+  "draw.step.jupiter": {
+    en: "Sign in to Jupiter in your wallet…",
+    es: "Inicia sesión en Jupiter con tu wallet…",
+  },
+  "draw.step.prepare": {
+    en: "Checking the strategy…",
+    es: "Comprobando la estrategia…",
+  },
+  "draw.step.sign": {
+    en: "Approve the deposit in your wallet…",
+    es: "Aprueba el depósito en tu wallet…",
+  },
+  "draw.step.create": {
+    en: "Creating the order…",
+    es: "Creando la orden…",
+  },
+  "draw.step.done": {
+    en: "Strategy live",
+    es: "Estrategia activa",
+  },
+  "draw.engineOff": {
+    en: "Order execution isn't switched on for this deployment yet (the Jupiter key isn't configured), so a strategy can be drawn here but not confirmed. Nothing will run.",
+    es: "La ejecución de órdenes aún no está activada en este despliegue (falta la clave de Jupiter), así que aquí se puede dibujar una estrategia pero no confirmarla. No se ejecutará nada.",
+  },
+  "draw.connect": {
+    en: "Connect your wallet to confirm a strategy.",
+    es: "Conecta tu wallet para confirmar una estrategia.",
+  },
+  "draw.edit": {
+    en: "Edit",
+    es: "Editar",
+  },
+  "draw.delete": {
+    en: "Delete",
+    es: "Eliminar",
+  },
+  "draw.done": {
+    en: "Done",
+    es: "Listo",
+  },
+  "draw.cancelStrategy": {
+    en: "Cancel strategy",
+    es: "Cancelar estrategia",
+  },
+  "draw.cancelling": {
+    en: "Cancelling…",
+    es: "Cancelando…",
+  },
+  "draw.editLive": {
+    en: "A live strategy can't be edited: cancel it and draw a new one.",
+    es: "Una estrategia activa no se puede editar: cancélala y dibuja otra.",
+  },
+  "draw.refresh": {
+    en: "Refresh status",
+    es: "Actualizar estado",
+  },
+  "draw.refreshing": {
+    en: "Checking…",
+    es: "Comprobando…",
+  },
+  "draw.refreshWhy": {
+    en: "Refreshing asks Jupiter, so it needs a free wallet signature. Statuses only move on confirmed transactions.",
+    es: "Actualizar consulta a Jupiter, por eso pide una firma gratuita de la wallet. Los estados solo avanzan con transacciones confirmadas.",
+  },
+  "draw.lastCheck": {
+    en: "Last checked {time}",
+    es: "Última comprobación {time}",
+  },
+  "draw.neverChecked": {
+    en: "Not checked yet",
+    es: "Sin comprobar todavía",
+  },
+  "draw.signInList": {
+    en: "Sign in to load your saved strategies.",
+    es: "Inicia sesión para cargar tus estrategias guardadas.",
+  },
+  "draw.signIn": {
+    en: "Sign in",
+    es: "Iniciar sesión",
+  },
+  "draw.saved": {
+    en: "Your strategies on this coin",
+    es: "Tus estrategias en esta moneda",
+  },
+  "draw.issue.invalid_price": {
+    en: "Enter valid prices.",
+    es: "Introduce precios válidos.",
+  },
+  "draw.issue.sell_not_above_buy": {
+    en: "The sell price must be above the buy price.",
+    es: "El precio de venta debe estar por encima del de compra.",
+  },
+  "draw.issue.stop_not_below_buy": {
+    en: "The stop must be below the buy price.",
+    es: "El stop debe estar por debajo del precio de compra.",
+  },
+  "draw.issue.buy_too_close": {
+    en: "The buy price is too close to the current price — it would fire at once. Pick a price further away.",
+    es: "El precio de compra está demasiado cerca del actual — se dispararía enseguida. Elige uno más lejano.",
+  },
+  "draw.issue.too_far": {
+    en: "One of the prices is absurdly far from the current price.",
+    es: "Uno de los precios está absurdamente lejos del actual.",
+  },
+  "draw.issue.below_minimum": {
+    en: "The minimum is 10 USD per strategy (a Jupiter rule).",
+    es: "El mínimo es 10 USD por estrategia (norma de Jupiter).",
+  },
+  "draw.issue.price_unavailable": {
+    en: "Live prices aren't available right now — try again in a moment.",
+    es: "Ahora mismo no hay precios en vivo — inténtalo de nuevo en un momento.",
+  },
+  "draw.issue.liquidity_unknown": {
+    en: "This coin's liquidity can't be read, so a strategy can't be placed safely.",
+    es: "No se puede leer la liquidez de esta moneda, así que no se puede colocar una estrategia con seguridad.",
+  },
+  "draw.issue.liquidity_low": {
+    en: "This coin's pool is too small for a strategy.",
+    es: "El pool de esta moneda es demasiado pequeño para una estrategia.",
+  },
+  "draw.issue.too_large_for_pool": {
+    en: "That amount is too big for this coin's pool (max about 5% of its liquidity).",
+    es: "Esa cantidad es demasiado grande para el pool de esta moneda (máximo, un 5% de su liquidez).",
+  },
+  "draw.err.rejected": {
+    en: "You rejected the request in your wallet. Nothing was placed.",
+    es: "Rechazaste la solicitud en tu wallet. No se colocó nada.",
+  },
+  "draw.err.noSigning": {
+    en: "This wallet can't sign what is needed here.",
+    es: "Esta wallet no puede firmar lo necesario aquí.",
+  },
+  "draw.err.conflict": {
+    en: "This strategy was already submitted.",
+    es: "Esta estrategia ya se envió.",
+  },
+  "draw.err.generic": {
+    en: "Couldn't complete that. Nothing was placed unless it shows below as live.",
+    es: "No se pudo completar. No se colocó nada salvo que aparezca abajo como activa.",
+  },
+
   // Wallet dropdown
   "wp.value": { en: "Portfolio value", es: "Valor del portfolio" },
   "wp.readError": { en: "Couldn't read your wallet right now — try again in a moment.", es: "No se pudo leer tu wallet ahora — inténtalo de nuevo en un momento." },

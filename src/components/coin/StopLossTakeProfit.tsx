@@ -155,7 +155,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
       const rawAmount = Math.round(((position!.remainingTokens * amountPct) / 100) * 10 ** tokenDecimals).toString();
       const depositRes = await fetch("/api/jupiter/trigger/deposit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
           inputMint: coin.mint,
           outputMint: SOL_MINT,

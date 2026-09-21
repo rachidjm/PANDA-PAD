@@ -65,6 +65,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
               initialCloses={coin.priceHistory}
               changePct={coin.changePct}
               marketCap={coin.marketCap}
+              coin={coin}
             />
           </div>
 
