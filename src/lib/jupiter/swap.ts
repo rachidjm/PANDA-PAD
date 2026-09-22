@@ -2,19 +2,19 @@ import {
   AddressLookupTableAccount,
   Connection,
   PublicKey,
-  SystemProgram,
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
 import BN from "bn.js";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "@/lib/pump/constants";
+import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS } from "@/lib/pump/constants";
+import { feeTransferInstruction } from "@/lib/pump/fee-transfer";
 import { getJupiterQuote, getJupiterSwapTransaction, SOL_MINT } from "./client";
 
 const COMPUTE_BUDGET_PROGRAM_ID = new PublicKey("ComputeBudget111111111111111111111111111111");
 
 /**
  * Builds a real Jupiter-routed swap (any Solana DEX — Raydium, Orca,
- * Meteora, etc.) with PANDA's 1% fee bundled into the same transaction,
+ * Meteora, etc.) with PANDA's fee (0.5%) bundled into the same transaction,
  * the same way the Pump.fun buy/sell builders do it. Jupiter returns a
  * versioned transaction with its own address lookup tables, so the fee
  * instruction has to be spliced into the decompiled message rather than
@@ -69,13 +69,8 @@ export async function buildJupiterSwapTransaction({
       ? new BN(amount).muln(PANDA_FEE_BPS).divn(10_000)
       : new BN(quote.outAmount).muln(PANDA_FEE_BPS).divn(10_000);
 
-  if (feeLamports.gtn(0)) {
-    const feeIx = SystemProgram.transfer({
-      fromPubkey: user,
-      toPubkey: PANDA_TREASURY,
-      lamports: BigInt(feeLamports.toString()),
-    });
-
+  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
+  if (feeIx) {
     if (side === "buy") {
       // Deducted up front, alongside the swap — insert right after any
       // leading compute-budget instructions, before the swap itself.

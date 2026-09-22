@@ -1,10 +1,11 @@
-import { Connection, PublicKey, Transaction, ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { getBuyTokenAmountFromSolAmount } from "@pump-fun/pump-sdk";
 import { getPumpSdk, getOnlinePumpSdk } from "./client";
-import { buildAmmBuyTransaction } from "./amm-trade";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./constants";
+import { buildAmmBuyTransaction, graduatedPoolFor } from "./amm-trade";
+import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { tokenProgramOf } from "./token-program";
+import { feeTransferInstruction } from "./fee-transfer";
 
 /**
  * Builds a real, unsigned Pump.fun buy transaction. The caller (TradingPanel)
@@ -38,12 +39,20 @@ export async function buildBuyTransaction({
   const online = getOnlinePumpSdk(connection);
   const offline = getPumpSdk();
 
+  // Pump.fun's coins are Token-2022 now (older ones classic SPL): every account of the trade has to use the coin's own program.
+  const tokenProgram = await tokenProgramOf(connection, mint);
   const [global, feeConfig, buyState] = await Promise.all([
     online.fetchGlobal(),
     online.fetchFeeConfig(),
-    online.fetchBuyState(mint, user),
+    online.fetchBuyState(mint, user, tokenProgram),
   ]);
   const { bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo, quoteMint } = buyState;
+
+  // A coin that has finished its bonding curve can't be bought there any more ("BondingCurveComplete"): it trades on its PumpSwap pool.
+  // The coin lists lag behind this, so the curve itself decides.
+  if (bondingCurve.complete) {
+    return buildAmmBuyTransaction({ connection, mint, user, poolAddress: graduatedPoolFor(mint), solAmount, slippagePct });
+  }
 
   const solAmountLamports = new BN(Math.round(solAmount * 1e9));
   const tokenAmount = getBuyTokenAmountFromSolAmount({
@@ -65,16 +74,16 @@ export async function buildBuyTransaction({
     amount: tokenAmount,
     solAmount: solAmountLamports,
     slippage: slippagePct,
-    tokenProgram: TOKEN_PROGRAM_ID,
+    tokenProgram,
   });
 
   const feeLamports = solAmountLamports.muln(PANDA_FEE_BPS).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
-  if (feeLamports.gtn(0)) {
-    tx.add(SystemProgram.transfer({ fromPubkey: user, toPubkey: PANDA_TREASURY, lamports: BigInt(feeLamports.toString()) }));
-  }
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
+  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
+  if (feeIx) tx.add(feeIx);
   tx.add(...instructions);
   return tx;
 }

@@ -3,6 +3,7 @@ import { craftDeposit, createOrder, listOrders } from "@/lib/jupiter/trigger";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { PANDA_TREASURY } from "@/lib/pump/constants";
 import { buildFeeTransaction, checkSignedFeeTx } from "./fee";
+import { feeIsReceivable, treasuryLamports } from "@/lib/pump/fee-transfer";
 import { strategyQuote } from "./market";
 import type { Deps } from "./service";
 
@@ -15,6 +16,13 @@ export function realDeps(): Deps {
     jupiter: { craftDeposit, createOrder, listOrders },
     fee: {
       treasury: PANDA_TREASURY.toBase58(),
+      canReceive: async (lamports) => {
+        try {
+          return feeIsReceivable(lamports, await treasuryLamports(new Connection(serverRpcUrl(), "confirmed")));
+        } catch {
+          return true;
+        }
+      },
       build: async (wallet, lamports) => {
         const connection = new Connection(serverRpcUrl(), "confirmed");
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");

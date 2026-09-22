@@ -17,6 +17,13 @@ export const DEFAULT_SLIPPAGE_PCT = 5;
  * Only applies to trades on existing coins; it is unrelated to Pump.fun's
  * own protocol/creator fees, which are unchanged.
  */
+/**
+ * Priority fee on every trade, in micro-lamports per compute unit. Without one, a transaction sits behind every transaction
+ * that offers something, and on a busy network (which is when memecoins trade) it expires unconfirmed. 100,000 micro-lamports
+ * on the 300,000-unit limit is at most 30,000 lamports (0.00003 SOL, about half a cent).
+ */
+export const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
+
 export const PANDA_FEE_BPS = 50; // 0.5% on each buy and each sell (1% for a round trip)
 
 export const PANDA_TREASURY = new PublicKey(

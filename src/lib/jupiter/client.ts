@@ -57,6 +57,8 @@ export async function getJupiterSwapTransaction({
       userPublicKey,
       dynamicComputeUnitLimit: true,
       dynamicSlippage: true,
+      // Ask for a priority fee (at most 0.0002 SOL) so the swap lands when the network is busy.
+      prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 200_000, priorityLevel: "high" } },
     }),
   });
   if (!res.ok) {

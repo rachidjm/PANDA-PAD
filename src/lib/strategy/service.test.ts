@@ -39,6 +39,7 @@ function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () =>
     verifyTx: async () => true,
     fee: {
       treasury: "TREASURY",
+      canReceive: async () => true,
       build: async () => "feetx".repeat(30),
       check: (signed) => (signed === "GOODFEE" ? { ok: true } : { ok: false, reason: "bad" }),
       send: async () => {
@@ -435,6 +436,7 @@ test("fee: charged once, only after Jupiter accepted the order, and recorded as 
     },
     fee: {
       treasury: "TREASURY",
+      canReceive: async () => true,
       build: async () => "feetx".repeat(30),
       check: () => ({ ok: true }),
       send: async () => {
@@ -476,6 +478,7 @@ test("fee: if the fee transfer itself fails after the order exists, the strategy
   const { deps } = fakeDeps({
     fee: {
       treasury: "TREASURY",
+      canReceive: async () => true,
       build: async () => "feetx".repeat(30),
       check: () => ({ ok: true }),
       send: async () => {

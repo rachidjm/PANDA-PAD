@@ -1,9 +1,11 @@
-import { Connection, PublicKey, Transaction, ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { PUMP_AMM_PROGRAM_ID } from "@pump-fun/pump-sdk";
+import { canonicalPumpPoolPda } from "@pump-fun/pump-swap-sdk";
 import { getPumpAmmSdk, getOnlinePumpAmmSdk } from "./amm-client";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./constants";
-import { ammPoolProblem, POOL_NOT_TRADABLE } from "./pool-check";
+import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { feeTransferInstruction } from "./fee-transfer";
+import { ammPoolProblem, poolOrientation, POOL_NOT_TRADABLE } from "./pool-check";
 
 /**
  * Real trading for a coin that's graduated off the bonding curve onto
@@ -23,9 +25,15 @@ import { ammPoolProblem, POOL_NOT_TRADABLE } from "./pool-check";
  * guessing a formula.
  */
 
+/** The PumpSwap pool a coin gets when it graduates from Pump.fun's bonding curve (a fixed address derived from the mint). */
+export function graduatedPoolFor(mint: PublicKey): PublicKey {
+  const pda = canonicalPumpPoolPda(mint) as PublicKey | [PublicKey, number];
+  return Array.isArray(pda) ? pda[0] : pda;
+}
+
 async function assertRealPumpAmmPool(connection: Connection, poolAddress: PublicKey): Promise<void> {
   const info = await connection.getAccountInfo(poolAddress);
-  if (!info) throw new Error("This coin's PumpSwap pool wasn't found on-chain.");
+  if (!info) throw new Error("This coin's PumpSwap pool wasn't found on-chain yet — if it just graduated from Pump.fun, try again in a minute.");
   if (!info.owner.equals(PUMP_AMM_PROGRAM_ID)) {
     throw new Error("That address isn't a real PumpSwap pool account.");
   }
@@ -64,15 +72,20 @@ export async function buildAmmBuyTransaction({
   assertTradable(state, mint);
 
   const solAmountLamports = new BN(Math.round(solAmount * 1e9));
-  const instructions = await offline.buyQuoteInput(state, solAmountLamports, slippagePct);
+  // Buying the token = spending SOL. In a token/SOL pool SOL is the quote side, so that is a "buy"; in a SOL/token pool SOL is
+  // the BASE side, so spending it is a "sell" of the base. Same trade, the other instruction.
+  const instructions =
+    poolOrientation({ baseMint: state.pool.baseMint.toBase58(), quoteMint: state.pool.quoteMint.toBase58() }, mint.toBase58()) === "token-quote"
+      ? await offline.sellBaseInput(state, solAmountLamports, slippagePct)
+      : await offline.buyQuoteInput(state, solAmountLamports, slippagePct);
 
   const feeLamports = solAmountLamports.muln(PANDA_FEE_BPS).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
-  if (feeLamports.gtn(0)) {
-    tx.add(SystemProgram.transfer({ fromPubkey: user, toPubkey: PANDA_TREASURY, lamports: BigInt(feeLamports.toString()) }));
-  }
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
+  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
+  if (feeIx) tx.add(feeIx);
   tx.add(...instructions);
   return tx;
 }
@@ -100,7 +113,13 @@ export async function buildAmmSellTransaction({
   const state = await online.swapSolanaState(poolAddress, user);
   assertTradable(state, mint);
 
-  const instructions = await offline.sellBaseInput(state, tokenAmount, slippagePct);
+  const inverted = poolOrientation({ baseMint: state.pool.baseMint.toBase58(), quoteMint: state.pool.quoteMint.toBase58() }, mint.toBase58()) === "token-quote";
+  // Selling the token: in a token/SOL pool that is a "sell" of the base; in a SOL/token pool the token is the QUOTE side, so
+  // it is a "buy" of the base (SOL) paid in tokens. That instruction limits what it may spend rather than what it must spend,
+  // so a hair (0.1%) is left unsold: asking to spend a wallet's whole balance could come out one unit over it and fail.
+  const instructions = inverted
+    ? await offline.buyQuoteInput(state, tokenAmount.muln(999).divn(1000), slippagePct)
+    : await offline.sellBaseInput(state, tokenAmount, slippagePct);
 
   // The exact SOL proceeds only settle on-chain (the pool's constant-product
   // price moves with the trade itself) — same "shown in your wallet before
@@ -108,14 +127,15 @@ export async function buildAmmSellTransaction({
   // The PANDA fee here is taken from a real spot-price estimate off the
   // pool's current reserves, not a fabricated number, just an approximation
   // of what the precise on-chain proceeds will be.
-  const spotSolOut = tokenAmount.mul(state.poolQuoteAmount).div(state.poolBaseAmount.add(tokenAmount));
+  const [tokenReserve, solReserve] = inverted ? [state.poolQuoteAmount, state.poolBaseAmount] : [state.poolBaseAmount, state.poolQuoteAmount];
+  const spotSolOut = tokenAmount.mul(solReserve).div(tokenReserve.add(tokenAmount));
   const feeLamports = spotSolOut.muln(PANDA_FEE_BPS).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
   tx.add(...instructions);
-  if (feeLamports.gtn(0)) {
-    tx.add(SystemProgram.transfer({ fromPubkey: user, toPubkey: PANDA_TREASURY, lamports: BigInt(feeLamports.toString()) }));
-  }
+  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
+  if (feeIx) tx.add(feeIx);
   return tx;
 }

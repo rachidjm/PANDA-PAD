@@ -540,8 +540,8 @@ export const dict = {
   "trading.err.confirmTimeout": { en: "Sent, but confirmation timed out — check your wallet's activity before retrying.", es: "Enviada, pero la confirmación tardó demasiado — mira la actividad de tu wallet antes de reintentar." },
   "trading.err.noRoute": { en: "No trading route found for this pair right now — try again shortly.", es: "No se encontró ruta para este par ahora mismo — inténtalo de nuevo en breve." },
   "trading.err.poolNotTradable": {
-    en: "This coin's PumpSwap pool can't be traded with SOL right now (it is empty or set up the other way round). PANDA didn't send anything to your wallet, so you paid nothing.",
-    es: "El pool de PumpSwap de esta moneda no se puede operar con SOL ahora mismo (está vacío o montado al revés). PANDA no envió nada a tu wallet, así que no pagaste nada.",
+    en: "This coin's pool holds almost no SOL right now, or doesn't pair the coin with SOL, so it can't be traded. PANDA didn't send anything to your wallet, so you paid nothing.",
+    es: "El pool de esta moneda casi no tiene SOL ahora mismo, o no empareja la moneda con SOL, así que no se puede operar. PANDA no envió nada a tu wallet, así que no pagaste nada.",
   },
   "trading.err.generic": { en: "Trade failed. Please try again.", es: "La operación falló. Inténtalo de nuevo." },
   "bp.err.slippage": { en: "The price moved more than the allowed tolerance while the transaction was landing. Nothing was bought — try again.", es: "El precio se movió más de lo permitido mientras se ejecutaba. No se compró nada — inténtalo de nuevo." },

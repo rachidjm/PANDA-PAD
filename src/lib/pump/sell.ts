@@ -1,10 +1,11 @@
-import { Connection, PublicKey, Transaction, ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { getSellSolAmountFromTokenAmount } from "@pump-fun/pump-sdk";
 import { getPumpSdk, getOnlinePumpSdk } from "./client";
-import { buildAmmSellTransaction } from "./amm-trade";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PANDA_TREASURY } from "./constants";
+import { buildAmmSellTransaction, graduatedPoolFor } from "./amm-trade";
+import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { tokenProgramOf } from "./token-program";
+import { feeTransferInstruction } from "./fee-transfer";
 
 /**
  * Builds a real, unsigned Pump.fun sell transaction. `tokenAmount` is in the
@@ -35,12 +36,18 @@ export async function buildSellTransaction({
   const online = getOnlinePumpSdk(connection);
   const offline = getPumpSdk();
 
+  const tokenProgram = await tokenProgramOf(connection, mint);
   const [global, feeConfig, sellState] = await Promise.all([
     online.fetchGlobal(),
     online.fetchFeeConfig(),
-    online.fetchSellState(mint, user),
+    online.fetchSellState(mint, user, tokenProgram),
   ]);
   const { bondingCurveAccountInfo, bondingCurve } = sellState;
+
+  // Finished its bonding curve: it trades on its PumpSwap pool now (see buy.ts).
+  if (bondingCurve.complete) {
+    return buildAmmSellTransaction({ connection, mint, user, poolAddress: graduatedPoolFor(mint), tokenAmount, slippagePct });
+  }
 
   const solAmount = getSellSolAmountFromTokenAmount({
     global,
@@ -59,17 +66,18 @@ export async function buildSellTransaction({
     amount: tokenAmount,
     solAmount,
     slippage: slippagePct,
-    tokenProgram: TOKEN_PROGRAM_ID,
+    tokenProgram,
     mayhemMode: bondingCurve.isMayhemMode,
+    cashback: bondingCurve.isCashbackCoin,
   });
 
   const feeLamports = solAmount.muln(PANDA_FEE_BPS).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
   tx.add(...instructions);
-  if (feeLamports.gtn(0)) {
-    tx.add(SystemProgram.transfer({ fromPubkey: user, toPubkey: PANDA_TREASURY, lamports: BigInt(feeLamports.toString()) }));
-  }
+  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
+  if (feeIx) tx.add(feeIx);
   return tx;
 }

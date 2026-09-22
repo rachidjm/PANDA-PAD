@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyFailure, TxFailedError } from "./tx-errors";
-import { ammPoolProblem, MIN_POOL_SOL_LAMPORTS, WSOL_MINT } from "../pump/pool-check";
+import { ammPoolProblem, MIN_POOL_SOL_LAMPORTS, poolOrientation, WSOL_MINT } from "../pump/pool-check";
 
 test("a transaction that ran out of SOL is recognised from the System program's own log", () => {
   const err = { InstructionError: [1, { Custom: 1 }] };
@@ -44,11 +44,20 @@ test("a healthy token/SOL pool passes", () => {
   assert.equal(ammPoolProblem({ ...healthy, baseReserve: "194377061284989", quoteReserve: { toString: () => "79966664919" } }, TOKEN), null, "reserves may come as strings or BN-like objects");
 });
 
-test("the real broken pools are refused: SOL as base and the token as quote, with next to nothing inside", () => {
-  const inverted = { baseMint: WSOL_MINT, quoteMint: "3FSgC2pPmBpDNJqEqmJMaXCE6k1ehRAhw1D3WNhNvWcD", baseReserve: BigInt("1"), quoteReserve: BigInt("12961") };
-  assert.ok(ammPoolProblem(inverted, "3FSgC2pPmBpDNJqEqmJMaXCE6k1ehRAhw1D3WNhNvWcD"));
+test("a SOL/token pool (SOL as base, the token as quote) is a REAL pool and passes when it has liquidity", () => {
+  // EMBER on mainnet: base = SOL (3,225 SOL), quote = the token. Deep, real, and the other way round; it must be tradable.
+  const ember = { baseMint: WSOL_MINT, quoteMint: "FLCr9vZbGq5Ht6yJ1qqfXRTRXbVbUmzm1SLDeLFrpump", baseReserve: BigInt("3225301329873"), quoteReserve: BigInt("4071375463553225") };
+  assert.equal(ammPoolProblem(ember, ember.quoteMint), null);
+  assert.equal(poolOrientation(ember, ember.quoteMint), "token-quote");
+  assert.equal(poolOrientation(healthy, TOKEN), "token-base");
+});
+
+test("dust pools are refused whatever the order, and pools of another pair are refused", () => {
+  const dustInverted = { baseMint: WSOL_MINT, quoteMint: "3FSgC2pPmBpDNJqEqmJMaXCE6k1ehRAhw1D3WNhNvWcD", baseReserve: BigInt("1"), quoteReserve: BigInt("12961") };
+  assert.ok(ammPoolProblem(dustInverted, dustInverted.quoteMint), "1 lamport of SOL");
   assert.ok(ammPoolProblem({ ...healthy, baseMint: "SomeOtherToken1111111111111111111111111111" }, TOKEN), "a pool of a different token");
   assert.ok(ammPoolProblem({ ...healthy, quoteMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, TOKEN), "quoted in USDC, not SOL");
+  assert.equal(poolOrientation({ baseMint: "A", quoteMint: "B" }, TOKEN), null);
 });
 
 test("an (almost) empty pool is refused, exactly at the threshold", () => {

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { buildSellTransaction } from "@/lib/pump/sell";
 
 export async function POST(req: Request) {
+  // Building a trade costs real RPC calls: cap it per visitor so nobody can burn the RPC budget everyone else trades with.
+  if (rateLimited(`trade-build:${clientIp(req)}`, 40, 60_000)) return NextResponse.json({ error: "Too many requests — wait a moment and try again." }, { status: 429 });
   try {
     const { mint, user, tokenAmount, poolAddress, slippagePct } = await req.json();
     if (!mint || !user || !tokenAmount) {

@@ -14,6 +14,7 @@ const ALLOWED_METHODS = new Set([
   "getLatestBlockhash",
   "getBlockHeight",
   "getSignatureStatuses",
+  "getTransaction", // read-only: lets the app say WHY a transaction failed
   "sendTransaction",
   "simulateTransaction",
   "getMinimumBalanceForRentExemption",

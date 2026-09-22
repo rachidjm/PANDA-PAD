@@ -44,6 +44,8 @@ export type Deps = {
   /** PANDA's fee: a SOL transfer to the treasury, built here, signed by the wallet, checked here and only then sent. */
   fee: {
     treasury: string;
+    /** False when the treasury can't receive a transfer this small (see fee-transfer.ts): then no fee is asked for. */
+    canReceive: (lamports: number) => Promise<boolean>;
     build: (wallet: string, lamports: number) => Promise<string>;
     check: (signedBase64: unknown, expected: { wallet: string; treasury: string; lamports: number }) => FeeCheck;
     send: (signedBase64: string) => Promise<string>;
@@ -115,9 +117,11 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   if (issues.length) return fail(422, "issues", "This strategy can't be placed as drawn.", issues);
 
   // PANDA's fee is worked out here from the server's own rates and added on top of what is invested.
-  const fee = strategyFee(funding.funding.usd, quote.solUsd);
+  let fee = strategyFee(funding.funding.usd, quote.solUsd);
   if (!fee) return fail(503, "price_unavailable", "No live SOL rate to work out the fee right now.");
   if (STRATEGY_FEE_BPS > 0 && fee.feeLamports <= 0) return fail(400, "invalid", "That amount is too small.");
+  // A fee the treasury can't receive would make the fee transaction fail after the order exists: better none than that.
+  if (!(await deps.fee.canReceive(fee.feeLamports))) fee = { feeUsd: 0, feeLamports: 0 };
 
   const now = deps.now();
   const condition = triggerConditionFor(buyUsd as number, quote.tokenUsd);
