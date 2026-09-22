@@ -221,13 +221,63 @@ function AreaChart({
   const svgRef = useRef<SVGSVGElement>(null);
   const data = candles.map((c) => c.close);
 
+  // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
+  // lines that already exist stay in view, and while drawing there is headroom to place a target beyond the recent range.
+  // Computed even with too little data to draw a curve (domainFor is safe with an empty/short list) so every hook below
+  // can always run in the same order, whether or not there's a chart to show — React requires that either way.
+  const domain = domainFor(data, overlay ? overlay.lines.map((l) => l.price) : [], overlay?.drawing ? 0.25 : 0);
+  const drawing = !!overlay?.drawing;
+
+  /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve). */
+  function priceAtClientY(clientY: number): number {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return yToPrice(clientYToChartY(clientY, rect.top, rect.height), domain);
+  }
+  function priceAt(e: React.PointerEvent<SVGSVGElement>): number {
+    return priceAtClientY(e.clientY);
+  }
+  const info = (e: React.PointerEvent<SVGSVGElement>) => ({ type: e.pointerType, button: e.button, pressed: e.buttons > 0 });
+
+  // A short (170px on a phone) chart is easy to drag a finger above or below while placing a
+  // price near the top/bottom of the range — once that happens the pointer is no longer over
+  // the SVG. Tracking the drag on `window` instead of the SVG itself (from "down" until "up"/
+  // "cancel") means the line keeps following the finger and still commits on release, wherever
+  // the finger ends up, instead of silently going stale the moment it leaves the chart's bounds.
+  const [dragPointerId, setDragPointerId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!drawing || dragPointerId === null) return;
+    const isTracked = (e: PointerEvent) => e.pointerId === dragPointerId;
+    const onMove = (e: PointerEvent) => {
+      if (!isTracked(e)) return;
+      // A touch pointermove only ever fires while the finger is still down.
+      overlay!.onPointer("move", priceAtClientY(e.clientY), { type: e.pointerType, button: e.button, pressed: e.pointerType === "touch" || e.buttons > 0 });
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!isTracked(e)) return;
+      overlay!.onPointer("up", priceAtClientY(e.clientY), { type: e.pointerType, button: e.button, pressed: false });
+      setDragPointerId(null);
+    };
+    const onCancel = (e: PointerEvent) => {
+      if (!isTracked(e)) return;
+      overlay!.onPointer("leave", 0, { type: e.pointerType, button: 0, pressed: false });
+      setDragPointerId(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawing, dragPointerId]);
+
   if (data.length < 2) {
     return <div className="flex h-[170px] items-center justify-center text-sm text-panda-grey sm:h-[260px]">{noDataLabel}</div>;
   }
 
-  // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
-  // lines that already exist stay in view, and while drawing there is headroom to place a target beyond the recent range.
-  const domain = domainFor(data, overlay ? overlay.lines.map((l) => l.price) : [], overlay?.drawing ? 0.25 : 0);
   const step = (width - padding * 2) / (data.length - 1);
   const color = positive ? "var(--bamboo)" : "var(--clay-red)";
 
@@ -243,20 +293,13 @@ function AreaChart({
   const activeIndex = hoverIndex !== null ? hoverIndex : points.length - 1;
   const active = points[activeIndex];
 
-  const drawing = !!overlay?.drawing;
-
-  /** The price under a pointer event, from the chart's own scale (the same one that draws the curve). */
-  function priceAt(e: React.PointerEvent<SVGSVGElement>): number {
-    const rect = svgRef.current!.getBoundingClientRect();
-    return yToPrice(clientYToChartY(e.clientY, rect.top, rect.height), domain);
-  }
-  const info = (e: React.PointerEvent<SVGSVGElement>) => ({ type: e.pointerType, button: e.button, pressed: e.buttons > 0 });
-
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
     if (!svg) return;
     if (drawing) {
-      overlay!.onPointer("move", priceAt(e), info(e));
+      // While a drag is being tracked on `window` (above), that's the single source of truth — this
+      // would otherwise double-fire for the same movement whenever the pointer is still over the SVG.
+      if (dragPointerId === null) overlay!.onPointer("move", priceAt(e), info(e));
       return;
     }
     const rect = svg.getBoundingClientRect();
@@ -284,23 +327,31 @@ function AreaChart({
         height={height}
         preserveAspectRatio="none"
         onPointerMove={handleMove}
-        onPointerLeave={() => (drawing ? overlay!.onPointer("leave", 0, { type: "mouse", button: 0, pressed: false }) : onHover(null))}
+        onPointerLeave={() => {
+          // Once a drag is being tracked (above), leaving the SVG's own bounds is expected and must not cancel it.
+          if (drawing) { if (dragPointerId === null) overlay!.onPointer("leave", 0, { type: "mouse", button: 0, pressed: false }); }
+          else onHover(null);
+        }}
         onPointerDown={
           drawing
             ? (e) => {
-                // Keep receiving the finger's moves and its lift even if it slides off the chart.
-                try {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                } catch {}
+                setDragPointerId(e.pointerId);
                 overlay!.onPointer("down", priceAt(e), info(e));
               }
             : undefined
         }
-        onPointerUp={drawing ? (e) => overlay!.onPointer("up", priceAt(e), info(e)) : undefined}
-        onPointerCancel={drawing ? () => overlay!.onPointer("leave", 0, { type: "touch", button: 0, pressed: false }) : undefined}
         className="h-[170px] w-full cursor-crosshair sm:h-[260px]"
-        // While placing a line the finger must move the line, not scroll the page; otherwise the page scrolls as usual.
-        style={drawing ? { touchAction: "none" } : undefined}
+        style={
+          drawing
+            ? {
+                // The finger must move the line, not scroll the page or trigger iOS's press-and-hold text-selection callout.
+                touchAction: "none",
+                WebkitUserSelect: "none",
+                userSelect: "none",
+                WebkitTouchCallout: "none",
+              }
+            : undefined
+        }
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
