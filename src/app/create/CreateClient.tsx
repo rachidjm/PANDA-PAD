@@ -9,6 +9,8 @@ import Panda from "@/components/panda/Panda";
 import { base64ToTransaction } from "@/lib/pump/wire";
 import FeeDistributionStep, { FeeDistributionResult } from "@/components/create/FeeDistributionStep";
 import LaunchConfirm from "@/components/create/LaunchConfirm";
+import LaunchModeToggle, { LaunchMode } from "@/components/create/LaunchModeToggle";
+import OtcRewardsCreate from "@/components/create/OtcRewardsCreate";
 import { formatBps } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
@@ -22,6 +24,7 @@ export default function CreateClient() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
+  const [mode, setMode] = useState<LaunchMode>("standard");
   const [stage, setStage] = useState<Stage>("form");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -278,7 +281,15 @@ export default function CreateClient() {
         </div>
       </div>
 
-      <div className="mt-8 space-y-5">
+      <div className="mt-8">
+        <LaunchModeToggle mode={mode} onChange={setMode} />
+      </div>
+
+      {mode === "rewards" ? (
+        <OtcRewardsCreate />
+      ) : (
+      <>
+      <div className="mt-5 space-y-5">
         <div>
           <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.launchOn")}</span>
           <div className="flex items-center gap-2.5 rounded-2xl border border-bamboo/50 bg-bamboo/10 px-4 py-3">
@@ -454,6 +465,8 @@ export default function CreateClient() {
             launch();
           }}
         />
+      )}
+      </>
       )}
     </div>
   );

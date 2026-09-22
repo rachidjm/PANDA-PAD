@@ -1500,6 +1500,74 @@ export const dict = {
     en: "This wallet doesn't support message signing, which the Trigger vault requires.",
     es: "Esta wallet no admite la firma de mensajes, algo que requiere la bóveda de Trigger.",
   },
+
+  // Create — launch mode
+  "cr.mode.title": { en: "Launch mode", es: "Modo de lanzamiento" },
+  "cr.mode.standard": { en: "Standard", es: "Estándar" },
+  "cr.mode.standardDesc": {
+    en: "Standard PANDA launch. Uses PANDA's existing launch and reward system.",
+    es: "Lanzamiento estándar de PANDA. Usa el sistema de lanzamiento y recompensas de siempre.",
+  },
+  "cr.mode.rewards": { en: "Rewards", es: "Rewards" },
+  "cr.mode.rewardsDesc": {
+    en: "Holder reward launch. Uses OTC's reward infrastructure. Reward asset selected at launch.",
+    es: "Lanzamiento con recompensas para holders. Usa la infraestructura de OTC. Eliges el activo de recompensa al lanzar.",
+  },
+
+  // Create — PANDA Rewards (OTC/Meteora launch)
+  "otc.rewardAsset.title": { en: "Reward asset", es: "Activo de recompensa" },
+  "otc.rewardAsset.subtitle": { en: "What should your holders earn?", es: "¿Qué van a ganar tus holders?" },
+  "otc.rewardAsset.search": { en: "Search reward asset…", es: "Busca un activo de recompensa…" },
+  "otc.rewardAsset.loadError": {
+    en: "Couldn't load the reward asset list — try again in a moment.",
+    es: "No se pudo cargar la lista de activos de recompensa — inténtalo de nuevo en un momento.",
+  },
+  "otc.rewardAsset.empty": { en: "No reward asset matches that search.", es: "Ningún activo de recompensa coincide con esa búsqueda." },
+  "otc.rewardAsset.selected": { en: "Holders will earn {symbol}", es: "Los holders ganarán {symbol}" },
+
+  "otc.split.title": { en: "OTC reward launch", es: "Lanzamiento con recompensas OTC" },
+  "otc.split.tooltip": {
+    en: "Reward launches use OTC's fixed fee and reward distribution rules.",
+    es: "Los lanzamientos con recompensas usan las reglas fijas de comisiones y reparto de OTC.",
+  },
+  "otc.split.holders": { en: "Holder reward — 67.5% of creator fees", es: "Recompensa a holders — 67.5% de las comisiones de creador" },
+  "otc.split.rest": {
+    en: "The rest funds OTC's protocol, buyback and desk infrastructure, according to OTC protocol rules — not configurable here.",
+    es: "El resto financia el protocolo, la recompra y la infraestructura de desks de OTC, según sus propias reglas — no se puede configurar aquí.",
+  },
+  "otc.confirmBody": {
+    en: "This mints a real coin on Solana mainnet via OTC's Meteora launcher — two transactions, signed in your own wallet. You're the coin's creator; PANDA never holds your funds or keys.",
+    es: "Esto acuña una moneda real en la mainnet de Solana a través del lanzador de Meteora de OTC — dos transacciones, firmadas en tu propia wallet. Tú eres el creador de la moneda; PANDA nunca guarda tus fondos ni tus claves.",
+  },
+  "otc.mintNote": {
+    en: "This mints a real coin via OTC's Meteora launcher — you sign both transactions in your own wallet, and you're the coin's creator.",
+    es: "Esto acuña una moneda real a través del lanzador de Meteora de OTC — firmas ambas transacciones en tu propia wallet y tú eres el creador de la moneda.",
+  },
+
+  "otc.stage.uploading": { en: "Uploading metadata to OTC…", es: "Subiendo metadatos a OTC…" },
+  "otc.stage.building": { en: "Building the Meteora launch…", es: "Preparando el lanzamiento en Meteora…" },
+  "otc.stage.sendingTx1": { en: "Confirm transaction 1 of 2 in wallet…", es: "Confirma la transacción 1 de 2 en tu wallet…" },
+  "otc.stage.confirmingTx1": { en: "Confirming transaction 1 on Solana…", es: "Confirmando la transacción 1 en Solana…" },
+  "otc.stage.sendingTx2": { en: "Confirm transaction 2 of 2 in wallet…", es: "Confirma la transacción 2 de 2 en tu wallet…" },
+  "otc.stage.confirmingTx2": { en: "Confirming transaction 2 on Solana…", es: "Confirmando la transacción 2 en Solana…" },
+  "otc.stage.registering": { en: "Listing your coin on OTC…", es: "Listando tu moneda en OTC…" },
+
+  "otc.done.summary": { en: "Your holders earn {asset}.", es: "Tus holders ganarán {asset}." },
+  "otc.done.launch": { en: "Launch", es: "Lanzamiento" },
+  "otc.done.venue": { en: "Venue", es: "Plataforma" },
+  "otc.done.rewardAsset": { en: "Reward asset", es: "Activo de recompensa" },
+  "otc.done.registerPending": {
+    en: "Your coin is live and already earning fees — OTC's board just hasn't indexed it yet. Nothing to do; it'll appear there shortly.",
+    es: "Tu moneda ya está viva y generando comisiones — el listado de OTC todavía no la ha indexado. No hace falta hacer nada; aparecerá ahí en breve.",
+  },
+
+  "otc.err.upload": { en: "Couldn't upload metadata to OTC.", es: "No se pudieron subir los metadatos a OTC." },
+  "otc.err.build": { en: "Couldn't build the OTC launch.", es: "No se pudo preparar el lanzamiento en OTC." },
+  "otc.err.unpriceable": {
+    en: "OTC couldn't price this reward asset right now — try again in a moment.",
+    es: "OTC no pudo cotizar este activo de recompensa ahora mismo — inténtalo de nuevo en un momento.",
+  },
+  "otc.err.badAsset": { en: "That reward asset isn't offered by OTC.", es: "Ese activo de recompensa no está disponible en OTC." },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;
