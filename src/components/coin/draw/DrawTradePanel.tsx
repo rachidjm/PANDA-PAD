@@ -152,8 +152,11 @@ function Dot({ kind }: { kind: DrawTarget }) {
   return <span className="mt-[3px] inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: LINE_COLOR[kind] }} aria-hidden />;
 }
 
-/** Neutral like the rest of the site's buttons; the small dot only says which line it draws. */
+/** Each mode gets its own little bamboo stalk (same colors as its chart line) instead of a plain dot —
+ * a small nod to PANDA's bamboo theme on the button that matters most for "drawing your trade". When
+ * active, the button itself takes on that color instead of turning plain white. */
 function TargetButton({ kind, active, disabled, onClick, title, children }: { kind: DrawTarget; active: boolean; disabled?: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
+  const color = LINE_COLOR[kind];
   return (
     <button
       type="button"
@@ -161,13 +164,26 @@ function TargetButton({ kind, active, disabled, onClick, title, children }: { ki
       disabled={disabled}
       aria-pressed={active}
       title={title}
-      className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        active ? "border-paper bg-paper text-ink" : "border-paper/15 text-paper/80 hover:border-paper/35 hover:text-paper"
-      }`}
+      className="flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+      style={
+        active
+          ? { borderColor: color, background: `color-mix(in srgb, ${color} 22%, var(--ink-raised))`, color: "var(--paper)" }
+          : { borderColor: `color-mix(in srgb, ${color} 35%, transparent)`, color: "color-mix(in srgb, var(--paper) 80%, transparent)" }
+      }
     >
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: LINE_COLOR[kind] }} aria-hidden />
+      <BambooStalk color={color} />
       {children}
     </button>
+  );
+}
+
+/** A tiny bamboo culm: a rounded segment with two node rings, in the mode's own color. */
+function BambooStalk({ color }: { color: string }) {
+  return (
+    <svg width="9" height="16" viewBox="0 0 9 16" fill="none" aria-hidden className="shrink-0">
+      <rect x="1" y="0.75" width="7" height="14.5" rx="3.5" fill={color} fillOpacity="0.3" stroke={color} strokeWidth="1.1" />
+      <path d="M1 5.4h7M1 10.8h7" stroke={color} strokeWidth="1.1" />
+    </svg>
   );
 }
 

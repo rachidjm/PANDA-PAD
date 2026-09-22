@@ -499,15 +499,17 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; l
   return { coins, live: true };
 }
 
-export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
+/** Finds the coin by mint — from the cached top-60, or (not in it) by looking it up
+ * directly across every dex, so any coin found via search still has a working page.
+ * fetchTokenPools already swallows its own errors and returns an empty list, so a
+ * GeckoTerminal outage looks the same as "no pools" here — fall back to Dexscreener
+ * (independent real source) before giving up. No detail-page enrichment yet: that's
+ * `enrichCoinDetail`, kept separate so a caller (the coin page) can run it alongside
+ * the trades fetch instead of waiting for it first. */
+export async function getLiveCoinBase(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
   const { coins, live } = await getLiveCoins();
   let coin = coins.find((c) => c.mint.toLowerCase() === mint.toLowerCase());
 
-  // Not in the cached pump-fun/pumpswap top-60 — look it up directly by mint
-  // across every dex, so any coin found via search still has a working page.
-  // fetchTokenPools already swallows its own errors and returns an empty
-  // list, so a GeckoTerminal outage looks the same as "no pools" here — fall
-  // back to Dexscreener (independent real source) before giving up.
   if (!coin) {
     const { data, included = [] } = await fetchTokenPools(mint);
     const best = [...data].sort(
@@ -524,23 +526,33 @@ export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefine
       if (bestPair) coin = dexPairToCoin(bestPair);
     }
   }
-
-  if (coin && coin.poolAddress) {
-    const closes = await fetchPoolHourlyCloses(coin.poolAddress);
-    if (closes.length > 4) {
-      coin.priceHistory = closes;
-      coin.range24h = { low: Math.min(...closes), high: Math.max(...closes) };
-    }
-  }
-  // Description/website/socials only matter on this page, so fetch them
-  // lazily here (one request) instead of eagerly for every coin in a list.
-  if (coin) coin = await enrichSocials(coin).catch(() => coin as Coin);
-  if (coin) {
-    const p = (await fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>())).get(coin.mint);
-    if (p) coin = applyPump(coin, p);
-  }
-  if (coin) coin = withBestImage(coin);
   return { coin, live };
+}
+
+/** Everything a list card never needs but a coin's own page does: real hourly closes,
+ * description/socials, and Pump.fun's own launch info. The three are independent of
+ * each other, so they run together (one round trip) instead of one after another —
+ * that's what made opening a coin page slow. */
+export async function enrichCoinDetail(coin: Coin): Promise<Coin> {
+  const [closes, socials, pumpInfo] = await Promise.all([
+    coin.poolAddress ? fetchPoolHourlyCloses(coin.poolAddress).catch(() => [] as number[]) : Promise.resolve([] as number[]),
+    enrichSocials(coin).catch(() => coin),
+    fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>()),
+  ]);
+
+  let result = socials;
+  if (closes.length > 4) {
+    result = { ...result, priceHistory: closes, range24h: { low: Math.min(...closes), high: Math.max(...closes) } };
+  }
+  const p = pumpInfo.get(coin.mint);
+  if (p) result = applyPump(result, p);
+  return withBestImage(result);
+}
+
+export async function getLiveCoin(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
+  const { coin, live } = await getLiveCoinBase(mint);
+  if (!coin) return { coin: undefined, live };
+  return { coin: await enrichCoinDetail(coin), live };
 }
 
 export async function getCoinTrades(coin: Coin): Promise<{ trades: Trade[]; live: boolean }> {

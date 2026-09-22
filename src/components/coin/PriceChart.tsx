@@ -277,10 +277,6 @@ function AreaChart({
 
   return (
     <div className="relative">
-      {/* A quiet sign that time is moving forward: faint vertical lines drifting left and a soft light passing across. */}
-      <div className="chart-flow pointer-events-none absolute inset-x-0 top-0 h-[170px] overflow-hidden rounded-xl sm:h-[260px]" aria-hidden>
-        <div className="chart-flow-grid" />
-      </div>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
