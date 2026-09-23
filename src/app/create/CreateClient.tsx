@@ -14,6 +14,7 @@ import OtcRewardsCreate from "@/components/create/OtcRewardsCreate";
 import { formatBps } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
 
@@ -24,7 +25,10 @@ export default function CreateClient() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
-  const [mode, setMode] = useState<LaunchMode>("standard");
+  const { otcRewards } = useFeatures();
+  const [chosenMode, setMode] = useState<LaunchMode>("standard");
+  // The Rewards mode exists only when FEATURE_OTC_REWARDS is on; otherwise Create is exactly the Standard launch.
+  const mode: LaunchMode = otcRewards ? chosenMode : "standard";
   const [stage, setStage] = useState<Stage>("form");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -278,9 +282,11 @@ export default function CreateClient() {
         <p className="mt-1.5 text-sm text-panda-grey">{t("cr.sub")}</p>
       </div>
 
-      <div className="mt-7">
-        <LaunchModeToggle mode={mode} onChange={setMode} />
-      </div>
+      {otcRewards && (
+        <div className="mt-7">
+          <LaunchModeToggle mode={mode} onChange={setMode} />
+        </div>
+      )}
 
       {mode === "rewards" ? (
         <OtcRewardsCreate />

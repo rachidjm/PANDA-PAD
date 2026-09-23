@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
@@ -12,6 +13,8 @@ import { getOtcLaunch, transitionOtcLaunch } from "@/lib/otc/store";
  * this route can't be used to sneak an unvalidated quoteMint or a mismatched creator through.
  */
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("OTC_REWARDS");
+  if (disabled) return disabled;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
   if (rateLimited(`otc-build:${clientIp(req)}`, 15, 60_000)) {

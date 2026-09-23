@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { realDeps } from "@/lib/strategy/deps";
 import { failureResponse, guardWrite, readBody } from "@/lib/strategy/route";
 import { prepareStrategy } from "@/lib/strategy/service";
 
 /** Step 1 of confirming a strategy: re-validates everything server-side and builds the deposit for the wallet to sign. Nothing is placed yet. */
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   const g = guardWrite(req, "prepare", 20);
   if (g instanceof NextResponse) return g;
   const body = await readBody(req);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
@@ -15,6 +16,8 @@ const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
  * already has one" a real check, not a client-side promise.
  */
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("OTC_REWARDS");
+  if (disabled) return disabled;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
   if (rateLimited(`otc-metadata:${clientIp(req)}`, 10, 60_000)) {

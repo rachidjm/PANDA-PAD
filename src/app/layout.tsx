@@ -45,6 +45,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 points: isEnabled("PANDA_POINTS"),
                 airdrops: isEnabled("PANDA_AIRDROPS"),
                 claims: isEnabled("PANDA_AIRDROPS") && isEnabled("MERKLE_CLAIMS"),
+                strategies: isEnabled("STRATEGIES"),
+                otcRewards: isEnabled("OTC_REWARDS"),
               }}
             >
               <WalletProvider>

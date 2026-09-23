@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { recordAudit } from "@/lib/audit/log";
 import { registerCoin } from "@/lib/otc/client";
@@ -13,6 +14,8 @@ import { otcRewardAssetByMint } from "@/lib/otc/reward-assets";
  * flag the client polls on) rather than treating it as a hard failure.
  */
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("OTC_REWARDS");
+  if (disabled) return disabled;
   if (rateLimited(`otc-register:${clientIp(req)}`, 20, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }

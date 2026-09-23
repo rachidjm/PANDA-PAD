@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { craftDeposit } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   try {
     const { inputMint, outputMint, userAddress, amount, orderSubType } = await req.json();
     if (!inputMint || !outputMint || !userAddress || !amount) {

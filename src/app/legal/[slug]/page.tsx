@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
-import { LEGAL_PAGES, LEGAL_SLUGS, LegalSlug } from "@/lib/legal-content";
+import { getLegalPage, LEGAL_PAGES, LEGAL_SLUGS, LegalSlug } from "@/lib/legal-content";
+import { isEnabled } from "@/lib/config/flags";
 import LegalPageLayout from "@/components/legal/LegalPageLayout";
+
+// Read per request, not baked at build: whether the custody sections appear follows FEATURE_STRATEGIES as deployed.
+export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
   return LEGAL_SLUGS.map((slug) => ({ slug }));
@@ -8,8 +12,7 @@ export function generateStaticParams() {
 
 export default async function LegalSlugPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const page = LEGAL_PAGES[slug as LegalSlug];
-  if (!page) notFound();
+  if (!LEGAL_PAGES[slug as LegalSlug]) notFound();
 
-  return <LegalPageLayout page={page} />;
+  return <LegalPageLayout page={getLegalPage(slug as LegalSlug, { custody: isEnabled("STRATEGIES") })} />;
 }

@@ -13,6 +13,9 @@ export const FEATURES = [
   "PANDA_AIRDROPS",
   "CREATOR_REWARDS",
   "MERKLE_CLAIMS",
+  // Launch scope: everything below moves money that has never been signed on mainnet, or needs a custodian.
+  "STRATEGIES", // Draw Your Trade + Stop Loss / Take Profit — custodial (Jupiter Trigger vault, held by Privy)
+  "OTC_REWARDS", // the Rewards mode of /create (OTC / Meteora launcher)
 ] as const;
 
 export type Feature = (typeof FEATURES)[number];

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { realDeps } from "@/lib/strategy/deps";
 import { failureResponse, guardWrite, readBody } from "@/lib/strategy/route";
 import { createStrategy } from "@/lib/strategy/service";
 
 /** Step 2: the wallet-signed deposit goes to Jupiter together with the prepared order — exactly once per strategy. */
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   const g = guardWrite(req, "create", 10);
   if (g instanceof NextResponse) return g;
   const body = await readBody(req);

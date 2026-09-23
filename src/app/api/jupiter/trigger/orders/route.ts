@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { createOrder, listOrders, CreateOrderParams } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   try {
     const { token, ...params } = (await req.json()) as CreateOrderParams & { token?: string };
     if (!token) return NextResponse.json({ error: "Missing auth token." }, { status: 401 });
@@ -26,6 +29,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   try {
     const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
     if (!token) return NextResponse.json({ error: "Missing auth token." }, { status: 401 });

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { confirmCancel } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   try {
     const { id } = await params;
     const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");

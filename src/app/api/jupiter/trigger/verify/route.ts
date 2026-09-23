@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { featureDisabledResponse } from "@/lib/config/guard";
 import { verifyAuthChallenge } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request) {
+  const disabled = featureDisabledResponse("STRATEGIES");
+  if (disabled) return disabled;
   try {
     const { walletPubkey, signature } = await req.json();
     if (!walletPubkey || !signature) {

@@ -7,9 +7,9 @@ import { createContext, useContext } from "react";
  * decided on the server from the feature flags and only say WHAT is on: hiding a link is a courtesy, never a
  * control — every route still checks its own flag on the server.
  */
-export type Features = { themes: boolean; branches: boolean; market: boolean; points: boolean; airdrops: boolean; claims: boolean };
+export type Features = { themes: boolean; branches: boolean; market: boolean; points: boolean; airdrops: boolean; claims: boolean; strategies: boolean; otcRewards: boolean };
 
-const OFF: Features = { themes: false, branches: false, market: false, points: false, airdrops: false, claims: false };
+const OFF: Features = { themes: false, branches: false, market: false, points: false, airdrops: false, claims: false, strategies: false, otcRewards: false };
 const FeaturesContext = createContext<Features>(OFF);
 
 export function FeaturesProvider({ features, children }: { features: Features; children: React.ReactNode }) {

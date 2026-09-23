@@ -24,8 +24,8 @@ export const dict = {
   "wallet.installPhantom": { en: "Install Phantom", es: "Instalar Phantom" },
   "wallet.installSolflare": { en: "Install Solflare", es: "Instalar Solflare" },
   "wallet.neverSeeKeys": {
-    en: "PANDA never sees your seed phrase or keys. You approve everything in your wallet.",
-    es: "PANDA nunca ve tu frase semilla ni tus claves. Apruebas todo desde tu wallet.",
+    en: "PANDA never sees your seed phrase or keys. You approve every transaction in your own wallet.",
+    es: "PANDA nunca ve tu frase semilla ni tus claves. Apruebas cada transacción desde tu propia wallet.",
   },
 
   // Footer

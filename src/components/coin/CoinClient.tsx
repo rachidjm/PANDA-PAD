@@ -13,6 +13,7 @@ import PriceChart from "@/components/coin/PriceChart";
 import { dexLabel } from "@/lib/dex-labels";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 const tabs = ["Trades", "Holders", "Rewards"] as const;
 type Tab = (typeof tabs)[number];
@@ -28,6 +29,7 @@ type Props = {
 export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
   const [tab, setTab] = useState<Tab>("Trades");
   const { t } = useLanguage();
+  const { strategies } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
   const positive = coin.changePct >= 0;
 
   return (
@@ -78,7 +80,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
               initialCloses={coin.priceHistory}
               changePct={coin.changePct}
               marketCap={coin.marketCap}
-              coin={coin}
+              coin={strategies ? coin : undefined}
             />
           </div>
         </div>
@@ -86,7 +88,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
         <div className="contents lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:block lg:space-y-4 lg:self-start">
           <div className="order-2 space-y-4 lg:order-none">
             <TradingPanel coin={coin} />
-            <StopLossTakeProfit coin={coin} />
+            {strategies && <StopLossTakeProfit coin={coin} />}
           </div>
           <div className="order-4 space-y-4 lg:order-none">
             <MarketActivityCard coin={coin} />
