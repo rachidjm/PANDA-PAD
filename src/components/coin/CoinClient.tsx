@@ -10,6 +10,7 @@ import LiveBadge from "@/components/LiveBadge";
 import TradingPanel from "@/components/coin/TradingPanel";
 import StopLossTakeProfit from "@/components/coin/StopLossTakeProfit";
 import PriceChart from "@/components/coin/PriceChart";
+import FeeLockNotice from "@/components/coin/FeeLockNotice";
 import { dexLabel } from "@/lib/dex-labels";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
@@ -55,6 +56,8 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
             </div>
             <Panda pose={positive ? "tradeUp" : "tradeDown"} size={56} />
           </div>
+
+          <FeeLockNotice mint={coin.mint} />
 
           {coin.quality === "suspect" && (
             <div className="mt-4 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-xs leading-relaxed text-paper/90" role="alert">

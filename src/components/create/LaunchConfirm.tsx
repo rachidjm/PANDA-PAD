@@ -18,6 +18,7 @@ export default function LaunchConfirm({
   imageSrc,
   lines,
   firstBuySol,
+  singleTx,
   onBack,
   onConfirm,
 }: {
@@ -26,6 +27,7 @@ export default function LaunchConfirm({
   imageSrc: string | null;
   lines: FeeLine[];
   firstBuySol: number;
+  singleTx: boolean;
   onBack: () => void;
   onConfirm: () => void;
 }) {
@@ -92,7 +94,7 @@ export default function LaunchConfirm({
           <span className="font-medium">{firstBuySol > 0 ? `${firstBuySol} SOL` : t("cr.confirmNoBuy")}</span>
         </div>
 
-        <p className="mt-4 text-xs text-panda-grey">{t("cr.confirmBody")}</p>
+        <p className="mt-4 text-xs text-panda-grey">{t(singleTx ? "cr.confirmBodyOne" : "cr.confirmBody")}</p>
 
         <div className="mt-5 grid grid-cols-2 gap-2">
           <button

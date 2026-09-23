@@ -1,6 +1,7 @@
 import { fetchDexPools, fetchPoolTradesStrict, tokenIdToAddress } from "@/lib/gecko/client";
 import { fetchNewestPumpCoins, fetchPumpCoins } from "@/lib/pump/frontend-api";
 import { getLiveCoin, getLiveCoins } from "@/lib/live-coins";
+import { withoutPendingFeeLock } from "@/lib/pump/fee-lock";
 import type { Coin } from "@/lib/types";
 import { ACTIVITY_CONFIG as C } from "./config";
 import { readJournal } from "./journal";
@@ -44,7 +45,8 @@ export function realFeedDeps(): FeedDeps {
       return settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
     },
 
-    launches: async () => (await fetchNewestPumpCoins(60)).map(launchToEvent).filter((e): e is FeedEvent => e !== null),
+    // Coins still waiting for their fee split (two-transaction launches) are kept out of the feed.
+    launches: async () => (await withoutPendingFeeLock(await fetchNewestPumpCoins(60))).map(launchToEvent).filter((e): e is FeedEvent => e !== null),
 
     graduations: async () => {
       const now = Date.now();
@@ -56,12 +58,13 @@ export function realFeedDeps(): FeedDeps {
       if (recent.length === 0) return [];
       const mintOf = (id: string) => tokenIdToAddress(id);
       const pumpCoins = await fetchPumpCoins(recent.map((p) => mintOf(p.relationships.base_token.data.id)));
-      return recent
+      const events = recent
         .map((p) => {
           const mint = mintOf(p.relationships.base_token.data.id);
           return graduationToEvent(p, mint, pumpCoins.get(mint), now);
         })
         .filter((e): e is FeedEvent => e !== null);
+      return withoutPendingFeeLock(events);
     },
 
     meta: async (mints) => {

@@ -50,6 +50,7 @@ agrupada y comentada, está en `.env.example`.
 | `NETWORK` | `mainnet` (producción) | Producción no mueve dinero (guard de red). |
 | `TREASURY_IS_MULTISIG` | `true` cuando la tesorería sea un multisig (paso 4.1) | En mainnet no se pueden crear monedas (el trading sigue). |
 | `SOLANA_RPC_URL` | URL del RPC dedicado (paso 1) | Producción no mueve dinero. |
+| `PANDA_LOOKUP_TABLE` | Dirección de la Address Lookup Table de PANDA (paso 4.2) | Un lanzamiento pide **dos** firmas y la moneda queda fuera de las listas hasta fijar el reparto. Opcional pero muy recomendada. |
 | `NEXT_PUBLIC_PANDA_TREASURY` | Dirección pública de la tesorería (paso 3/4) | Producción no mueve dinero (si no, la comisión iría a una dirección por defecto). |
 | `AUTH_SESSION_SECRET` | ≥ 32 caracteres aleatorios | Nadie inicia sesión ni reclama recompensas. |
 | `ADMIN_WALLETS` | Direcciones públicas separadas por comas | Nadie es admin. |
@@ -122,6 +123,23 @@ varias personas para firmar, así que no puede ser la wallet que paga. Lo honest
 - La alternativa de fondo (un programa on-chain que aplique el reparto sin clave de servidor) **no existe hoy** y es trabajo
   aparte. Hasta entonces, la custodia de esa wallet es tu responsabilidad y los textos legales ya lo declaran.
 
+### 4.2 Lookup table de lanzamientos (una firma en vez de dos)
+
+Crear una moneda y fijar su reparto (el 5 % bloqueado de PANDA) **no cabe** en una transacción normal (1.238–1.347 bytes frente a 1.232).
+Como transacción v0 con una Address Lookup Table propia sí cabe (medido: 846–1.153 bytes con 1–10 repartos y metadatos cortos; con
+metadatos del tamaño real, hasta **9 de 10** repartos caben; si no cabe, el servidor usa las dos transacciones). Es atómico: la moneda no puede existir sin su reparto.
+
+1. Simulación, sin firmar nada: `npm run create-lookup-table -- --rpc <tu RPC>` (lista las 14 cuentas fijas y el coste: ~0,0032 SOL de renta).
+2. Créala **tú**, con una wallet tuya con ~0,01 SOL (yo no firmo nada): `npm run create-lookup-table -- --rpc <RPC> --keypair <archivo.json> --yes`.
+   Crea la tabla, la rellena y la **congela** (sin autoridad: nadie puede cambiarla ni cerrarla). Imprime su dirección.
+3. Ponla en Vercel como `PANDA_LOOKUP_TABLE` (es pública, no un secreto).
+4. Comprueba, solo lectura: `npm run check-lookup-table -- --rpc <RPC>` → `CHECK OK` (activa, congelada, con todas las cuentas y un lanzamiento de 1 y de 10 repartos dentro del límite).
+
+Sin la variable todo funciona igual con el respaldo de dos transacciones, pero la moneda se **oculta** de todas las listas de PANDA
+(inicio, Discover, búsqueda, launches, Activity) hasta que el reparto esté on-chain, su creador ve un aviso persistente con el botón
+"Fijar reparto de comisiones" en la página de la moneda, y cada moneda creada sin reparto queda en auditoría
+(`token.created_without_fee_split`, y `token.fee_split_locked` cuando se fija).
+
 ## 5. Vercel Pro
 
 - El plan Hobby es para uso personal no comercial según los términos de Vercel **(sin verificar: confírmalo en su página
@@ -169,6 +187,7 @@ enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a l
 
 - [ ] Pasos 1–3 hechos; `/api/health/trading` en verde (`ok: true`).
 - [ ] Paso 4.1 hecho (tesorería definitiva en multisig) y `TREASURY_IS_MULTISIG=true` **antes** de crear la primera moneda real (sin eso el servidor no deja).
+- [ ] Paso 4.2 hecho (`PANDA_LOOKUP_TABLE` puesta y `check-lookup-table` en `CHECK OK`); si no, sabes que se usa el respaldo de dos transacciones.
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
 - [ ] Respuesta legal recibida (paso 7) y `[pendiente]` de los textos legales rellenados.

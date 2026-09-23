@@ -4,6 +4,7 @@ import { assessCoin } from "@/lib/quality/coin-quality";
 import { fetchDexTokensBatch, type DexPair } from "@/lib/dexscreener/client";
 import { fetchNewestPumpCoins } from "@/lib/pump/frontend-api";
 import type { CoinSource } from "@/lib/types";
+import { withoutPendingFeeLock } from "@/lib/pump/fee-lock";
 
 export type Launch = {
   mint: string;
@@ -28,7 +29,8 @@ let cache: { launches: Launch[]; expires: number } | null = null;
 
 /** The newest coins straight from Pump.fun's own launch feed (real launch time, real socials). */
 async function fromPumpFeed(): Promise<Launch[]> {
-  const feed = await fetchNewestPumpCoins(60);
+  // Coins still waiting for their fee split (two-transaction launches) never show up here.
+  const feed = await withoutPendingFeeLock(await fetchNewestPumpCoins(60));
   // One coin per name/ticker (highest market cap wins) — lookalikes launched minutes apart confuse buyers.
   const seen = new Set<string>();
   const unique = feed

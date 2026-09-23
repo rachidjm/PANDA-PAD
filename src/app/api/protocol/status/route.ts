@@ -3,6 +3,9 @@ import { getPauseState } from "@/lib/protocol/pause-store";
 import { SUBSYSTEMS } from "@/lib/protocol/pause";
 import { moneyFlowStatus } from "@/lib/config/launch-guard";
 import { decideCoinCreation } from "@/lib/config/creation";
+import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
+import { serverRpcUrl } from "@/lib/solana/rpc";
+import { Connection } from "@solana/web3.js";
 
 /**
  * Auth: none (public — users must be able to see why something is paused).
@@ -15,7 +18,8 @@ export async function GET() {
   try {
     const flows = await moneyFlowStatus().catch(() => ({ blocking: true as const, reason: "network_unverified" as const }));
     const moneyFlows = flows.blocking ? { allowed: false, reason: flows.reason } : { allowed: true };
-    const creation = decideCoinCreation();
+    // `singleTx`: a launch (coin + fee split) is one transaction only when PANDA's lookup table is configured AND readable now; else two.
+    const creation = { ...decideCoinCreation(), singleTx: (await getLaunchLookupTable(new Connection(serverRpcUrl(), "confirmed"))) !== null };
     const state = await getPauseState();
     const paused = SUBSYSTEMS.flatMap((subsystem) => {
       const e = state.subsystems[subsystem];

@@ -145,20 +145,25 @@ comisión. (Con la tesorería en 0 SOL el trade se ejecuta **sin** comisión: `v
 `docs/DEPLOY_CHECKLIST.md` §4.1). Si no, `/create` muestra el aviso "Crear monedas está en pausa" y el botón Launch no se activa:
 eso ya es una comprobación (anótala); para el resto de la prueba, cumple el requisito.
 **Importe:** primera compra 0,01 SOL (+ coste de crear, ver preparación).
-**Cómo es un lanzamiento (importante):** con reparto de comisiones son **tres firmas seguidas**, no una: (1) crear la moneda,
-(2) fijar el reparto on-chain (`SharingConfig`) y (3) la primera compra. Antes iba todo en una sola transacción, pero medido
-**no cabía** (1.238–1.347 bytes frente al límite de 1.232), por eso se dividió en dos.
+**Cómo es un lanzamiento (importante):** crear la moneda y fijar el reparto **no cabe** en una transacción normal (1.238–1.347
+bytes frente al límite de 1.232). Hay dos caminos, según `PANDA_LOOKUP_TABLE` (`docs/DEPLOY_CHECKLIST.md` §4.2):
+- **Con la lookup table (recomendado): una sola firma** (v0, atómica) para la moneda + su reparto, y otra para la primera compra.
+- **Sin ella (respaldo): tres firmas** — crear, fijar el reparto y la primera compra — y la moneda se oculta de las listas hasta fijarlo.
+Comprueba cuál usa tu despliegue: `GET /api/protocol/status` → `creation.singleTx` (`true` = una firma).
 
 **Pasos**
 1. `/create` → modo Estándar (con los flags por defecto no hay selector Rewards).
 2. Sube una imagen, pon nombre, ticker y descripción. En **Fee distribution** el reparto es **PANDA 5 % bloqueado + Creator +
    partner opcional** (no hay banda Holders: `FEATURE_HOLDER_REWARDS` está apagado). Déjalo en Creator 95 %.
-3. En "Tu primera compra" escribe `0.01`. **Launch** → revisa el modal (dice que se aprueban dos transacciones seguidas) → confirma.
-4. Phantom pide, en orden: la creación, el reparto de comisiones y la primera compra. Confirma las tres.
-5. Guarda: mint `________`, firma de creación `________`, firma del reparto `________`, firma de compra `________`.
-6. **Caso a provocar una vez:** en otra creación, **rechaza la segunda firma**. Esperado: la pantalla final dice "Tu moneda ya
-   existe, pero su reparto de comisiones aún no está fijado" con el botón **Fijar el reparto de comisiones**; púlsalo y aprueba:
-   debe quedar fijado. (Mientras no se fija, las comisiones de creador de esa moneda NO están repartidas, PANDA incluida.)
+3. En "Tu primera compra" escribe `0.01`. **Launch** → revisa el modal (dice si se aprueba una transacción o dos) → confirma.
+4. Phantom pide, en orden: la creación (con el reparto, si hay tabla), el reparto aparte (solo sin tabla) y la primera compra.
+5. Guarda: mint `________`, firma de creación `________`, firma del reparto `________` (la misma que la de creación con tabla), firma de compra `________`.
+6. **Caso a provocar una vez, solo sin tabla:** en otra creación, **rechaza la segunda firma**. Esperado: la pantalla final dice "Tu moneda ya
+   existe, pero su reparto de comisiones aún no está fijado" con el botón **Fijar el reparto de comisiones**. Además: la moneda **no aparece**
+   en inicio, Discover, búsqueda ni Activity; al abrir su página con la wallet creadora sale el aviso persistente con el botón; en
+   `/admin` (auditoría) hay un evento `token.created_without_fee_split`. Púlsalo y aprueba: la moneda vuelve a las listas y aparece
+   `token.fee_split_locked`. (Con tabla este caso no existe: o hay moneda y reparto, o ninguno.)
+7. **Con tabla:** rechaza la única firma → no existe nada on-chain. Y `npm run check-lookup-table` → `CHECK OK` antes de empezar.
 
 **Esperado:** pantalla "…is live"; la moneda aparece en Pump.fun; la primera compra se ve en tu wallet.
 **En Solscan:** la firma de creación tiene la instrucción `create_v2` de Pump.fun; la del reparto tiene las instrucciones que

@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
-import { base64ToTransaction } from "@/lib/pump/wire";
+import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
+import { applyFeeSplit, registerFeeDistribution } from "@/lib/pump/fee-split-client";
 import FeeDistributionStep, { FeeDistributionResult } from "@/components/create/FeeDistributionStep";
 import LaunchConfirm from "@/components/create/LaunchConfirm";
 import LaunchModeToggle, { LaunchMode } from "@/components/create/LaunchModeToggle";
@@ -15,7 +16,7 @@ import { formatBps } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
-import { useCreationBlocked } from "@/components/create/useCreationBlocked";
+import { useCreationStatus } from "@/components/create/useCreationBlocked";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fees" | "buying" | "done" | "error";
 
@@ -27,7 +28,7 @@ export default function CreateClient() {
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
   const { otcRewards } = useFeatures();
-  const creationBlocked = useCreationBlocked();
+  const { blocked: creationBlocked, singleTx } = useCreationStatus();
   const [chosenMode, setMode] = useState<LaunchMode>("standard");
   // The Rewards mode exists only when FEATURE_OTC_REWARDS is on; otherwise Create is exactly the Standard launch.
   const mode: LaunchMode = otcRewards ? chosenMode : "standard";
@@ -94,42 +95,12 @@ export default function CreateClient() {
     return signature;
   }
 
-  // Second transaction of a launch: writes the coin's on-chain fee split (PANDA's locked 5% + the creator's allocations).
-  async function applyFeeSplit(mintAddress: string, shareholders: { address: string; shareBps: number }[]): Promise<void> {
-    if (!publicKey) throw new Error(t("cr.err.buyWallet"));
-    let data: { transaction?: string; error?: string; code?: string } = {};
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const res = await fetch("/api/pump/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "fees", mint: mintAddress, user: publicKey.toBase58(), shareholders }),
-      });
-      data = await res.json();
-      if (res.ok) break;
-      // Right after the create confirms, the RPC node may not have the new coin yet: wait a moment and ask again.
-      if (data.code === "MINT_NOT_FOUND" && attempt < 3) {
-        await new Promise((r) => setTimeout(r, 1500));
-        continue;
-      }
-      throw new Error(data.error || t("cr.err.build"));
-    }
-    const tx = base64ToTransaction(data.transaction as string);
-    const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
-    await confirmSignature(connection, signature);
-    // Best-effort — the split is already on-chain; this adds the mint to PANDA's own registry of coins whose fees the distributor collects.
-    fetch("/api/pump/register-fee-distribution", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mint: mintAddress }),
-    }).catch(() => {});
-  }
-
   async function retryFeeSplit() {
     if (!result || !feeResult) return;
     setRetryingFees(true);
     setFeeError("");
     try {
-      await applyFeeSplit(result.mint, feeResult.lines.map((l) => ({ address: l.address, shareBps: l.bps })));
+      await applyFeeSplit({ connection, publicKey, sendTransaction, mint: result.mint, shareholders: feeResult.lines.map((l) => ({ address: l.address, shareBps: l.bps })), errors: { noWallet: t("cr.err.buyWallet"), build: t("cr.err.build") } });
       setFeesPending(false);
     } catch (err) {
       setFeeError(explainError(err, t));
@@ -175,7 +146,8 @@ export default function CreateClient() {
       const buildData = await buildRes.json();
       if (!buildRes.ok) throw new Error(buildData.error || t("cr.err.build"));
 
-      const transaction = base64ToTransaction(buildData.transaction);
+      // `combined`: the whole launch (coin + fee split) is ONE v0 transaction; otherwise it is the coin alone and the split follows.
+      const transaction = buildData.combined ? base64ToVersionedTransaction(buildData.transaction) : base64ToTransaction(buildData.transaction);
 
       setStage("signing");
       const signature = await sendTransaction(transaction, connection, {
@@ -192,15 +164,21 @@ export default function CreateClient() {
       setFeesPending(false);
       setFeeError("");
 
-      if (shareholders.length) {
+      if (buildData.combined) {
+        // One atomic transaction did both: the split can't be missing. Only let PANDA's registry know about the coin.
+        void registerFeeDistribution(mint.publicKey.toBase58());
+      } else if (shareholders.length) {
         // The coin exists now; the split is the second transaction. If it is rejected or fails, the launch is NOT undone:
-        // the coin is live, the done screen says its split is not set yet and offers a retry.
+        // the coin is live but hidden from PANDA's lists, and the done screen says its split is not set yet and offers a retry
+        // (its creator also gets the same notice on the coin page).
         setStage("fees");
         try {
-          await applyFeeSplit(mint.publicKey.toBase58(), shareholders);
+          await applyFeeSplit({ connection, publicKey, sendTransaction, mint: mint.publicKey.toBase58(), shareholders, errors: { noWallet: t("cr.err.buyWallet"), build: t("cr.err.build") } });
         } catch (feeErr) {
           setFeesPending(true);
           setFeeError(explainError(feeErr, t));
+          // Let the server see the coin without its split now, so it is audited without waiting for the daily check.
+          void fetch(`/api/pump/fee-lock?mint=${mint.publicKey.toBase58()}`).catch(() => {});
         }
       }
 
@@ -463,7 +441,7 @@ export default function CreateClient() {
         <div>
           <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.firstBuy")}</span>
           <p className="mb-2 text-xs text-panda-grey">
-            {t("cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
+            {t(singleTx ? "cr.firstBuyDescOne" : "cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
           </p>
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
             <input
@@ -530,6 +508,7 @@ export default function CreateClient() {
           imageSrc={imagePreview}
           lines={feeResult.lines}
           firstBuySol={parseFloat(firstBuyAmount) > 0 ? parseFloat(firstBuyAmount) : 0}
+          singleTx={singleTx}
           onBack={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);

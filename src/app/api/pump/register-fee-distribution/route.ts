@@ -6,6 +6,7 @@ import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 import { registerMint } from "@/lib/rewards/registry";
 import { fetchPumpCoins } from "@/lib/pump/frontend-api";
 import { recordActivity } from "@/lib/activity/record";
+import { resolvePending } from "@/lib/pump/fee-lock";
 
 /**
  * Adds a mint to PANDA's own registry of coins the rewards distributor
@@ -28,6 +29,8 @@ export async function POST(req: Request) {
     }
 
     await registerMint(mint);
+    // Two-transaction launches: re-read the chain and take the coin out of the fee-lock registry if PANDA's share is really there.
+    await resolvePending(connection, mint).catch((err) => console.error("[PANDA fee-lock] resolve failed", err));
 
     // A coin whose on-chain fee-sharing config PANDA verified: record its launch, dated by Pump.fun's own launch
     // time. If Pump.fun doesn't know the coin (yet), nothing is recorded rather than dating it by when we heard of it.

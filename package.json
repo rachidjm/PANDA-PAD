@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "verify-tx": "tsx scripts/verify-tx.ts",
     "check-sharing": "tsx scripts/check-sharing.ts",
+    "create-lookup-table": "tsx scripts/create-launch-lookup-table.ts",
+    "check-lookup-table": "tsx scripts/check-launch-lookup-table.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {

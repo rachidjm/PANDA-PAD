@@ -1240,6 +1240,10 @@ export const dict = {
     en: "Buy some of {coin} the moment it launches, paid in SOL — as its very first trade. This is a separate transaction after creation (and after the fee split), so you sign it on its own.",
     es: "Compra algo de {coin} en el momento en que se lanza, pagado en SOL — como su primera operación. Es una transacción aparte tras la creación (y tras el reparto de comisiones), así que la firmas por separado.",
   },
+  "cr.firstBuyDescOne": {
+    en: "Buy some of {coin} the moment it launches, paid in SOL — as its very first trade. This is a separate transaction after the launch, so you sign it on its own.",
+    es: "Compra algo de {coin} en el momento en que se lanza, pagado en SOL — como su primera operación. Es una transacción aparte tras el lanzamiento, así que la firmas por separado.",
+  },
   "cr.yourCoin": { en: "your coin", es: "tu moneda" },
   "cr.none": { en: "None", es: "Ninguna" },
   "cr.feeDistribution": { en: "Fee distribution", es: "Reparto de comisiones" },
@@ -1280,6 +1284,10 @@ export const dict = {
   "cr.confirmBody": {
     en: "Your wallet will ask you to approve two transactions, one after the other: first the coin, then this fee distribution (written on-chain right after your coin exists).",
     es: "Tu wallet te pedirá aprobar dos transacciones, una tras otra: primero la moneda y después este reparto de comisiones (se escribe on-chain justo cuando tu moneda ya existe).",
+  },
+  "cr.confirmBodyOne": {
+    en: "Your wallet will ask you to approve one transaction: the coin and this fee distribution are created together, so either both exist or neither does.",
+    es: "Tu wallet te pedirá aprobar una sola transacción: la moneda y este reparto de comisiones se crean juntos, así que existen los dos o ninguno.",
   },
   "cr.confirmFirstBuy": { en: "First buy", es: "Primera compra" },
   "cr.confirmNoBuy": { en: "None", es: "Ninguna" },
@@ -1507,6 +1515,10 @@ export const dict = {
   "cr.feesPendingBody": {
     en: "Launching with a fee split takes two transactions and the second one wasn't confirmed. Until it is, this coin's creator fees are not split (PANDA's share included). Set it now.",
     es: "Lanzar con reparto de comisiones requiere dos transacciones y la segunda no se confirmó. Hasta que lo haga, las comisiones de creador de esta moneda no están repartidas (incluida la parte de PANDA). Fíjalo ahora.",
+  },
+  "coin.feeLock.hidden": {
+    en: "Until then this coin doesn't appear in PANDA's lists (home, Discover, search, Activity); only people with its link can open it.",
+    es: "Hasta entonces esta moneda no aparece en ninguna lista de PANDA (inicio, Discover, búsqueda, Activity); solo quien tenga su enlace puede abrirla.",
   },
   "cr.feesRetry": { en: "Set the fee split", es: "Fijar el reparto de comisiones" },
 

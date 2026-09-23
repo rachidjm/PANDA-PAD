@@ -11,6 +11,7 @@ import {
   GeckoIncludedToken,
 } from "./gecko/client";
 import { fetchPumpCoins, fetchPumpCoinPage, PumpCoin } from "./pump/frontend-api";
+import { withoutPendingFeeLock } from "./pump/fee-lock";
 import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
@@ -182,7 +183,7 @@ const MIN_FORCE_INTERVAL_MS = 10_000;
  * genuinely empty or unreachable and there's no prior data to fall back on,
  * callers get `coins: []` and show an honest empty state instead of fabricated coins.
  */
-export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
   if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, suspect: cache.suspect, live: true };
   if (opts.force && cache && Date.now() - lastFetchAt < MIN_FORCE_INTERVAL_MS) {
     return { coins: cache.coins, suspect: cache.suspect, live: true };
@@ -237,6 +238,15 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
     return { coins: split.ok, suspect: split.suspect, live: false };
   }
   return { coins: [], suspect: [], live: false };
+}
+
+/**
+ * The coin list every PANDA screen uses. Coins that PANDA launched in two transactions and whose fee split isn't on-chain yet
+ * are left out (src/lib/pump/fee-lock.ts) — the coin PAGE still finds them (`getLiveCoinBase` reads the unfiltered list).
+ */
+export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+  const all = await loadLiveCoins(opts);
+  return { ...all, coins: await withoutPendingFeeLock(all.coins), suspect: await withoutPendingFeeLock(all.suspect) };
 }
 
 /** "https://x.com/handle/status/1" → "handle". Coin.twitter/telegram hold bare handles. */
@@ -461,7 +471,7 @@ async function fillMissingImages(coins: Coin[]): Promise<Coin[]> {
  */
 const searchCache = new Map<string, { coins: Coin[]; suspect: Coin[]; expires: number }>();
 
-export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+async function searchLiveCoinsUnfiltered(query: string): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
   const q = query.trim().toLowerCase();
   if (!q) return { coins: [], suspect: [], live: true };
 
@@ -513,6 +523,11 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; s
   return { coins: ok, suspect, live: true };
 }
 
+export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+  const all = await searchLiveCoinsUnfiltered(query);
+  return { ...all, coins: await withoutPendingFeeLock(all.coins), suspect: await withoutPendingFeeLock(all.suspect) };
+}
+
 /** Finds the coin by mint — from the cached top-60, or (not in it) by looking it up
  * directly across every dex, so any coin found via search still has a working page.
  * fetchTokenPools already swallows its own errors and returns an empty list, so a
@@ -521,7 +536,7 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; s
  * `enrichCoinDetail`, kept separate so a caller (the coin page) can run it alongside
  * the trades fetch instead of waiting for it first. */
 export async function getLiveCoinBase(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
-  const { coins, suspect, live } = await getLiveCoins();
+  const { coins, suspect, live } = await loadLiveCoins();
   let coin = [...coins, ...suspect].find((c) => c.mint.toLowerCase() === mint.toLowerCase());
 
   if (!coin) {

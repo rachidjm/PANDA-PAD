@@ -14,6 +14,7 @@ import { computeHolderCredits } from "@/lib/rewards/split";
 import { recordActivity } from "@/lib/activity/record";
 import { breakdown } from "@/lib/economy/shares";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
+import { resolveAllPending } from "@/lib/pump/fee-lock";
 
 // Vercel Hobby's function timeout is 30s — leave a real safety margin so a
 // slow mint mid-batch can't blow past it; unstarted mints just wait for the
@@ -30,6 +31,10 @@ export async function GET(req: Request) {
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;
   if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  // Coins launched in two transactions whose split is still missing: keep the registry honest (and audit them) even if nobody opens them.
+  await resolveAllPending(new Connection(serverRpcUrl(), "confirmed"))
+    .then((r) => r.waiting > 0 && console.warn(`[PANDA fee-lock] ${r.waiting} coin(s) still waiting for their fee split`))
+    .catch((err) => console.error("[PANDA fee-lock] daily resolve failed", err));
   if (await pausedResponse("fee_processing")) return NextResponse.json({ skipped: "fee_processing is paused" });
 
   try {
