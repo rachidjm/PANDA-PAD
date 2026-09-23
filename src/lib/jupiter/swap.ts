@@ -27,6 +27,8 @@ export async function buildJupiterSwapTransaction({
   side,
   solAmount,
   tokenAmount,
+  payMint,
+  payAmount,
   slippagePct = DEFAULT_SLIPPAGE_PCT,
 }: {
   connection: Connection;
@@ -35,16 +37,23 @@ export async function buildJupiterSwapTransaction({
   side: "buy" | "sell";
   solAmount?: number;
   tokenAmount?: string;
+  /** A buy paid with a token from the wallet instead of SOL: its mint and the amount in its base units. */
+  payMint?: PublicKey;
+  payAmount?: string;
   slippagePct?: number;
 }): Promise<VersionedTransaction> {
-  const inputMint = side === "buy" ? SOL_MINT : mint.toBase58();
+  const payWithToken = side === "buy" && !!payMint && payMint.toBase58() !== SOL_MINT;
+  const inputMint = side === "buy" ? (payWithToken ? payMint!.toBase58() : SOL_MINT) : mint.toBase58();
   const outputMint = side === "buy" ? mint.toBase58() : SOL_MINT;
   const amount =
     side === "buy"
-      ? String(Math.round((solAmount || 0) * 1e9))
+      ? payWithToken
+        ? String(payAmount || "0")
+        : String(Math.round((solAmount || 0) * 1e9))
       : String(tokenAmount || "0");
 
   if (amount === "0") throw new Error("Missing trade amount.");
+  if (payWithToken && payMint!.toBase58() === mint.toBase58()) throw new Error("Can't pay for a coin with itself.");
 
   const quote = await getJupiterQuote({
     inputMint,
@@ -64,10 +73,20 @@ export async function buildJupiterSwapTransaction({
 
   const message = TransactionMessage.decompile(tx.message, { addressLookupTableAccounts: lookupTableAccounts });
 
-  const feeLamports =
-    side === "buy"
-      ? new BN(amount).muln(PANDA_FEE_BPS).divn(10_000)
-      : new BN(quote.outAmount).muln(PANDA_FEE_BPS).divn(10_000);
+  // PANDA's fee is always a plain SOL transfer. Paid with SOL it is a share of the amount; paid with a token it is
+  // a share of what that token is worth in SOL right now (Jupiter's own quote of it), still added on top.
+  let feeLamports: BN;
+  if (side === "sell") feeLamports = new BN(quote.outAmount).muln(PANDA_FEE_BPS).divn(10_000);
+  else if (!payWithToken) feeLamports = new BN(amount).muln(PANDA_FEE_BPS).divn(10_000);
+  else {
+    let inSol: string;
+    try {
+      inSol = (await getJupiterQuote({ inputMint, outputMint: SOL_MINT, amount, slippageBps: Math.round(slippagePct * 100) })).outAmount;
+    } catch {
+      throw new Error("Can't value this token in SOL right now — pay with SOL instead.");
+    }
+    feeLamports = new BN(inSol).muln(PANDA_FEE_BPS).divn(10_000);
+  }
 
   const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
   if (feeIx) {

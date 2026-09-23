@@ -1501,6 +1501,37 @@ export const dict = {
     es: "Esta wallet no admite la firma de mensajes, algo que requiere la bóveda de Trigger.",
   },
 
+  // Trading — paying with any token from the wallet
+  "trading.payWith": { en: "Pay with", es: "Pagar con" },
+  "trading.view": { en: "View", es: "Ver" },
+  "trading.payBalance": { en: "Balance", es: "Saldo" },
+  "trading.payLoading": { en: "Loading your tokens…", es: "Cargando tus tokens…" },
+  "trading.payOnlySol": {
+    en: "While a coin is on Pump.fun's bonding curve it can only be bought with SOL.",
+    es: "Mientras una moneda está en la bonding curve de Pump.fun solo se puede comprar con SOL.",
+  },
+  "trading.payNoTokens": {
+    en: "No other token with a market found in your wallet.",
+    es: "No hay otro token con mercado en tu wallet.",
+  },
+  "trading.payFeeNote": {
+    en: "Paying with a token swaps it through Jupiter. PANDA's fee is paid in SOL, on top.",
+    es: "Pagar con un token lo cambia a través de Jupiter. La comisión de PANDA se paga en SOL, aparte.",
+  },
+  "trading.payNoPrice": {
+    en: "No live price for {symbol} right now — type the amount in {symbol}.",
+    es: "Ahora mismo no hay precio real de {symbol} — escribe la cantidad en {symbol}.",
+  },
+  "trading.pandaFeeSol": { en: "PANDA fee ({pct}%, paid in SOL)", es: "Comisión PANDA ({pct}%, pagada en SOL)" },
+  "trading.notEnoughToken": {
+    en: "Not enough {symbol}: this buy needs {need} and the wallet has {have}.",
+    es: "No tienes suficiente {symbol}: esta compra necesita {need} y la wallet tiene {have}.",
+  },
+  "trading.needSolFee": {
+    en: "You also need about {need} SOL for PANDA's fee and network costs — the wallet has {have}.",
+    es: "También necesitas unos {need} SOL para la comisión de PANDA y la red — la wallet tiene {have}.",
+  },
+
   // Create — launch mode
   "cr.mode.title": { en: "Launch mode", es: "Modo de lanzamiento" },
   "cr.mode.standard": { en: "Standard", es: "Estándar" },
