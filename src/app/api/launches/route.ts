@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getLiveCoins } from "@/lib/live-coins";
-import { fetchDexTokensBatch } from "@/lib/dexscreener/client";
+import { dexPairToCoin, getLiveCoins } from "@/lib/live-coins";
+import { assessCoin } from "@/lib/quality/coin-quality";
+import { fetchDexTokensBatch, type DexPair } from "@/lib/dexscreener/client";
 import { fetchNewestPumpCoins } from "@/lib/pump/frontend-api";
 import type { CoinSource } from "@/lib/types";
 
@@ -41,20 +42,49 @@ async function fromPumpFeed(): Promise<Launch[]> {
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  return unique
-    .slice(0, SHOWN)
-    .map((c) => ({
+  // The data-quality gate. Pump.fun's own market cap is only live while a coin is on the curve (there it must be a real
+  // curve price); once graduated it goes stale, so a graduated launch is shown only if Dexscreener has a real pool for it
+  // that passes the same checks as the coin lists — and then with THAT market cap, not the stale one.
+  const candidates = unique.slice(0, 24);
+  const graduatedMints = candidates.filter((c) => c.graduated).map((c) => c.mint);
+  const pools = new Map<string, DexPair>();
+  if (graduatedMints.length > 0) {
+    try {
+      for (const p of await fetchDexTokensBatch(graduatedMints)) {
+        const cur = pools.get(p.baseToken.address);
+        if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) pools.set(p.baseToken.address, p);
+      }
+    } catch {
+      // No pool data: graduated launches can't be verified this round and are left out rather than shown unchecked.
+    }
+  }
+
+  const verified: Launch[] = [];
+  for (const c of candidates) {
+    let marketCap = c.usdMarketCap;
+    if (c.graduated) {
+      const pair = pools.get(c.mint);
+      if (!pair) continue;
+      const coin = dexPairToCoin(pair);
+      if (assessCoin(coin).quality !== "ok") continue;
+      marketCap = coin.marketCap;
+    } else if (assessCoin({ source: "pump-fun", marketCap, changePct: 0, liquidityUsd: undefined, sourceMarketCaps: undefined }).quality !== "ok") {
+      continue;
+    }
+    verified.push({
       mint: c.mint,
       ticker: c.symbol.toUpperCase(),
       name: c.name,
       image: c.image,
       bg: "#171512",
-      marketCap: c.usdMarketCap,
+      marketCap,
       createdAt: c.createdAt,
       verified: true,
       source: c.graduated ? ("pumpswap" as const) : ("pump-fun" as const),
       twitterUrl: c.twitter,
-    }));
+    });
+  }
+  return verified.slice(0, SHOWN);
 }
 
 /** Fallback if Pump.fun's feed is unreachable: the newest of the coins PANDA already lists, socials via Dexscreener. */

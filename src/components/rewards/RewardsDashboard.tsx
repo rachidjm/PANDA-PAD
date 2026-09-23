@@ -53,7 +53,7 @@ export default function RewardsDashboard() {
     Promise.resolve()
       .then(async () => {
         if (!cancelled) setState("loading");
-        const coinsRes = await fetch("/api/coins").then((r) => r.json() as Promise<{ coins?: Coin[] }>);
+        const coinsRes = await fetch("/api/coins?quality=all").then((r) => r.json() as Promise<{ coins?: Coin[] }>);
         const coins = coinsRes.coins || [];
         const holdings = await getWalletPortfolio(connection, publicKey, coins);
         const coinByMint = new Map(coins.map((c) => [c.mint.toLowerCase(), c]));

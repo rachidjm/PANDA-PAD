@@ -2,6 +2,19 @@ export type DoodleKind = "cat" | "frog" | "donut" | "ghost" | "egg" | "cloud" | 
 
 export type CoinSource = "pump-fun" | "pumpswap" | "other";
 
+/** Why a coin's numbers can't be trusted — see src/lib/market/quality.ts. */
+export type QualityReason =
+  | "invalid_data"
+  | "no_liquidity_data"
+  | "low_liquidity"
+  | "mc_over_liquidity"
+  | "extreme_change_low_liquidity"
+  | "curve_mc_too_high"
+  | "sources_disagree";
+
+/** The market cap each independent source reported for the same coin, when it gave one (USD). */
+export type SourceMarketCaps = { pump?: number; dex?: number; gecko?: number };
+
 export type Coin = {
   mint: string;
   ticker: string;
@@ -34,6 +47,10 @@ export type Coin = {
   volumeWindows?: Partial<Record<"m5" | "h1" | "h24", number>>;
   changeWindows?: Partial<Record<"m5" | "h1" | "h24", number>>;
   range24h?: { low: number; high: number };
+  /** Set by the data-quality filter. A "suspect" coin is never deleted: it is kept, marked, and left out of the public lists. */
+  quality?: "ok" | "suspect";
+  qualityReasons?: QualityReason[];
+  sourceMarketCaps?: SourceMarketCaps;
 };
 
 export type TxWindow = { buys: number; sells: number; buyers: number; sellers: number };

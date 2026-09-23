@@ -54,6 +54,13 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
             <Panda pose={positive ? "tradeUp" : "tradeDown"} size={56} />
           </div>
 
+          {coin.quality === "suspect" && (
+            <div className="mt-4 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-xs leading-relaxed text-paper/90" role="alert">
+              <p className="font-semibold text-clay-red">{t("quality.suspect.title")}</p>
+              <p className="mt-1">{t("quality.suspect.body")}</p>
+            </div>
+          )}
+
           {coin.description && <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-relaxed text-paper/75 sm:mt-4 sm:line-clamp-none">{coin.description}</p>}
 
           <p className="mt-2 text-xs text-panda-grey sm:hidden">

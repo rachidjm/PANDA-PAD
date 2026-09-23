@@ -13,6 +13,7 @@ import {
 import { fetchPumpCoins, fetchPumpCoinPage, PumpCoin } from "./pump/frontend-api";
 import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
+import { partitionByQuality, withQuality } from "./quality/coin-quality";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -63,6 +64,7 @@ export function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefine
     doodle: look.doodle,
     bg: look.bg,
     marketCap: num(pool.attributes.market_cap_usd) || num(pool.attributes.fdv_usd),
+    sourceMarketCaps: { gecko: num(pool.attributes.market_cap_usd) || num(pool.attributes.fdv_usd) || undefined },
     volume24h: num(pool.attributes.volume_usd?.h24),
     changePct: num(pool.attributes.price_change_percentage?.h24),
     priceHistory: buildApproxTrend(pool.attributes.price_change_percentage),
@@ -80,7 +82,7 @@ export function poolToCoin(pool: GeckoPool, token: GeckoIncludedToken | undefine
 }
 
 /** Maps a Dexscreener pair into the same Coin shape poolToCoin produces, for the search/lookup fallback path. */
-function dexPairToCoin(pair: DexPair): Coin {
+export function dexPairToCoin(pair: DexPair): Coin {
   const mint = pair.baseToken.address;
   const symbol = pair.baseToken.symbol;
   const look = fallbackLook(mint);
@@ -108,6 +110,7 @@ function dexPairToCoin(pair: DexPair): Coin {
     twitter: pair.info?.socials?.find((s) => s.type === "twitter")?.url.split("/").pop() || null,
     telegram: pair.info?.socials?.find((s) => s.type === "telegram")?.url.split("/").pop() || null,
     marketCap: pair.marketCap || pair.fdv || 0,
+    sourceMarketCaps: { dex: pair.marketCap || pair.fdv || undefined },
     volume24h: pair.volume?.h24 || 0,
     changePct: pair.priceChange?.h24 || 0,
     priceHistory: pair.priceChange
@@ -159,12 +162,12 @@ async function enrichSocials(coin: Coin): Promise<Coin> {
   };
 }
 
-let cache: { coins: Coin[]; expires: number } | null = null;
+let cache: { coins: Coin[]; suspect: Coin[]; expires: number } | null = null;
 // Last successfully-fetched list, kept around (no expiry of its own) so a
 // rate-limited or failed refresh can fall back to it instead of wiping the
 // grid to empty — that silent "nothing happened" was being read as a broken
 // Refresh button.
-let lastGood: Coin[] | null = null;
+let lastGood: Coin[] | null = null; // every coin of the last good fetch (ok and suspect): the re-quote path refreshes both
 let lastFetchAt = 0;
 // getLiveCoins hits GeckoTerminal with 7 parallel requests (4 pump-fun pages +
 // 3 pumpswap pages). That budget is shared server-side across every visitor,
@@ -179,10 +182,10 @@ const MIN_FORCE_INTERVAL_MS = 10_000;
  * genuinely empty or unreachable and there's no prior data to fall back on,
  * callers get `coins: []` and show an honest empty state instead of fabricated coins.
  */
-export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; live: boolean }> {
-  if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, live: true };
+export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+  if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, suspect: cache.suspect, live: true };
   if (opts.force && cache && Date.now() - lastFetchAt < MIN_FORCE_INTERVAL_MS) {
-    return { coins: cache.coins, live: true };
+    return { coins: cache.coins, suspect: cache.suspect, live: true };
   }
 
   lastFetchAt = Date.now();
@@ -217,15 +220,23 @@ export async function getLiveCoins(opts: { force?: boolean } = {}): Promise<{ co
 
   if (coins.length > 0) {
     coins = (await fillMissingImages(coins)).map(withBestImage);
-    cache = { coins, expires: Date.now() + 60_000 };
-    lastGood = coins;
-    return { coins, live: true };
+    // The data-quality gate (src/lib/quality): junk pools with absurd market caps are marked and set aside, never shown.
+    const { ok, suspect } = partitionByQuality(coins);
+    if (suspect.length > 0) {
+      console.info("[PANDA quality] set aside", suspect.length, "of", coins.length, "coins:", suspect.map((c) => `${c.ticker}(${c.qualityReasons?.join("+")})`).join(", "));
+    }
+    cache = { coins: ok, suspect, expires: Date.now() + 60_000 };
+    lastGood = [...ok, ...suspect];
+    return { coins: ok, suspect, live: true };
   }
 
   // Every source failed — serve the last known-good list rather than an empty
   // grid, but mark it as not live so the UI can be honest that this isn't fresh.
-  if (lastGood) return { coins: lastGood, live: false };
-  return { coins: [], live: false };
+  if (lastGood) {
+    const split = partitionByQuality(lastGood);
+    return { coins: split.ok, suspect: split.suspect, live: false };
+  }
+  return { coins: [], suspect: [], live: false };
 }
 
 /** "https://x.com/handle/status/1" → "handle". Coin.twitter/telegram hold bare handles. */
@@ -242,6 +253,8 @@ function handleFromUrl(url?: string): string | null {
 function applyPump(coin: Coin, p: PumpCoin): Coin {
   return {
     ...coin,
+    // Pump.fun's market cap goes stale after graduation, so it only counts as a source while the coin is on the curve.
+    sourceMarketCaps: !p.graduated && p.usdMarketCap > 0 ? { ...coin.sourceMarketCaps, pump: p.usdMarketCap } : coin.sourceMarketCaps,
     createdAt: p.createdAt,
     launchVerified: true,
     creator: p.creator || coin.creator,
@@ -446,14 +459,14 @@ async function fillMissingImages(coins: Coin[]): Promise<Coin[]> {
  * boxes (unlike the cached top-60 list, it can find any coin, not just the
  * biggest ones already fetched).
  */
-const searchCache = new Map<string, { coins: Coin[]; expires: number }>();
+const searchCache = new Map<string, { coins: Coin[]; suspect: Coin[]; expires: number }>();
 
-export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; live: boolean }> {
+export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
   const q = query.trim().toLowerCase();
-  if (!q) return { coins: [], live: true };
+  if (!q) return { coins: [], suspect: [], live: true };
 
   const cached = searchCache.get(q);
-  if (cached && cached.expires > Date.now()) return { coins: cached.coins, live: true };
+  if (cached && cached.expires > Date.now()) return { coins: cached.coins, suspect: cached.suspect, live: true };
 
   // A single page keeps this to one upstream request per search. GeckoTerminal
   // is the primary source (richer per-window stats), but its free public API
@@ -495,8 +508,9 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; l
   }
 
   coins = coins.sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40).map(withBestImage);
-  searchCache.set(q, { coins, expires: Date.now() + 15_000 });
-  return { coins, live: true };
+  const { ok, suspect } = partitionByQuality(coins);
+  searchCache.set(q, { coins: ok, suspect, expires: Date.now() + 15_000 });
+  return { coins: ok, suspect, live: true };
 }
 
 /** Finds the coin by mint — from the cached top-60, or (not in it) by looking it up
@@ -507,8 +521,8 @@ export async function searchLiveCoins(query: string): Promise<{ coins: Coin[]; l
  * `enrichCoinDetail`, kept separate so a caller (the coin page) can run it alongside
  * the trades fetch instead of waiting for it first. */
 export async function getLiveCoinBase(mint: string): Promise<{ coin: Coin | undefined; live: boolean }> {
-  const { coins, live } = await getLiveCoins();
-  let coin = coins.find((c) => c.mint.toLowerCase() === mint.toLowerCase());
+  const { coins, suspect, live } = await getLiveCoins();
+  let coin = [...coins, ...suspect].find((c) => c.mint.toLowerCase() === mint.toLowerCase());
 
   if (!coin) {
     const { data, included = [] } = await fetchTokenPools(mint);
@@ -526,7 +540,8 @@ export async function getLiveCoinBase(mint: string): Promise<{ coin: Coin | unde
       if (bestPair) coin = dexPairToCoin(bestPair);
     }
   }
-  return { coin, live };
+  // A coin's own page always opens (you may hold it), but it carries its quality mark so the page can warn.
+  return { coin: coin ? withQuality(coin) : coin, live };
 }
 
 /** Everything a list card never needs but a coin's own page does: real hourly closes,

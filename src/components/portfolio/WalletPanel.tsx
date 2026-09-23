@@ -27,7 +27,7 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
       .then(() => {
         if (!cancelled) setState("loading");
       })
-      .then(() => fetch("/api/coins"))
+      .then(() => fetch("/api/coins?quality=all"))
       .then((r) => r.json())
       .then((data: { coins?: Coin[] }) => getWalletPortfolio(connection, publicKey, data.coins || []))
       .then((h) => {

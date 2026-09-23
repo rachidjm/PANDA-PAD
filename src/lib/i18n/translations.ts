@@ -1501,6 +1501,13 @@ export const dict = {
     es: "Esta wallet no admite la firma de mensajes, algo que requiere la bóveda de Trigger.",
   },
 
+  // Data quality
+  "quality.suspect.title": { en: "PANDA flagged this coin's market data as unreliable", es: "PANDA ha marcado los datos de mercado de esta moneda como poco fiables" },
+  "quality.suspect.body": {
+    en: "Its market cap, liquidity or price change don't add up (for example a huge market cap on almost no liquidity), so the numbers on this page may not be what you could really sell for. It is left out of PANDA's lists. Trade with extreme care.",
+    es: "Su capitalización, liquidez o variación de precio no cuadran (por ejemplo, una capitalización enorme con casi nada de liquidez), así que las cifras de esta página pueden no ser lo que realmente podrías vender. Queda fuera de las listas de PANDA. Opera con muchísimo cuidado.",
+  },
+
   // Trading — paying with any token from the wallet
   "trading.payWith": { en: "Pay with", es: "Pagar con" },
   "trading.view": { en: "View", es: "Ver" },
