@@ -39,7 +39,7 @@ async function reportStatus(mint: string, event: string, extra?: Record<string, 
   }
 }
 
-export default function OtcRewardsCreate() {
+export default function OtcRewardsCreate({ blocked = false }: { blocked?: boolean }) {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
@@ -72,7 +72,7 @@ export default function OtcRewardsCreate() {
     setImagePreview(URL.createObjectURL(file));
   }
 
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && ticker.trim().length <= 13 && connected && quoteMint;
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && ticker.trim().length <= 13 && connected && quoteMint && !blocked;
 
   async function registerWithRetries(mint: string) {
     for (let i = 0; i < REGISTER_RETRY_DELAYS_MS.length + 1; i++) {

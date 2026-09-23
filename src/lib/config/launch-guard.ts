@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { decideMoneyFlow, getNetworkStatus, type MoneyFlowBlock } from "./network";
+import { COIN_CREATION_BLOCKED_MESSAGE, decideCoinCreation } from "./creation";
 
 /** The current answer to "may money move right now?" — used by the guard below, the public protocol status and the health page. */
 export async function moneyFlowStatus(): Promise<MoneyFlowBlock> {
@@ -30,4 +31,15 @@ export async function moneyFlowGuardResponse(): Promise<NextResponse | null> {
     { error: MESSAGES[block.reason], code: "MONEY_FLOWS_BLOCKED", reason: block.reason, expected: block.expected, detected: block.detected },
     { status: 503, headers: { "Cache-Control": "no-store" } }
   );
+}
+
+/**
+ * Call in routes that START a coin creation (Pump.fun create, and the OTC launch's first two steps), after the money-flow
+ * guard. On mainnet it refuses until the treasury is declared a multisig (TREASURY_IS_MULTISIG=true); buying and selling
+ * never call this.
+ */
+export function coinCreationGuardResponse(): NextResponse | null {
+  const d = decideCoinCreation();
+  if (d.allowed) return null;
+  return NextResponse.json({ error: COIN_CREATION_BLOCKED_MESSAGE, code: "COIN_CREATION_BLOCKED", reason: d.reason }, { status: 503, headers: { "Cache-Control": "no-store" } });
 }

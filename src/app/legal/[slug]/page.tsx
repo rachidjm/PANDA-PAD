@@ -3,7 +3,7 @@ import { getLegalPage, LEGAL_PAGES, LEGAL_SLUGS, LegalSlug } from "@/lib/legal-c
 import { isEnabled } from "@/lib/config/flags";
 import LegalPageLayout from "@/components/legal/LegalPageLayout";
 
-// Read per request, not baked at build: whether the custody sections appear follows FEATURE_STRATEGIES as deployed.
+// Read per request, not baked at build: whether the custody sections appear follows FEATURE_STRATEGIES and FEATURE_HOLDER_REWARDS as deployed.
 export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
@@ -14,5 +14,5 @@ export default async function LegalSlugPage({ params }: { params: Promise<{ slug
   const { slug } = await params;
   if (!LEGAL_PAGES[slug as LegalSlug]) notFound();
 
-  return <LegalPageLayout page={getLegalPage(slug as LegalSlug, { custody: isEnabled("STRATEGIES") })} />;
+  return <LegalPageLayout page={getLegalPage(slug as LegalSlug, { custody: isEnabled("STRATEGIES"), holders: isEnabled("HOLDER_REWARDS") })} />;
 }

@@ -141,18 +141,28 @@ comisión. (Con la tesorería en 0 SOL el trade se ejecuta **sin** comisión: `v
 
 ## Prueba 6 — Crear moneda Estándar con primera compra mínima
 
+**Requisito previo:** en mainnet la creación está bloqueada hasta que `TREASURY_IS_MULTISIG=true` (tesorería en Squads,
+`docs/DEPLOY_CHECKLIST.md` §4.1). Si no, `/create` muestra el aviso "Crear monedas está en pausa" y el botón Launch no se activa:
+eso ya es una comprobación (anótala); para el resto de la prueba, cumple el requisito.
 **Importe:** primera compra 0,01 SOL (+ coste de crear, ver preparación).
+**Cómo es un lanzamiento (importante):** con reparto de comisiones son **tres firmas seguidas**, no una: (1) crear la moneda,
+(2) fijar el reparto on-chain (`SharingConfig`) y (3) la primera compra. Antes iba todo en una sola transacción, pero medido
+**no cabía** (1.238–1.347 bytes frente al límite de 1.232), por eso se dividió en dos.
+
 **Pasos**
-1. `/create` → asegúrate de que está en modo Estándar (con los flags por defecto no hay selector Rewards).
-2. Sube una imagen, pon nombre, ticker y descripción. En **Fee distribution** deja el reparto por defecto (Creator 95 % +
-   PANDA 5 % bloqueado). *No añadas Holders* salvo que hayas decidido activar ese flujo (`docs/DEPLOY_CHECKLIST.md`).
-3. En "Tu primera compra" escribe `0.01`. Pulsa **Launch** → revisa el modal (reparto, primera compra) → confirma.
-4. Phantom pide **dos** firmas seguidas: la creación y luego la primera compra. Confirma ambas.
-5. Guarda: mint `________`, firma de creación `________`, firma de compra `________`.
+1. `/create` → modo Estándar (con los flags por defecto no hay selector Rewards).
+2. Sube una imagen, pon nombre, ticker y descripción. En **Fee distribution** el reparto es **PANDA 5 % bloqueado + Creator +
+   partner opcional** (no hay banda Holders: `FEATURE_HOLDER_REWARDS` está apagado). Déjalo en Creator 95 %.
+3. En "Tu primera compra" escribe `0.01`. **Launch** → revisa el modal (dice que se aprueban dos transacciones seguidas) → confirma.
+4. Phantom pide, en orden: la creación, el reparto de comisiones y la primera compra. Confirma las tres.
+5. Guarda: mint `________`, firma de creación `________`, firma del reparto `________`, firma de compra `________`.
+6. **Caso a provocar una vez:** en otra creación, **rechaza la segunda firma**. Esperado: la pantalla final dice "Tu moneda ya
+   existe, pero su reparto de comisiones aún no está fijado" con el botón **Fijar el reparto de comisiones**; púlsalo y aprueba:
+   debe quedar fijado. (Mientras no se fija, las comisiones de creador de esa moneda NO están repartidas, PANDA incluida.)
 
 **Esperado:** pantalla "…is live"; la moneda aparece en Pump.fun; la primera compra se ve en tu wallet.
-**En Solscan (creación):** instrucciones de Pump.fun (create) y de **fee sharing** (crear la configuración y fijar los reparto)
-en la misma transacción.
+**En Solscan:** la firma de creación tiene la instrucción `create_v2` de Pump.fun; la del reparto tiene las instrucciones que
+crean y actualizan el `SharingConfig` (create fee sharing config / update fee shares).
 **Verificación del `SharingConfig` on-chain:**
 
 ```bash
@@ -162,7 +172,7 @@ npm run check-sharing -- <mint>
 Esperado: `CHECK OK` — reparto total 100 %, tu wallet con 95 % y la **tesorería con el 5 %**. Comprueba también:
 - `adminRevoked`: si es **FALSE**, el `admin` que imprime todavía tiene derechos sobre la configuración. **Lo que puede
   cambiar exactamente el admin lo define el programa de Pump.fun, no PANDA (sin verificar)**: consulta su documentación
-  antes de decirle a nadie que el reparto es permanente. La web hoy dice "escrito on-chain con tu moneda", no "permanente".
+  antes de decirle a nadie que el reparto es permanente. La web hoy dice "escrito on-chain", no "permanente".
 - Que el `admin` sea tu wallet (creador) y no una dirección de PANDA.
 - `GET https://<tu-dominio>/api/pump/fee-shares?mint=<mint>` devuelve el mismo reparto.
 

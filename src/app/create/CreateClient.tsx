@@ -15,8 +15,9 @@ import { formatBps } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { useCreationBlocked } from "@/components/create/useCreationBlocked";
 
-type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "buying" | "done" | "error";
+type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fees" | "buying" | "done" | "error";
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const firstBuyPresets = [0.5, 1, 2, 5];
@@ -26,6 +27,7 @@ export default function CreateClient() {
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
   const { otcRewards } = useFeatures();
+  const creationBlocked = useCreationBlocked();
   const [chosenMode, setMode] = useState<LaunchMode>("standard");
   // The Rewards mode exists only when FEATURE_OTC_REWARDS is on; otherwise Create is exactly the Standard launch.
   const mode: LaunchMode = otcRewards ? chosenMode : "standard";
@@ -45,6 +47,11 @@ export default function CreateClient() {
   const [feeResult, setFeeResult] = useState<FeeDistributionResult | null>(null);
   const [feeSummary, setFeeSummary] = useState("");
   const [confirming, setConfirming] = useState(false);
+  // A launch with a fee split is two transactions (see src/lib/pump/create.ts). If the second is not confirmed the coin exists
+  // WITHOUT its split, and this holds the message and lets the creator retry.
+  const [feesPending, setFeesPending] = useState(false);
+  const [feeError, setFeeError] = useState("");
+  const [retryingFees, setRetryingFees] = useState(false);
   const [result, setResult] = useState<{ mint: string; signature: string; buySignature?: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -61,7 +68,7 @@ export default function CreateClient() {
 
   // The split must be complete and valid: an empty or broken plan never falls through to "no fee distribution".
   const feeReady = !!feeResult && feeResult.lines.length > 0 && !feeResult.issue && !feeResult.invalidNumber;
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady;
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked;
 
   const kindLabel = (kind: "panda" | "creator" | "holders" | "partner") =>
     kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
@@ -85,6 +92,50 @@ export default function CreateClient() {
     await confirmSignature(connection, signature);
 
     return signature;
+  }
+
+  // Second transaction of a launch: writes the coin's on-chain fee split (PANDA's locked 5% + the creator's allocations).
+  async function applyFeeSplit(mintAddress: string, shareholders: { address: string; shareBps: number }[]): Promise<void> {
+    if (!publicKey) throw new Error(t("cr.err.buyWallet"));
+    let data: { transaction?: string; error?: string; code?: string } = {};
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fetch("/api/pump/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "fees", mint: mintAddress, user: publicKey.toBase58(), shareholders }),
+      });
+      data = await res.json();
+      if (res.ok) break;
+      // Right after the create confirms, the RPC node may not have the new coin yet: wait a moment and ask again.
+      if (data.code === "MINT_NOT_FOUND" && attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      throw new Error(data.error || t("cr.err.build"));
+    }
+    const tx = base64ToTransaction(data.transaction as string);
+    const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+    await confirmSignature(connection, signature);
+    // Best-effort — the split is already on-chain; this adds the mint to PANDA's own registry of coins whose fees the distributor collects.
+    fetch("/api/pump/register-fee-distribution", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mint: mintAddress }),
+    }).catch(() => {});
+  }
+
+  async function retryFeeSplit() {
+    if (!result || !feeResult) return;
+    setRetryingFees(true);
+    setFeeError("");
+    try {
+      await applyFeeSplit(result.mint, feeResult.lines.map((l) => ({ address: l.address, shareBps: l.bps })));
+      setFeesPending(false);
+    } catch (err) {
+      setFeeError(explainError(err, t));
+    } finally {
+      setRetryingFees(false);
+    }
   }
 
   async function launch() {
@@ -138,16 +189,19 @@ export default function CreateClient() {
 
       setResult({ mint: mint.publicKey.toBase58(), signature });
       setFeeSummary(summary);
+      setFeesPending(false);
+      setFeeError("");
 
       if (shareholders.length) {
-        // Best-effort — the coin and its real on-chain fee split are already
-        // live either way; this just adds the mint to PANDA's own registry
-        // of coins whose fees the rewards distributor should collect.
-        fetch("/api/pump/register-fee-distribution", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mint: mint.publicKey.toBase58() }),
-        }).catch(() => {});
+        // The coin exists now; the split is the second transaction. If it is rejected or fails, the launch is NOT undone:
+        // the coin is live, the done screen says its split is not set yet and offers a retry.
+        setStage("fees");
+        try {
+          await applyFeeSplit(mint.publicKey.toBase58(), shareholders);
+        } catch (feeErr) {
+          setFeesPending(true);
+          setFeeError(explainError(feeErr, t));
+        }
       }
 
       const buyAmount = parseFloat(firstBuyAmount);
@@ -188,12 +242,13 @@ export default function CreateClient() {
     setError("");
   }
 
-  if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming" || stage === "buying") {
+  if (stage === "uploading" || stage === "building" || stage === "signing" || stage === "confirming" || stage === "fees" || stage === "buying") {
     const labels: Record<string, string> = {
       uploading: t("cr.stageUploading"),
       building: t("cr.stageBuilding"),
       signing: t("cr.stageSigning"),
       confirming: t("cr.stageConfirming"),
+      fees: t("cr.stageFees"),
       buying: t("cr.stageBuying", { ticker: ticker || "COIN" }),
     };
     return (
@@ -246,9 +301,23 @@ export default function CreateClient() {
             {t("cr.firstBuyFail", { error: buyError })}
           </p>
         )}
-        <p className="text-sm text-bamboo">
-          {t("cr.feeSet", { summary: feeSummary })}
-        </p>
+        {feesPending ? (
+          <div className="w-full max-w-sm rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-left text-sm" role="alert">
+            <p className="font-semibold text-clay-red">{t("cr.feesPendingTitle")}</p>
+            <p className="mt-1 text-paper/80">{t("cr.feesPendingBody")}</p>
+            {feeError && <p className="mt-1 text-xs text-clay-red">{feeError}</p>}
+            <button
+              type="button"
+              onClick={retryFeeSplit}
+              disabled={retryingFees}
+              className="mt-3 w-full rounded-full bg-paper py-2.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:opacity-50"
+            >
+              {retryingFees ? t("cr.stageFees") : t("cr.feesRetry")}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-bamboo">{t("cr.feeSet", { summary: feeSummary })}</p>
+        )}
         <div className="flex flex-wrap justify-center gap-3">
           <a
             href={`https://solscan.io/tx/${result.signature}`}
@@ -282,6 +351,13 @@ export default function CreateClient() {
         <p className="mt-1.5 text-sm text-panda-grey">{t("cr.sub")}</p>
       </div>
 
+      {creationBlocked && (
+        <div className="mt-6 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-sm leading-relaxed" role="alert">
+          <p className="font-semibold text-clay-red">{t("cr.blocked.title")}</p>
+          <p className="mt-1 text-paper/80">{t("cr.blocked.body")}</p>
+        </div>
+      )}
+
       {otcRewards && (
         <div className="mt-7">
           <LaunchModeToggle mode={mode} onChange={setMode} />
@@ -289,7 +365,7 @@ export default function CreateClient() {
       )}
 
       {mode === "rewards" ? (
-        <OtcRewardsCreate />
+        <OtcRewardsCreate blocked={creationBlocked} />
       ) : (
       <>
       <div className="mt-5 space-y-5">

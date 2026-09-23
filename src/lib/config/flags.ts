@@ -16,6 +16,7 @@ export const FEATURES = [
   // Launch scope: everything below moves money that has never been signed on mainnet, or needs a custodian.
   "STRATEGIES", // Draw Your Trade + Stop Loss / Take Profit — custodial (Jupiter Trigger vault, held by Privy)
   "OTC_REWARDS", // the Rewards mode of /create (OTC / Meteora launcher)
+  "HOLDER_REWARDS", // the "Holders" band of a Standard coin's creator-fee split (Rewards Pool wallet, custodied by PANDA's servers)
 ] as const;
 
 export type Feature = (typeof FEATURES)[number];

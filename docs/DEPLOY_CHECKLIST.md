@@ -48,6 +48,7 @@ agrupada y comentada, está en `.env.example`.
 | Variable | Qué es | Sin ella |
 |---|---|---|
 | `NETWORK` | `mainnet` (producción) | Producción no mueve dinero (guard de red). |
+| `TREASURY_IS_MULTISIG` | `true` cuando la tesorería sea un multisig (paso 4.1) | En mainnet no se pueden crear monedas (el trading sigue). |
 | `SOLANA_RPC_URL` | URL del RPC dedicado (paso 1) | Producción no mueve dinero. |
 | `NEXT_PUBLIC_PANDA_TREASURY` | Dirección pública de la tesorería (paso 3/4) | Producción no mueve dinero (si no, la comisión iría a una dirección por defecto). |
 | `AUTH_SESSION_SECRET` | ≥ 32 caracteres aleatorios | Nadie inicia sesión ni reclama recompensas. |
@@ -69,11 +70,18 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 **Déjalas SIN definir** (apagadas) para el lanzamiento del núcleo: `FEATURE_STRATEGIES`, `FEATURE_OTC_REWARDS`,
 `FEATURE_PANDA_POINTS`, `FEATURE_PANDA_AIRDROPS`, `FEATURE_MERKLE_CLAIMS`, `FEATURE_NFT_*`. Solo `"true"` exacto las activa.
 
-**Decisión pendiente tuya — reparto a "Holders" al crear una moneda:** si `NEXT_PUBLIC_PANDA_REWARDS_POOL` está definido,
-Create ofrece asignar comisiones a Holders y esas comisiones caen en una wallet cuya clave custodian los servidores de
-PANDA (`PANDA_REWARDS_POOL_SECRET_KEY`). Nada de ese flujo se ha firmado en mainnet. Si no quieres que forme parte del
-lanzamiento, **no definas esa variable**: Create muestra el reparto a Holders como "no configurado" y la página Rewards
-muestra que el pool no está configurado. Si lo defines, pon `REWARDS_MAX_CLAIM_SOL` y `REWARDS_DAILY_CAP_SOL` a lo que estés dispuesto a perder en el peor caso.
+**Decisión tomada — reparto a "Holders" FUERA del lanzamiento.** `FEATURE_HOLDER_REWARDS` queda **sin definir** (apagado): Create no
+muestra la banda Holders (el reparto es PANDA 5 % + Creator + partner opcional), el servidor rechaza cualquier reparto que la
+incluya, y los textos legales no mencionan el Rewards Pool. Se reactivará tras la fase 6 (`docs/PHASE6_PLAN.md`). Consecuencia a
+tener en cuenta: el 5 % de PANDA (y la parte del creador) de cada moneda se reparte con `distributeCreatorFees` on-chain, que es
+**sin permisos**, pero hoy solo lo dispara el cron diario, y el cron necesita `PANDA_REWARDS_POOL_SECRET_KEY` como pagador de
+esa transacción. Sin esa clave, las comisiones se acumulan en la bóveda del creador de la moneda hasta que alguien llame al reparto
+(cualquiera puede). Decide si quieres un pagador para el cron aunque Holders esté apagado.
+
+**`TREASURY_IS_MULTISIG` (mainnet):** mientras no sea exactamente `"true"`, en mainnet **crear monedas está bloqueado** (comprar y
+vender siguen funcionando) con un aviso ES/EN en Create y `503 COIN_CREATION_BLOCKED` en el servidor. Ponla a `true` solo cuando
+`NEXT_PUBLIC_PANDA_TREASURY` ya sea la dirección de vault de tu multisig de Squads (paso 4.1). Es tu declaración: el código no
+puede comprobar desde la cadena que una dirección sea un multisig.
 
 Después de desplegar: abre `/api/health/trading` y comprueba `network.state = "ok"`, `moneyFlows.allowed = true` y que
 ninguna variable obligatoria salga `absent` o `invalid`.
@@ -160,7 +168,7 @@ enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a l
 ## Antes de abrir al público
 
 - [ ] Pasos 1–3 hechos; `/api/health/trading` en verde (`ok: true`).
-- [ ] Paso 4.1 hecho (tesorería definitiva en multisig) **antes** de crear la primera moneda real.
+- [ ] Paso 4.1 hecho (tesorería definitiva en multisig) y `TREASURY_IS_MULTISIG=true` **antes** de crear la primera moneda real (sin eso el servidor no deja).
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
 - [ ] Respuesta legal recibida (paso 7) y `[pendiente]` de los textos legales rellenados.

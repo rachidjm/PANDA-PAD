@@ -68,7 +68,7 @@ async function fromPumpFeed(): Promise<Launch[]> {
       const coin = dexPairToCoin(pair);
       if (assessCoin(coin).quality !== "ok") continue;
       marketCap = coin.marketCap;
-    } else if (assessCoin({ source: "pump-fun", marketCap, changePct: 0, liquidityUsd: undefined, sourceMarketCaps: undefined }).quality !== "ok") {
+    } else if (assessCoin({ mint: c.mint, source: "pump-fun", marketCap, changePct: 0, liquidityUsd: undefined, sourceMarketCaps: undefined }).quality !== "ok") {
       continue;
     }
     verified.push({

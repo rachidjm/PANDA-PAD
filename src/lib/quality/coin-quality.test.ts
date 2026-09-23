@@ -121,3 +121,21 @@ test("withQuality keeps every other field", () => {
   assert.equal(m.image, "x.png");
   assert.equal(m.quality, "suspect");
 });
+
+const PUMP_MINT = "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn";
+// PUMP as it looked in production (2026-09-23): $1.88B market cap on $21.8M of liquidity, ~86×
+const PUMP = coin({ ticker: "PUMP", mint: PUMP_MINT, marketCap: 1_869_317_477, liquidityUsd: 21_847_867.63, changePct: -8 });
+
+test("ALLOWLIST: PUMP would be set aside by the market-cap/liquidity rule, but its mint is allowlisted, so it never is", () => {
+  const without = { ...QUALITY_CONFIG, allowlistMints: [] as readonly string[] };
+  assert.deepEqual(assessCoin(PUMP, without).reasons, ["mc_over_liquidity"], "the rule really does fire on it");
+  assert.deepEqual(assessCoin(PUMP), { quality: "ok", reasons: [] });
+  assert.equal(partitionByQuality([PUMP]).ok.length, 1);
+});
+
+test("the allowlist is per mint: a lookalike ticker, or the same numbers on another mint, is still excluded; and it beats every rule", () => {
+  assert.equal(assessCoin({ ...PUMP, mint: "SomeOtherMint1111111111111111111111111111111" }).quality, "suspect");
+  assert.equal(assessCoin({ ...PUMP, mint: PUMP_MINT.toLowerCase() }).quality, "suspect", "exact match only");
+  const worst = coin({ ticker: "PUMP", mint: PUMP_MINT, marketCap: 9e12, liquidityUsd: 10, changePct: 1e7, sourceMarketCaps: { pump: 1, dex: 100 } });
+  assert.equal(assessCoin(worst).quality, "ok");
+});

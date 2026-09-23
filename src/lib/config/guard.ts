@@ -4,6 +4,7 @@ import { isEnabled, type Feature } from "./flags";
 const NAMES: Partial<Record<Feature, string>> = {
   STRATEGIES: "Stop Loss / Take Profit and Draw Your Trade (custodial Jupiter vault)",
   OTC_REWARDS: "PANDA Rewards launches (OTC)",
+  HOLDER_REWARDS: "Holder rewards (the Holders share of creator fees)",
 };
 
 /**

@@ -11,7 +11,10 @@ export type CoinQuality = { quality: "ok" | "suspect"; reasons: QualityReason[] 
 
 const positive = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
 
-export function assessCoin(coin: Pick<Coin, "source" | "marketCap" | "liquidityUsd" | "changePct" | "sourceMarketCaps">, cfg: QualityConfig = QUALITY_CONFIG): CoinQuality {
+export function assessCoin(coin: Pick<Coin, "mint" | "source" | "marketCap" | "liquidityUsd" | "changePct" | "sourceMarketCaps">, cfg: QualityConfig = QUALITY_CONFIG): CoinQuality {
+  // The allowlist wins over every rule.
+  if (cfg.allowlistMints.includes(coin.mint)) return { quality: "ok", reasons: [] };
+
   const reasons: QualityReason[] = [];
 
   if (!positive(coin.marketCap)) reasons.push("invalid_data");

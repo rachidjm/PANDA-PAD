@@ -8,6 +8,7 @@ const key = () => Keypair.generate().publicKey.toBase58();
 const GOOD: Env = {
   SOLANA_RPC_URL: "https://mainnet.helius-rpc.com/?api-key=SUPERSECRET",
   NETWORK: "mainnet",
+  TREASURY_IS_MULTISIG: "true",
   NEXT_PUBLIC_PANDA_TREASURY: key(),
   AUTH_SESSION_SECRET: "x".repeat(40),
   ADMIN_WALLETS: `${key()},${key()}`,

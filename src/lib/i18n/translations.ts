@@ -1237,8 +1237,8 @@ export const dict = {
   "cr.xOpt": { en: "X (optional)", es: "X (opcional)" },
   "cr.firstBuy": { en: "Your first buy (optional)", es: "Tu primera compra (opcional)" },
   "cr.firstBuyDesc": {
-    en: "Buy some of {coin} the moment it launches, paid in SOL — as its very first trade. This is a second transaction right after creation, so you sign it separately.",
-    es: "Compra algo de {coin} en el momento en que se lanza, pagado en SOL — como su primera operación. Es una segunda transacción justo tras la creación, así que la firmas por separado.",
+    en: "Buy some of {coin} the moment it launches, paid in SOL — as its very first trade. This is a separate transaction after creation (and after the fee split), so you sign it on its own.",
+    es: "Compra algo de {coin} en el momento en que se lanza, pagado en SOL — como su primera operación. Es una transacción aparte tras la creación (y tras el reparto de comisiones), así que la firmas por separado.",
   },
   "cr.yourCoin": { en: "your coin", es: "tu moneda" },
   "cr.none": { en: "None", es: "Ninguna" },
@@ -1278,8 +1278,8 @@ export const dict = {
   },
   "cr.confirmTitle": { en: "Review before you sign", es: "Revisa antes de firmar" },
   "cr.confirmBody": {
-    en: "Your wallet will ask you to approve the launch. This fee distribution is written on-chain together with your coin.",
-    es: "Tu wallet te pedirá aprobar el lanzamiento. Este reparto de comisiones se escribe on-chain junto con tu moneda.",
+    en: "Your wallet will ask you to approve two transactions, one after the other: first the coin, then this fee distribution (written on-chain right after your coin exists).",
+    es: "Tu wallet te pedirá aprobar dos transacciones, una tras otra: primero la moneda y después este reparto de comisiones (se escribe on-chain justo cuando tu moneda ya existe).",
   },
   "cr.confirmFirstBuy": { en: "First buy", es: "Primera compra" },
   "cr.confirmNoBuy": { en: "None", es: "Ninguna" },
@@ -1499,6 +1499,22 @@ export const dict = {
   "sltp.noMessageSigning": {
     en: "This wallet doesn't support message signing, which the Trigger vault requires.",
     es: "Esta wallet no admite la firma de mensajes, algo que requiere la bóveda de Trigger.",
+  },
+
+  // Create: the fee split is the second transaction of a launch
+  "cr.stageFees": { en: "Setting the fee split — confirm the second transaction in your wallet…", es: "Fijando el reparto de comisiones — confirma la segunda transacción en tu wallet…" },
+  "cr.feesPendingTitle": { en: "Your coin is live, but its fee split isn't set yet", es: "Tu moneda ya existe, pero su reparto de comisiones aún no está fijado" },
+  "cr.feesPendingBody": {
+    en: "Launching with a fee split takes two transactions and the second one wasn't confirmed. Until it is, this coin's creator fees are not split (PANDA's share included). Set it now.",
+    es: "Lanzar con reparto de comisiones requiere dos transacciones y la segunda no se confirmó. Hasta que lo haga, las comisiones de creador de esta moneda no están repartidas (incluida la parte de PANDA). Fíjalo ahora.",
+  },
+  "cr.feesRetry": { en: "Set the fee split", es: "Fijar el reparto de comisiones" },
+
+  // Coin creation guard
+  "cr.blocked.title": { en: "Creating coins is paused for now", es: "Crear monedas está en pausa por ahora" },
+  "cr.blocked.body": {
+    en: "Coin creation opens once PANDA's treasury is a multisig: the address that receives PANDA's share is written into every coin's on-chain config and can't be changed afterwards. Buying and selling are not affected.",
+    es: "Crear monedas se abrirá cuando la tesorería de PANDA sea un multisig: la dirección que recibe la parte de PANDA se escribe en la configuración on-chain de cada moneda y no se puede cambiar después. Comprar y vender no se ven afectados.",
   },
 
   // Network guard banner

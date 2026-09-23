@@ -13,15 +13,10 @@ import { FeeShareholderInput } from "./fee-shares-validation";
  * key is sent here; the client keeps the secret key in memory to co-sign
  * the transaction itself once this comes back.
  *
- * When `shareholders` is given, Fee Distribution's on-chain setup
- * (`createFeeSharingConfig` + `updateFeeShares`, see `./fee-sharing.ts`) is
- * bundled into this SAME transaction, right after the create instruction —
- * the create instruction initializes the mint earlier in the same
- * transaction, and later instructions in one transaction see that write, so
- * the fee-sharing config can reference the mint immediately without waiting
- * for a separate confirmed transaction first. This means Fee Distribution is
- * decided once, before the creator signs anything — not as an extra step
- * after the coin already exists.
+ * The creator-fee split (Fee Distribution) is NOT in this transaction. Bundled with the create instruction it never fit: the
+ * Pump SDK's create_v2 alone is ~790 bytes, and adding `createFeeSharingConfig` + `updateFeeShares` gives 1,238–1,347 bytes
+ * against Solana's 1,232-byte limit (measured; even with the compute-limit instruction removed). So the split is a second
+ * transaction, `buildFeeSharingTransaction`, sent right after this one confirms — see /api/pump/create (`step: "fees"`).
  */
 export async function buildCreateTransaction({
   mint,
@@ -29,14 +24,12 @@ export async function buildCreateTransaction({
   name,
   symbol,
   uri,
-  shareholders,
 }: {
   mint: PublicKey;
   user: PublicKey;
   name: string;
   symbol: string;
   uri: string;
-  shareholders?: FeeShareholderInput[];
 }): Promise<Transaction> {
   const offline = getPumpSdk();
 
@@ -51,13 +44,18 @@ export async function buildCreateTransaction({
   });
 
   const tx = new Transaction();
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: shareholders?.length ? 400_000 : 200_000 }));
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
   tx.add(instruction);
+  return tx;
+}
 
-  if (shareholders && shareholders.length > 0) {
-    const feeIxs = await buildFeeSharingInstructions({ mint, creator: user, shareholders });
-    tx.add(...feeIxs);
-  }
-
+/**
+ * The second transaction of a launch with a fee split: creates the coin's on-chain SharingConfig and writes the shareholders
+ * (PANDA's locked 5% among them — validated by the route). The creator signs it; it only makes sense once the coin exists.
+ */
+export async function buildFeeSharingTransaction({ mint, user, shareholders }: { mint: PublicKey; user: PublicKey; shareholders: FeeShareholderInput[] }): Promise<Transaction> {
+  const tx = new Transaction();
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+  tx.add(...(await buildFeeSharingInstructions({ mint, creator: user, shareholders })));
   return tx;
 }

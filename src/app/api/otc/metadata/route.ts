@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { coinCreationGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -18,6 +19,8 @@ const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("OTC_REWARDS");
   if (disabled) return disabled;
+  const creationBlocked = coinCreationGuardResponse();
+  if (creationBlocked) return creationBlocked;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
   if (rateLimited(`otc-metadata:${clientIp(req)}`, 10, 60_000)) {

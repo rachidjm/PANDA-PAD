@@ -54,6 +54,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["AUTH_SESSION_SECRET"], group: "core", required: always, valid: (v) => v.length >= 32, affects: "wallet sign-in: without it nobody can sign in or claim rewards" },
   { names: ["ADMIN_WALLETS"], group: "core", required: always, valid: (v) => v.split(",").map((s) => s.trim()).filter(Boolean).length > 0 && v.split(",").map((s) => s.trim()).filter(Boolean).every(isPubkey), affects: "/admin and the pause switches: without it nobody is admin" },
   { names: ["CRON_SECRET"], group: "core", required: always, valid: (v) => v.length >= 16, affects: "the daily fee-collection cron: without it the cron refuses to run" },
+  { names: ["TREASURY_IS_MULTISIG"], group: "core", required: (e) => e.NETWORK === "mainnet", valid: (v) => v === "true" || v === "false", affects: "coin creation on mainnet: blocked unless this is \"true\" (your declaration that the treasury is a multisig); trading is not affected" },
   { names: ["BLOB_READ_WRITE_TOKEN", "BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN", "PANDA_PAD_BLOB_READ_WRITE_TOKEN"], group: "storage", required: always, valid: nonEmpty, affects: "Create (the coin's image and metadata are hosted there) and every ledger PANDA keeps" },
 
   // ── optional, required only when the feature is on ────────────────────────────────────────────────────────

@@ -38,6 +38,15 @@ export const QUALITY_CONFIG = {
    * percent; 35% leaves room for a stale quote without letting a 2× disagreement through.
    */
   maxSourceDisagreement: 0.35,
+
+  /**
+   * Mints that are NEVER set aside, whatever the numbers say: established coins whose market cap is legitimately far above
+   * their pool liquidity (the rule above would hide them). Add a mint only after checking it yourself — an entry here
+   * switches the whole filter off for that coin.
+   */
+  allowlistMints: [
+    "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn", // PUMP (Pump.fun's token): ~$1.9B market cap on ~$22M of liquidity, ~85×
+  ] as readonly string[],
 } as const;
 
 export type QualityConfig = typeof QUALITY_CONFIG;

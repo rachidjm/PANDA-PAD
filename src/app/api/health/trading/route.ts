@@ -8,6 +8,7 @@ import { getOnlinePumpSdk } from "@/lib/pump/client";
 import { getJupiterQuote, SOL_MINT } from "@/lib/jupiter/client";
 import { envReport, isPublicSolanaRpc } from "@/lib/config/env";
 import { decideMoneyFlow, getNetworkStatus } from "@/lib/config/network";
+import { decideCoinCreation } from "@/lib/config/creation";
 
 /**
  * "Can people trade on this deployment?" — one page (open /api/health/trading) that checks each thing a trade depends
@@ -96,7 +97,15 @@ export async function GET(req: Request) {
   };
   checks.push({ id: "network", ok: network.state === "ok", detail: networkDetail[network.state] });
 
-  // 6. Every environment variable, by name and status only.
+  // 6. Coin creation is a separate gate from trading: on mainnet it needs the treasury declared a multisig.
+  const creation = decideCoinCreation();
+  checks.push({
+    id: "creation",
+    ok: creation.allowed,
+    detail: creation.allowed ? "Coin creation is allowed." : "Coin creation is BLOCKED (trading still works): on mainnet, set TREASURY_IS_MULTISIG=true once NEXT_PUBLIC_PANDA_TREASURY is a multisig vault (Squads). The treasury address is written into every coin's on-chain config and can't be changed afterwards.",
+  });
+
+  // 7. Every environment variable, by name and status only.
   const env = envReport();
   const missingRequired = env.filter((i) => i.required && i.status !== "present");
   checks.push({
@@ -110,6 +119,7 @@ export async function GET(req: Request) {
     {
       ok,
       moneyFlows: moneyFlows.blocking ? { allowed: false, reason: moneyFlows.reason } : { allowed: true },
+      creation: creation.allowed ? { allowed: true } : { allowed: false, reason: creation.reason },
       network,
       env,
       checks,

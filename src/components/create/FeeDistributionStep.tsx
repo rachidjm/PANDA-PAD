@@ -6,6 +6,7 @@ import { CREATOR_CONFIGURABLE_MAX_BPS, PANDA_SHARE_BPS } from "@/lib/config/prot
 import { FeeLine, PlanIssue, formatBps, parsePercentToBps, planIssue, planLines } from "@/lib/pump/fee-plan";
 import { MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
 const TREASURY = PANDA_TREASURY.toBase58();
@@ -28,6 +29,9 @@ export default function FeeDistributionStep({
   onChange: (result: FeeDistributionResult) => void;
 }) {
   const { t } = useLanguage();
+  // The Holders band exists only while FEATURE_HOLDER_REWARDS is on (and the pool is configured); otherwise the split is PANDA 5% + Creator + optional partner.
+  const { holderRewards } = useFeatures();
+  const holdersPool = holderRewards ? REWARDS_POOL : null;
   const [creatorPct, setCreatorPct] = useState("95");
   const [holdersPct, setHoldersPct] = useState("0");
   const [partnerPct, setPartnerPct] = useState("0");
@@ -41,7 +45,7 @@ export default function FeeDistributionStep({
     return { c, h, p, invalidNumber: c === null || h === null || p === null };
   }, [creatorPct, holdersPct, partnerPct, partnerOn]);
 
-  const ctx = useMemo(() => ({ creator, treasury: TREASURY, rewardsPool: REWARDS_POOL }), [creator]);
+  const ctx = useMemo(() => ({ creator, treasury: TREASURY, rewardsPool: holdersPool }), [creator, holdersPool]);
 
   const { lines, issue } = useMemo(() => {
     const plan = {
@@ -102,27 +106,31 @@ export default function FeeDistributionStep({
           <button type="button" onClick={() => preset(CREATOR_CONFIGURABLE_MAX_BPS, 0)} className={CHIP}>
             {t("fd.presetAllMe")}
           </button>
-          <button
-            type="button"
-            disabled={!REWARDS_POOL}
-            onClick={() => preset(5000, 4500)}
-            className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
-          >
-            {t("fd.presetHolders")}
-          </button>
+          {holderRewards && (
+            <button
+              type="button"
+              disabled={!REWARDS_POOL}
+              onClick={() => preset(5000, 4500)}
+              className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              {t("fd.presetHolders")}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="mt-2 space-y-1.5">
         <Row dot={BAR_COLOR.creator} icon={<CrownIcon />} label={t("fd.creator")} value={creatorPct} onChange={setCreatorPct} />
-        <Row
-          dot={BAR_COLOR.holders}
-          icon={<PeopleIcon />}
-          label={t("fd.holders")}
-          value={holdersPct}
-          onChange={setHoldersPct}
-          disabled={!REWARDS_POOL}
-        />
+        {holderRewards && (
+          <Row
+            dot={BAR_COLOR.holders}
+            icon={<PeopleIcon />}
+            label={t("fd.holders")}
+            value={holdersPct}
+            onChange={setHoldersPct}
+            disabled={!REWARDS_POOL}
+          />
+        )}
         {partnerOn ? (
           <div className="rounded-xl bg-ink px-3.5 py-2.5">
             <div className="flex items-center gap-3">
@@ -166,7 +174,7 @@ export default function FeeDistributionStep({
       {(parsed.h ?? 0) > 0 && (
         <p className="mt-2 text-xs text-panda-grey">{t("fd.holdersInfo", { min: MIN_HOLDING_USD_FOR_REWARDS })}</p>
       )}
-      {!REWARDS_POOL && <p className="mt-2 text-xs text-panda-grey">{t("fd.notConfigured")}</p>}
+      {holderRewards && !REWARDS_POOL && <p className="mt-2 text-xs text-panda-grey">{t("fd.notConfigured")}</p>}
 
       <p className={`mt-3 text-xs ${problem ? "text-clay-red" : "text-bamboo"}`} role={problem ? "alert" : undefined}>
         {problem ??

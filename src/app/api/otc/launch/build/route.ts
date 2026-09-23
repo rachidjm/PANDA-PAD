@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
+import { coinCreationGuardResponse, moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
   if (disabled) return disabled;
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;
+  const creationBlocked = coinCreationGuardResponse();
+  if (creationBlocked) return creationBlocked;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
   if (rateLimited(`otc-build:${clientIp(req)}`, 15, 60_000)) {
