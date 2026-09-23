@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "verify-tx": "tsx scripts/verify-tx.ts",
+    "check-sharing": "tsx scripts/check-sharing.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
