@@ -3,20 +3,17 @@ import { serverRpcUrl } from "@/lib/solana/rpc";
 import { solPriceUsd } from "@/lib/solana/prices";
 import { fetchPumpCoins } from "@/lib/pump/frontend-api";
 import { fetchDexTokensBatch } from "@/lib/dexscreener/client";
-import { readJson, writeJson, updateJson } from "@/lib/rewards/blob-store";
-import { LoggedTrade } from "./trade-log";
+import { LoggedTrade, addEstimatedTrades, getBackfillMark, setBackfillMark } from "./trade-log";
 import { deriveTrade } from "./derive-trade";
 
 const SIGNATURE_LIMIT = 80;
 const CONCURRENCY = 4;
 const TIME_BUDGET_MS = 22_000;
 const RESCAN_AFTER_MS = 24 * 60 * 60 * 1000;
-const markerPath = (wallet: string) => `portfolio/backfill/${wallet}.json`;
-const tradesPath = (wallet: string) => `portfolio/trades/${wallet}.json`;
 
 /** True if this wallet's on-chain history hasn't been scanned yet (or not in the last day). */
 export async function needsBackfill(wallet: string): Promise<boolean> {
-  const marker = await readJson<{ at: number } | null>(markerPath(wallet), null);
+  const marker = await getBackfillMark(wallet);
   return !marker || Date.now() - marker.at > RESCAN_AFTER_MS;
 }
 
@@ -93,14 +90,10 @@ export async function backfillTrades(wallet: string): Promise<number> {
       estimated: true,
     }));
 
-    added = await updateJson<LoggedTrade[], number>(tradesPath(wallet), [], (existing) => {
-      const known = new Set(existing.map((t) => t.signature));
-      const fresh = trades.filter((t) => !known.has(t.signature));
-      return { next: [...existing, ...fresh], result: fresh.length };
-    });
+    added = await addEstimatedTrades(wallet, trades);
   }
 
   // Only reached when the whole history read succeeded.
-  await writeJson(markerPath(wallet), { at: Date.now() });
+  await setBackfillMark(wallet, Date.now());
   return added;
 }

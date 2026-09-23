@@ -84,7 +84,7 @@ export async function GET(req: Request) {
 
         // Integer-exact split by raw token balance; the rounding remainder is recorded as dust, never lost.
         const { credits, dust } = computeHolderCredits(holders, distributed.lamports);
-        await creditHolders(mint, distributed.lamports, credits, dust);
+        await creditHolders(mint, distributed.lamports, credits, dust, distributed.signature);
         results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: credits.length });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error.";

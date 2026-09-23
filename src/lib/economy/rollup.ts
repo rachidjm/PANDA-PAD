@@ -1,4 +1,7 @@
 import { docRead, docUpdate } from "@/lib/storage/store";
+import { getDb } from "@/lib/db/client";
+import { storageMode } from "@/lib/db/mode";
+import { pgReadDays, pgReadTotal } from "@/lib/db/activity";
 
 /**
  * Running totals of what PANDA itself measured on-chain, in exact lamports: one document per day plus one
@@ -74,11 +77,13 @@ export async function addMetrics(ts: number, delta: RollupDelta): Promise<boolea
 }
 
 export async function readTotal(): Promise<TotalDoc> {
+  if (storageMode("activity") === "postgres") return pgReadTotal(getDb());
   return docRead<TotalDoc>(TOTAL_PATH, { version: 1, since: null, metrics: emptyMetrics() });
 }
 
 /** The last `days` days (oldest first, today last), zero-filled for days with nothing recorded. */
 export async function readDays(now: number, days: number): Promise<DayDoc[]> {
+  if (storageMode("activity") === "postgres") return pgReadDays(getDb(), now, days);
   const list = Array.from({ length: days }, (_, i) => dayOf(now - (days - 1 - i) * 24 * 3_600_000));
   return Promise.all(list.map(async (day) => docRead<DayDoc>(dayPath(day), { version: 1, day, metrics: emptyMetrics() })));
 }

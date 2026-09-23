@@ -8,7 +8,7 @@ import {
   Transaction,
   TransactionExpiredBlockheightExceededError,
 } from "@solana/web3.js";
-import { getLedger, unclaimedLamports, reserveClaim, releaseClaim } from "@/lib/rewards/ledger";
+import { getLedger, unclaimedLamports, reserveClaim, releaseClaim, markClaimSent, confirmClaim, type Reservation } from "@/lib/rewards/ledger";
 import { DAILY_CAP_LAMPORTS, MAX_CLAIM_LAMPORTS, reserveDailyPayout, releaseDailyPayout } from "@/lib/rewards/limits";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { fetchTokenPools } from "@/lib/gecko/client";
@@ -92,6 +92,7 @@ export async function POST(req: Request) {
   }
 
   let reserved = 0;
+  let reservation: Reservation | null = null;
   let mint = "";
   let holder = "";
   try {
@@ -134,13 +135,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Rewards payouts are paused for today — try again tomorrow." }, { status: 503 });
     }
 
-    reserved = await reserveClaim(mint, holder, wanted);
+    reservation = await reserveClaim(mint, holder, wanted);
+    reserved = reservation.amount;
     if (reserved < wanted) await releaseDailyPayout(wanted - reserved);
     if (reserved <= 0) return NextResponse.json({ error: "Nothing to claim." }, { status: 400 });
+    const booked = reservation; // the reservation this request owns, for the closures below
 
     const poolBalance = await conn.getBalance(signer.publicKey);
     if (poolBalance < reserved + POOL_RESERVE_LAMPORTS) {
-      await releaseClaim(mint, holder, reserved);
+      await releaseClaim(booked);
       await releaseDailyPayout(reserved);
       await alertOps("Rewards Pool balance too low to pay a claim", {
         poolSol: poolBalance / LAMPORTS_PER_SOL,
@@ -159,7 +162,7 @@ export async function POST(req: Request) {
     tx.sign(signer);
 
     const rollback = async () => {
-      await releaseClaim(mint, holder, reserved);
+      await releaseClaim(booked);
       await releaseDailyPayout(reserved);
       reserved = 0;
     };
@@ -172,6 +175,9 @@ export async function POST(req: Request) {
       await alertOps("Claim transaction could not be sent", { mint, holder, error: String(err) });
       return NextResponse.json({ error: "Couldn't send the payout — nothing was paid, please try again." }, { status: 502 });
     }
+
+    // From here SOL may be on its way: record the signature (Postgres tracks the claim as "sent" until its outcome is known).
+    await markClaimSent(booked, signature);
 
     try {
       const confirmation = await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
@@ -201,16 +207,18 @@ export async function POST(req: Request) {
       );
     }
 
+    await confirmClaim(booked); // reserved → claimed
     const paid = reserved;
     reserved = 0;
+    reservation = null;
     await recordAudit({ req, actor: holder, action: "claim.paid", object: mint, newState: { signature, lamports: paid } });
     // The payout is confirmed on-chain (checked just above), so this is a verified event.
     await recordActivity({ id: `claim:${signature}`, kind: "reward_claim", ts: Date.now(), mint, wallet: holder, lamports: paid, signature });
     return NextResponse.json({ signature, lamports: paid });
   } catch (err) {
     // Anything unexpected after a reservation was booked and before the send: undo it.
-    if (reserved > 0) {
-      await releaseClaim(mint, holder, reserved).catch(() => {});
+    if (reserved > 0 && reservation) {
+      await releaseClaim(reservation).catch(() => {});
       await releaseDailyPayout(reserved).catch(() => {});
     }
     const message = err instanceof Error ? err.message : "Claim failed.";

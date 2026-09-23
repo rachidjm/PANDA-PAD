@@ -1,4 +1,7 @@
 import { docRead, docUpdate } from "@/lib/storage/store";
+import { getDb } from "@/lib/db/client";
+import { storageMode } from "@/lib/db/mode";
+import { pgReadJournal } from "@/lib/db/activity";
 import { ACTIVITY_CONFIG as C } from "./config";
 import { FEED_KINDS, StoredEvent } from "./types";
 
@@ -53,6 +56,7 @@ export async function appendEvent(event: StoredEvent, now: number): Promise<Appe
 
 /** Events from the last `C.journalDays` daily documents (by write date), unordered. */
 export async function readJournal(now: number): Promise<StoredEvent[]> {
+  if (storageMode("activity") === "postgres") return pgReadJournal(getDb(), now, C.journalDays);
   const days = Array.from({ length: C.journalDays }, (_, i) => docRead<Day>(pathFor(now - i * 24 * 3_600_000), EMPTY));
   const out: StoredEvent[] = [];
   for (const d of await Promise.all(days)) for (const e of d.events) out.push(e);

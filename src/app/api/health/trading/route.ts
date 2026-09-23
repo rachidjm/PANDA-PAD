@@ -9,6 +9,8 @@ import { getJupiterQuote, SOL_MINT } from "@/lib/jupiter/client";
 import { envReport, isPublicSolanaRpc } from "@/lib/config/env";
 import { decideMoneyFlow, getNetworkStatus } from "@/lib/config/network";
 import { decideCoinCreation } from "@/lib/config/creation";
+import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
+import { pingDb } from "@/lib/db/client";
 
 /**
  * "Can people trade on this deployment?" — one page (open /api/health/trading) that checks each thing a trade depends
@@ -105,7 +107,24 @@ export async function GET(req: Request) {
     detail: creation.allowed ? "Coin creation is allowed." : "Coin creation is BLOCKED (trading still works): on mainnet, set TREASURY_IS_MULTISIG=true once NEXT_PUBLIC_PANDA_TREASURY is a multisig vault (Squads). The treasury address is written into every coin's on-chain config and can't be changed afterwards.",
   });
 
-  // 7. Every environment variable, by name and status only.
+  // 7. Postgres, when any domain uses it (Blob → Postgres migration): reachable, and where each domain lives.
+  if (needsDatabase()) {
+    const { modes, problems } = parseStorageModes(process.env.PANDA_STORAGE_MODES);
+    let reachable = false;
+    try {
+      await pingDb();
+      reachable = true;
+    } catch {
+      // reported below, without the error text (it can contain the host)
+    }
+    checks.push({
+      id: "database",
+      ok: reachable && problems.length === 0,
+      detail: `${reachable ? "Postgres answers." : "Postgres is NOT reachable (check DATABASE_URL); domains in postgres mode fail closed and dual mode can't mirror."} Domains: ${Object.entries(modes).map(([d, m]) => `${d}=${m}`).join(", ")}.${problems.length ? ` Unreadable PANDA_STORAGE_MODES entries: ${problems.join("; ")}.` : ""}`,
+    });
+  }
+
+  // 8. Every environment variable, by name and status only.
   const env = envReport();
   const missingRequired = env.filter((i) => i.required && i.status !== "present");
   checks.push({

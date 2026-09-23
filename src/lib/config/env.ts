@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "./flags";
+import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
 
 /**
  * Every environment variable PANDA reads, validated by a small schema (no new dependency): for each one, whether it is
@@ -31,6 +32,7 @@ const isPubkey = (v: string) => {
     return false;
   }
 };
+const isPostgresUrl = (v: string) => /^postgres(ql)?:\/\/\S+$/.test(v.trim());
 const isHttpUrl = (v: string) => {
   try {
     const u = new URL(v.trim());
@@ -57,6 +59,10 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["TREASURY_IS_MULTISIG"], group: "core", required: (e) => e.NETWORK === "mainnet", valid: (v) => v === "true" || v === "false", affects: "coin creation on mainnet: blocked unless this is \"true\" (your declaration that the treasury is a multisig); trading is not affected" },
   { names: ["PANDA_LOOKUP_TABLE"], group: "core", required: never, valid: isPubkey, affects: "one-signature launches: unset, a launch takes two transactions (the coin, then its fee split) and the coin stays out of PANDA's lists until the second is confirmed" },
   { names: ["BLOB_READ_WRITE_TOKEN", "BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN", "PANDA_PAD_BLOB_READ_WRITE_TOKEN"], group: "storage", required: always, valid: nonEmpty, affects: "Create (the coin's image and metadata are hosted there) and every ledger PANDA keeps" },
+
+  { names: ["PANDA_STORAGE_MODES"], group: "storage", required: never, valid: (v) => parseStorageModes(v).problems.length === 0, affects: "where each domain lives during the Blob → Postgres migration (rewards, trades, activity, pause = blob | dual | postgres); an entry it can't read leaves that domain on Blob" },
+  { names: ["DATABASE_URL"], group: "storage", required: (e) => needsDatabase(e), valid: isPostgresUrl, affects: "Postgres (Neon): required as soon as PANDA_STORAGE_MODES puts any domain in dual or postgres; a domain in postgres mode fails closed without it" },
+  { names: ["DATABASE_URL_UNPOOLED"], group: "storage", required: never, valid: isPostgresUrl, affects: "only `npm run db:migrate` (schema migrations); the running app uses DATABASE_URL" },
 
   // ── optional, required only when the feature is on ────────────────────────────────────────────────────────
   { names: ["JUPITER_API_KEY"], group: "strategies", required: (e) => isEnabled("STRATEGIES", e), valid: nonEmpty, affects: "Draw Your Trade and Stop Loss / Take Profit (FEATURE_STRATEGIES)" },

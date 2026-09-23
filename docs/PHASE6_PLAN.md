@@ -1,6 +1,6 @@
 # PANDA — Fase 6: infraestructura para dinero de terceros (PLAN, nada ejecutado)
 
-**Estado:** propuesta. No he tocado código, proveedores ni datos. Necesito tu elección de proveedor y tu luz verde para empezar.
+**Estado:** decisiones tomadas (Neon, Drizzle; Upstash fail-closed en dinero / fail-open en lectura). **Punto 1 (Postgres) implementado y a la espera de tu revisión** — ver «Estado del punto 1» dentro de §1. Los puntos 2–5 no están empezados.
 **Por qué existe:** hoy la persistencia es Vercel Blob (JSON con bloqueo optimista por ETag), el rate limiting vive en la memoria de
 cada instancia, la auditoría es de solo-añadir *por convención* en archivos legibles por URL, las sesiones no se pueden revocar antes
 de 2 h y el CSP no controla `script-src`. Con dinero de terceros (`FEATURE_HOLDER_REWARDS`, claims, y más adelante estrategias,
@@ -41,6 +41,38 @@ verificar: disponibilidad e integración actuales)**. Criterios que importan a P
 en el tiempo (exígelo: solo en planes de pago), región cercana a las funciones de Vercel, y un driver apto para serverless (pooling o
 HTTP). Para tu decisión: **Neon** encaja mejor si solo quieres Postgres; **Supabase** si además quieres su panel/Auth (PANDA no lo usa).
 Recomendación por defecto: el que ya tengas o el más barato con PITR incluido.
+
+### Estado del punto 1 (implementado, pendiente de tu revisión)
+
+**Hecho (código + pruebas, 526 tests en verde, lint/tsc/build limpios):** esquema Drizzle y migración `drizzle/0000_core_schema.sql`;
+repositorios de rewards, trades, actividad/economía y pausas (`src/lib/db/*`); un interruptor por dominio (`PANDA_STORAGE_MODES`, §1.4);
+doble escritura; backfill y comparador de solo lectura; check de salud y variables de entorno (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`).
+**Por defecto todo sigue en Blob** (sin la variable no cambia nada de lo que corre hoy).
+
+**Qué prueban los tests y qué no.** Corren contra un Postgres real en el proceso (PGlite: `CHECK`, `ON CONFLICT`, `FOR UPDATE`, transacciones). PGlite tiene
+**una sola conexión**, así que los tests «25 reclamaciones simultáneas» prueban la lógica y las restricciones, **no** las carreras de bloqueo entre conexiones.
+Eso lo cubre `src/lib/db/concurrency.real.test.ts`, que **no se ha ejecutado** (no hay base de datos aquí): se activa con `TEST_DATABASE_URL` apuntando a una
+rama desechable de Neon. **Nada de esto se ha probado contra Neon ni desde Vercel** (driver por WebSocket, cadena *pooled*, latencia, límites de conexiones): (sin verificar).
+
+**Desviaciones respecto al borrador (todas para poder migrar sin perder ni cambiar significado):**
+- **Drizzle** (tu decisión) en lugar de SQL plano; migraciones numeradas con `drizzle-kit`.
+- `reward_distributions (source_sig, mint)` como ancla de idempotencia: un mismo `distributeCreatorFees` no se acredita dos veces aunque el cron reintente (Blob, como antes, no lo evita).
+- `trades`: clave `(wallet, signature)`; importes como `double precision` y `ts` en ms (`bigint`), no `numeric`/`timestamptz`: se guardan **exactamente** como los calcula la app, y el comparador exige igualdad.
+- `economy_daily`/`economy_total` con una columna `bigint` por métrica (no `jsonb`): sumar es un `UPDATE … SET x = x + n` atómico. Una cifra que pasase de 2^53 se rechaza con la transacción entera.
+- El journal del día se limita y se ventanea por **día de escritura** (como los documentos diarios de Blob); en Postgres un mismo id no se repite ni entre días (más estricto).
+- API del libro de recompensas: `reserveClaim` devuelve una `Reservation` y aparecen `markClaimSent` / `confirmClaim` / `releaseClaim(reservation)`; `creditHolders` recibe la firma de la distribución.
+  Estados de una reclamación: `reserved → sent → confirmed | released`. **Una reclamación «sent» sin desenlace se queda reservada** (no se puede pagar dos veces) y `db:compare` la lista como aviso para revisarla en la cadena.
+- Las pausas, journal, economía y trades siguen usando exactamente los mismos módulos; `blob-store.ts` ganó un modo memoria **solo fuera de producción** (para poder probar todo sin Blob real).
+- **No incluido en el punto 1** (según el plan): auditoría (punto 3) y sesiones/nonces (punto 4) siguen en Blob; tampoco se ha borrado nada de Blob (retención de 30 días tras el cambio de lectura).
+
+**Cómo se ejecuta (tú, con tus claves; yo no las veo):**
+1. Vercel → Storage → Neon (Marketplace). Comprueba que hay copias con recuperación a un punto en el tiempo (plan de pago) y región cercana a las funciones **(sin verificar cómo se llaman hoy las variables que inyecta)**. `vercel env pull .env.local` en tu máquina.
+2. `npm run db:migrate` (usa `DATABASE_URL_UNPOOLED`).
+3. Por dominio, en este orden **pause → trades → activity → rewards** (el dinero, el último):
+   pausar el dominio (panel admin; para rewards: `claims` y `fee_processing`) → `npm run db:backfill` (simulación) → `npm run db:backfill -- --domains <dominio> --yes` → poner `PANDA_STORAGE_MODES=<dominio>=dual` y redesplegar → reanudar →
+   `npm run db:compare` cada día → tras **dos días sin diferencias**, `<dominio>=postgres`. Marcha atrás en cualquier momento: volver a `blob` (Blob no se ha tocado).
+4. `GET /api/health/trading` muestra el check `database` (alcanzable + en qué modo está cada dominio).
+5. Antes de poner rewards en `postgres`, ejecuta `TEST_DATABASE_URL=… npm test` contra una rama desechable.
 
 ### 1.1 Qué hay hoy y adónde va
 

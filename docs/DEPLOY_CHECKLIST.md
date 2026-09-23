@@ -140,6 +140,12 @@ Sin la variable todo funciona igual con el respaldo de dos transacciones, pero l
 "Fijar reparto de comisiones" en la página de la moneda, y cada moneda creada sin reparto queda en auditoría
 (`token.created_without_fee_split`, y `token.fee_split_locked` cuando se fija).
 
+### 4.3 Postgres (Neon) — fase 6, punto 1 (opcional hasta que decidas migrar)
+
+Nada cambia hasta que pongas `PANDA_STORAGE_MODES`. El procedimiento completo (migración del esquema, backfill, doble escritura, comparación, cambio de lectura) está en
+`docs/PHASE6_PLAN.md` → «Estado del punto 1». Variables: `DATABASE_URL` (cadena *pooled*, la usa la app), `DATABASE_URL_UNPOOLED` (solo `npm run db:migrate`) y
+`PANDA_STORAGE_MODES` (p. ej. `pause=dual,trades=dual`). `GET /api/health/trading` avisa si un dominio usa Postgres y no responde.
+
 ## 5. Vercel Pro
 
 - El plan Hobby es para uso personal no comercial según los términos de Vercel **(sin verificar: confírmalo en su página
@@ -191,6 +197,7 @@ enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a l
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
 - [ ] Respuesta legal recibida (paso 7) y `[pendiente]` de los textos legales rellenados.
+- [ ] Fase 6, punto 1 (Postgres): revisado por ti; los dominios que quieras en `dual`/`postgres` migrados con el procedimiento de `docs/PHASE6_PLAN.md` y `db:compare` sin diferencias.
 - [ ] Fase 6 (infraestructura para dinero de terceros: base de datos, rate limiting compartido, auditoría con hash-chain,
       sesiones revocables, CSP con nonces) decidida: hoy la persistencia es Vercel Blob y el rate limiting es en memoria
       por instancia; ninguno es apto para dinero de terceros a escala.
