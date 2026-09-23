@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import {
   Connection,
@@ -81,6 +82,8 @@ export async function GET(req: Request) {
  *      payout isn't) and raise an alert.
  */
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   const paused = await pausedResponse("claims");
   if (paused) return paused;

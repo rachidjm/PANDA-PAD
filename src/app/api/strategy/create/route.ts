@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
 import { realDeps } from "@/lib/strategy/deps";
 import { failureResponse, guardWrite, readBody } from "@/lib/strategy/route";
@@ -8,6 +9,8 @@ import { createStrategy } from "@/lib/strategy/service";
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("STRATEGIES");
   if (disabled) return disabled;
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   const g = guardWrite(req, "create", 10);
   if (g instanceof NextResponse) return g;
   const body = await readBody(req);

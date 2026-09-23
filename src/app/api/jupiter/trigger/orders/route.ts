@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
 import { createOrder, listOrders, CreateOrderParams } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("STRATEGIES");
   if (disabled) return disabled;
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   try {
     const { token, ...params } = (await req.json()) as CreateOrderParams & { token?: string };
     if (!token) return NextResponse.json({ error: "Missing auth token." }, { status: 401 });

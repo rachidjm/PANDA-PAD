@@ -1501,6 +1501,25 @@ export const dict = {
     es: "Esta wallet no admite la firma de mensajes, algo que requiere la bóveda de Trigger.",
   },
 
+  // Network guard banner
+  "net.banner.title": { en: "Trading paused", es: "Trading en pausa" },
+  "net.banner.network_mismatch": {
+    en: "This deployment's Solana connection is on a different network than the one PANDA is set up for, so nothing that moves money can run. Nothing has been sent.",
+    es: "La conexión a Solana de este despliegue está en una red distinta a la que PANDA tiene configurada, así que nada que mueva dinero puede ejecutarse. No se ha enviado nada.",
+  },
+  "net.banner.network_not_configured": {
+    en: "This deployment isn't configured with a network yet, so trading and launching are switched off until it is.",
+    es: "Este despliegue aún no tiene una red configurada, así que operar y lanzar monedas está desactivado hasta que lo esté.",
+  },
+  "net.banner.network_unverified": {
+    en: "PANDA couldn't confirm which Solana network its connection is on right now, so trading and launching are paused. Try again in a moment.",
+    es: "PANDA no ha podido confirmar ahora en qué red de Solana está su conexión, así que operar y lanzar monedas está en pausa. Inténtalo de nuevo en un momento.",
+  },
+  "net.banner.env_missing": {
+    en: "This deployment's configuration is incomplete, so trading and launching are paused until it is fixed.",
+    es: "La configuración de este despliegue está incompleta, así que operar y lanzar monedas está en pausa hasta que se corrija.",
+  },
+
   // Data quality
   "quality.suspect.title": { en: "PANDA flagged this coin's market data as unreliable", es: "PANDA ha marcado los datos de mercado de esta moneda como poco fiables" },
   "quality.suspect.body": {

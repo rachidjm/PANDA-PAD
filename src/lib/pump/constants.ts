@@ -26,9 +26,20 @@ export const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
 
 export const PANDA_FEE_BPS = 50; // 0.5% on each buy and each sell (1% for a round trip)
 
-export const PANDA_TREASURY = new PublicKey(
-  process.env.NEXT_PUBLIC_PANDA_TREASURY || "GJvaNLciu58gCyJap2tzGam76SS1w2Bg9bHbfKyzxb8m"
-);
+const DEFAULT_TREASURY = "GJvaNLciu58gCyJap2tzGam76SS1w2Bg9bHbfKyzxb8m";
+
+/**
+ * A malformed address in the environment must not take the whole app down at import time: it falls back to the built-in
+ * default here, and src/lib/config/env.ts reports the variable as "invalid" (and, in production, the network guard
+ * refuses to move money until it is fixed — so the fallback is never what a real trade pays).
+ */
+export const PANDA_TREASURY = (() => {
+  try {
+    return new PublicKey(process.env.NEXT_PUBLIC_PANDA_TREASURY || DEFAULT_TREASURY);
+  } catch {
+    return new PublicKey(DEFAULT_TREASURY);
+  }
+})();
 
 /**
  * PANDA's fixed cut of every coin's Fee Distribution — not configurable by
@@ -49,6 +60,11 @@ export const PANDA_PROTOCOL_FEE_BPS = PANDA_SHARE_BPS; // 5% — single source o
  * NEXT_PUBLIC_* variable. `null` when unset, so callers can render an honest
  * "not configured" state instead of a fake address.
  */
-export const PANDA_REWARDS_POOL = process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL
-  ? new PublicKey(process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL)
-  : null;
+export const PANDA_REWARDS_POOL = (() => {
+  if (!process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL) return null;
+  try {
+    return new PublicKey(process.env.NEXT_PUBLIC_PANDA_REWARDS_POOL);
+  } catch {
+    return null; // invalid: treated as "not configured" (and reported as invalid by src/lib/config/env.ts)
+  }
+})();

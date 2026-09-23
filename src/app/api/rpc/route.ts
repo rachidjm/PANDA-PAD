@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 
 /**
  * Read-only JSON-RPC proxy: lets the browser query wallet balances and token
@@ -52,6 +53,11 @@ export async function POST(req: Request) {
   }
   if (calls.some((c) => c.method === "sendTransaction") && rateLimited(`rpc-send:${clientIp(req)}`, 20, 60_000)) {
     return rpcError(-32005, "Too many transactions.", 429);
+  }
+
+  // A signed transaction is only forwarded while the network guard allows money to move (reads always go through).
+  if (calls.some((c) => c.method === "sendTransaction") && (await moneyFlowGuardResponse())) {
+    return rpcError(-32002, "Trading is paused: the network of this deployment's RPC could not be confirmed.", 503);
   }
 
   try {

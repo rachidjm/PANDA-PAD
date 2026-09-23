@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
 import { craftDeposit } from "@/lib/jupiter/trigger";
 
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("STRATEGIES");
   if (disabled) return disabled;
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   try {
     const { inputMint, outputMint, userAddress, amount, orderSubType } = await req.json();
     if (!inputMint || !outputMint || !userAddress || !amount) {

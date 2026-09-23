@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
@@ -26,6 +27,8 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   if (await pausedResponse("fee_processing")) return NextResponse.json({ skipped: "fee_processing is paused" });
 

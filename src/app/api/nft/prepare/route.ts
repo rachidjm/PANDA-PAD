@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { rateLimited } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { isEnabled } from "@/lib/config/flags";
@@ -15,6 +16,8 @@ import { prepareMint } from "@/lib/nft/service";
  * Gated by NFT_THEMES and the `nft_minting` pause switch.
  */
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   const paused = await pausedResponse("nft_minting");

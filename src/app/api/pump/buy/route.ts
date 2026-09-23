@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { buildBuyTransaction } from "@/lib/pump/buy";
 
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   // Building a trade costs real RPC calls: cap it per visitor so nobody can burn the RPC budget everyone else trades with.
   if (rateLimited(`trade-build:${clientIp(req)}`, 40, 60_000)) return NextResponse.json({ error: "Too many requests — wait a moment and try again." }, { status: 429 });
   try {

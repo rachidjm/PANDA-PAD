@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { isEnabled } from "@/lib/config/flags";
@@ -35,6 +36,8 @@ const HTTP: Record<ClaimCode, number> = {
  * or claim again — safe). Errors carry a `code`.
  */
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   if (!isEnabled("PANDA_AIRDROPS") || !isEnabled("MERKLE_CLAIMS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   const paused = await pausedResponse("airdrops");

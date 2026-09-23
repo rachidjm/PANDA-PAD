@@ -16,10 +16,19 @@ const LABEL_KEYS: Record<string, DictKey> = {
   fee_processing: "pause.fee_processing",
 };
 
+const NET_KEYS: Record<string, DictKey> = {
+  network_mismatch: "net.banner.network_mismatch",
+  network_not_configured: "net.banner.network_not_configured",
+  network_unverified: "net.banner.network_unverified",
+  env_missing: "net.banner.env_missing",
+};
+
 /** Shown only while a protocol subsystem is paused; renders nothing otherwise. Status is read from the server, never assumed. */
 export default function ProtocolBanner() {
   const { t } = useLanguage();
   const [paused, setPaused] = useState<PausedItem[]>([]);
+  // The network guard: why money flows are blocked (null when they are allowed).
+  const [blockedReason, setBlockedReason] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +36,9 @@ export default function ProtocolBanner() {
       fetch("/api/protocol/status")
         .then((r) => r.json())
         .then((d) => {
-          if (!cancelled && Array.isArray(d.paused)) setPaused(d.paused);
+          if (cancelled) return;
+          if (Array.isArray(d.paused)) setPaused(d.paused);
+          setBlockedReason(d.moneyFlows && d.moneyFlows.allowed === false ? String(d.moneyFlows.reason || "env_missing") : null);
         })
         .catch(() => {});
     Promise.resolve().then(load);
@@ -38,7 +49,19 @@ export default function ProtocolBanner() {
     };
   }, []);
 
-  if (paused.length === 0) return null;
+  if (paused.length === 0 && !blockedReason) return null;
+
+  if (blockedReason && paused.length === 0) {
+    const key = NET_KEYS[blockedReason] ?? NET_KEYS.env_missing;
+    return (
+      <div role="alert" className="border-b border-clay-red/30 bg-clay-red/10">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-sm">
+          <span className="font-display text-xs font-bold uppercase tracking-widest text-clay-red">{t("net.banner.title")}</span>
+          <span className="text-paper/70">{t(key)}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div role="status" className="border-b border-clay-red/30 bg-clay-red/10">

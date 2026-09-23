@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -8,6 +9,8 @@ import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
 
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
   if (rateLimited(`pump-create:${clientIp(req)}`, 20, 60_000)) {

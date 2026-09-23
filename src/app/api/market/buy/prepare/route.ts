@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { failure, marketGate, serverError } from "@/lib/market/route-helpers";
 import { prepareBuy } from "@/lib/market/service";
 
@@ -13,6 +14,8 @@ export const maxDuration = 30;
  * split so the UI can show it BEFORE the buyer signs. Gated by NFT_MARKET and the `nft_market` pause.
  */
 export async function POST(req: Request) {
+  const moneyBlocked = await moneyFlowGuardResponse();
+  if (moneyBlocked) return moneyBlocked;
   const gate = await marketGate(req, { name: "buy", blockedWhenPaused: true, perMinute: 20 });
   if (gate instanceof NextResponse) return gate;
   try {
