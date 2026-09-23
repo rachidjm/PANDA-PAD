@@ -273,15 +273,12 @@ export default function CreateClient() {
 
   return (
     <div>
-      <div className="flex items-center gap-4">
-        <Panda pose="create" size={84} />
-        <div>
-          <h1 className="font-display text-2xl font-bold">{t("cr.heading")}</h1>
-          <p className="text-sm text-panda-grey">{t("cr.sub")}</p>
-        </div>
+      <div>
+        <h1 className="font-display text-3xl font-bold tracking-tight">{t("cr.heading")}</h1>
+        <p className="mt-1.5 text-sm text-panda-grey">{t("cr.sub")}</p>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-7">
         <LaunchModeToggle mode={mode} onChange={setMode} />
       </div>
 
