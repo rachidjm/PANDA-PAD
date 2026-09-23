@@ -20,7 +20,6 @@ export default function LaunchModeToggle({ mode, onChange }: { mode: LaunchMode;
         onClick={() => onChange("standard")}
         logo={<Logo size={34} />}
         title={t("cr.mode.standard")}
-        badge="Pump.fun"
         desc={t("cr.mode.standardDesc")}
       />
       <ModeCard
@@ -47,7 +46,7 @@ function ModeCard({
   onClick: () => void;
   logo: React.ReactNode;
   title: string;
-  badge: string;
+  badge?: string;
   desc: string;
 }) {
   return (
@@ -72,7 +71,7 @@ function ModeCard({
       <span className="min-w-0 flex-1 pr-6">
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-display text-base font-bold tracking-tight">{title}</span>
-          <span className="rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper/70">{badge}</span>
+          {badge && <span className="rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper/70">{badge}</span>}
         </span>
         <span className="mt-1.5 block text-xs leading-relaxed text-panda-grey">{desc}</span>
       </span>

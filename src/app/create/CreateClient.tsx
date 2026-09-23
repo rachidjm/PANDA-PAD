@@ -288,14 +288,6 @@ export default function CreateClient() {
       <>
       <div className="mt-5 space-y-5">
         <div>
-          <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.launchOn")}</span>
-          <div className="flex items-center gap-2.5 rounded-2xl border border-bamboo/50 bg-bamboo/10 px-4 py-3">
-            <PumpFunIcon />
-            <span className="text-sm font-semibold">Pump.fun</span>
-          </div>
-        </div>
-
-        <div>
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
@@ -475,30 +467,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1.5 block text-sm font-medium text-paper/80">{label}</span>
       {children}
     </label>
-  );
-}
-
-function PumpFunIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 32 32" className="shrink-0" aria-hidden="true">
-      <defs>
-        <clipPath id="pumpPillClip">
-          <rect x="4" y="10" width="24" height="12" rx="6" />
-        </clipPath>
-      </defs>
-      <g transform="rotate(-45 16 16)">
-        <g clipPath="url(#pumpPillClip)">
-          <rect x="4" y="10" width="12" height="8" fill="#4ADE94" />
-          <rect x="4" y="18" width="12" height="4" fill="#2EBE78" />
-          <rect x="16" y="10" width="12" height="8" fill="#FFFFFF" />
-          <rect x="16" y="18" width="12" height="4" fill="#C7D3D6" />
-        </g>
-        <rect x="6.5" y="16.5" width="1.6" height="1.6" rx="0.8" fill="#FFFFFF" />
-        <rect x="7" y="19" width="1.2" height="2.6" rx="0.6" fill="#FFFFFF" />
-        <rect x="4" y="10" width="24" height="12" rx="6" fill="none" stroke="#123832" strokeWidth="1.6" />
-        <line x1="16" y1="10" x2="16" y2="22" stroke="#123832" strokeWidth="1.2" />
-      </g>
-    </svg>
   );
 }
 

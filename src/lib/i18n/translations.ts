@@ -1505,8 +1505,8 @@ export const dict = {
   "cr.mode.title": { en: "Launch mode", es: "Modo de lanzamiento" },
   "cr.mode.standard": { en: "Standard", es: "Estándar" },
   "cr.mode.standardDesc": {
-    en: "Standard PANDA launch. Uses PANDA's existing launch and reward system.",
-    es: "Lanzamiento estándar de PANDA. Usa el sistema de lanzamiento y recompensas de siempre.",
+    en: "Standard PANDA launch, powered by Pump.fun technology. Uses PANDA's existing launch and reward system.",
+    es: "Lanzamiento estándar de PANDA, con tecnología de Pump.fun. Usa el sistema de lanzamiento y recompensas de siempre.",
   },
   "cr.mode.rewards": { en: "Rewards", es: "Rewards" },
   "cr.mode.rewardsDesc": {
