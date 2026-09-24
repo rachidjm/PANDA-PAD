@@ -9,7 +9,7 @@
  *
  * Order per domain: run `db:backfill` with the domain paused → switch to "dual" → compare for two days → switch to "postgres".
  */
-export const DOMAINS = ["rewards", "trades", "activity", "pause"] as const;
+export const DOMAINS = ["rewards", "trades", "activity", "pause", "audit", "sessions", "launch"] as const;
 export type Domain = (typeof DOMAINS)[number];
 export const MODES = ["blob", "dual", "postgres"] as const;
 export type StorageMode = (typeof MODES)[number];

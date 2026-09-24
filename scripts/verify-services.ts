@@ -11,7 +11,7 @@
  * lock) and its latency; and the multi-connection concurrency tests (25–40 simultaneous claims/bookings over 12 real connections).
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { Pool, neonConfig } from "@neondatabase/serverless";
@@ -106,15 +106,18 @@ async function neon() {
   const admin = new Pool({ connectionString: direct, max: 1 });
   try {
     await admin.query(`create schema ${schema}`);
-    const sqlFile = readFileSync(path.join(process.cwd(), "drizzle", "0000_core_schema.sql"), "utf8");
+    const files = readdirSync(path.join(process.cwd(), "drizzle")).filter((f) => f.endsWith(".sql")).sort();
     const c = await admin.connect();
     try {
       await c.query(`set search_path to ${schema}`);
-      for (const stmt of sqlFile.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) await c.query(stmt);
+      for (const f of files) {
+        const sqlFile = readFileSync(path.join(process.cwd(), "drizzle", f), "utf8");
+        for (const stmt of sqlFile.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) await c.query(stmt);
+      }
     } finally {
       c.release();
     }
-    ok(true, `migration SQL applies on real Postgres (throwaway schema ${schema})`);
+    ok(true, `all ${files.length} migration files apply on real Postgres (throwaway schema ${schema})`);
     const run = spawnSync(process.execPath, ["--import", "tsx", "--test", "--test-reporter=tap", "src/lib/db/concurrency.real.test.ts"], {
       env: { ...process.env, TEST_DATABASE_URL: direct, TEST_DATABASE_SCHEMA: schema },
       encoding: "utf8",

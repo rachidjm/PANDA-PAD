@@ -5,7 +5,7 @@
  *    migration fails the build fails and the previous deployment keeps serving: a schema problem never reaches users.
  * 2. Optional one-off tasks, only when PANDA_BUILD_TASKS is set for THAT deployment (`vercel deploy --build-env PANDA_BUILD_TASKS=…`,
  *    never stored in the project): they run where the "Sensitive" variables exist and print to the build log, which is how they are
- *    read. Tasks: verify-services, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run).
+ *    read. Tasks: verify-services, verify-audit, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run).
  *    A failing task is reported but does not block the deployment of the same code.
  * 3. `next build`.
  */
@@ -33,6 +33,7 @@ else console.log(`(skipping database migrations: ${production ? "no database con
 const tasks = (process.env.PANDA_BUILD_TASKS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 for (const t of tasks) {
   if (t === "verify-services") run("verify-services", tsx("scripts/verify-services.ts"), false);
+  else if (t === "verify-audit") run("verify-audit-chain", tsx("scripts/verify-audit-chain.ts"), false);
   else if (t === "compare") run("db:compare", tsx("scripts/db-compare.ts", ...(process.env.PANDA_BUILD_DOMAINS ? ["--domains", process.env.PANDA_BUILD_DOMAINS] : [])), false);
   else if (t === "backfill") {
     const args = ["--domains", process.env.PANDA_BUILD_DOMAINS || "pause,trades,activity,rewards"];

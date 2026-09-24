@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, date, doublePrecision, index, pgTable, primaryKey, smallint, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, doublePrecision, index, jsonb, pgTable, primaryKey, smallint, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 /**
  * PANDA's Postgres schema (phase 6, point 1): the core that touches money or verified history. Everything else stays where it
@@ -180,7 +180,45 @@ export const protocolPause = pgTable("protocol_pause", {
   byWallet: text("by_wallet").notNull(),
 });
 
+
+// ── Audit trail: an append-only hash chain (phase 6, point 3) ────────────────────────────────────────────────────────────
+/**
+ * Every event carries the hash of the one before it: hash = sha256(prev_hash ‖ canonical JSON of the event). Change, delete or
+ * reorder any row and every later hash stops matching (src/lib/db/audit.ts verifies the chain). The database refuses UPDATE and
+ * DELETE on this table (a trigger, migration 0001), so nothing edits history by accident. Someone who OWNS the database could still
+ * rewrite the whole chain, which is why the head hash is periodically anchored in a Solana transaction (audit_anchors).
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    seq: bigint("seq", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    eventId: text("event_id").notNull().unique(),
+    ts: bigint("ts", { mode: "number" }).notNull(),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    object: text("object").notNull(),
+    oldState: jsonb("old_state"),
+    newState: jsonb("new_state"),
+    reason: text("reason"),
+    requestId: text("request_id").notNull(),
+    prevHash: text("prev_hash").notNull(),
+    hash: text("hash").notNull(),
+  },
+  (t) => [index("audit_events_ts").on(t.ts), index("audit_events_action").on(t.action)]
+);
+
+/** The chain's head published on Solana (memo transaction signed by an admin): evidence that survives even a rewritten database. */
+export const auditAnchors = pgTable("audit_anchors", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  headSeq: bigint("head_seq", { mode: "number" }).notNull(),
+  headHash: text("head_hash").notNull(),
+  signature: text("signature").notNull().unique(),
+  wallet: text("wallet").notNull(),
+  anchoredAt: timestamp("anchored_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const schema = {
+  auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
 };

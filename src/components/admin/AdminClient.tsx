@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
 import LookupTablePanel from "@/components/admin/LookupTablePanel";
+import AuditChainPanel from "@/components/admin/AuditChainPanel";
 import { SUBSYSTEMS, confirmationPhrase, type Subsystem } from "@/lib/protocol/pause";
 
 type PausedItem = { subsystem: Subsystem; reason: string; since: number };
@@ -20,6 +21,7 @@ export default function AdminClient() {
   const [busy, setBusy] = useState<Subsystem | "signin" | null>(null);
   const [message, setMessage] = useState("");
   const [sessionTick, setSessionTick] = useState(0);
+  const [auditMode, setAuditMode] = useState("blob");
 
   const refresh = useCallback(async () => {
     const [status, audit] = await Promise.all([
@@ -28,7 +30,9 @@ export default function AdminClient() {
     ]);
     if (status?.paused) setPaused(status.paused);
     if (audit.ok) {
-      setEvents((await audit.json()).events);
+      const body = await audit.json();
+      setEvents(body.events);
+      if (typeof body.mode === "string") setAuditMode(body.mode);
       setMessage("");
     } else {
       setEvents(null);
@@ -142,6 +146,9 @@ export default function AdminClient() {
 
       <section className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <h2 className="text-sm font-medium">Audit trail</h2>
+        <div className="mt-3">
+          <AuditChainPanel mode={auditMode} />
+        </div>
         {events === null ? (
           <p className="mt-3 text-sm text-panda-grey">Sign in as an admin to view it.</p>
         ) : events.length === 0 ? (

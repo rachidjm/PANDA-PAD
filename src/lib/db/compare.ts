@@ -6,8 +6,9 @@ import { pgGetLedger, pgGetPayoutDay, pgGetRegisteredMints, pgOpenClaims } from 
 import { pgGetTrades, pgGetBackfillMark } from "./trades";
 import { pgReadTotal } from "./activity";
 import { pgGetPauseState } from "./pause";
-import { activityEvents, economyDaily, rewardCredits, rewardLedgers } from "./schema";
+import { activityEvents, auditEvents, economyDaily, rewardCredits, rewardLedgers } from "./schema";
 import { METRIC_KEYS } from "@/lib/economy/rollup";
+import { pgVerifyChain } from "./audit";
 import { SUBSYSTEMS } from "@/lib/protocol/pause";
 
 /**
@@ -123,6 +124,20 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
       if (!eq2(a ?? null, b ?? null)) diffs.push(`${s}: Blob ${JSON.stringify(a ?? null)} vs Postgres ${JSON.stringify(b ?? null)}`);
     }
     out.push({ domain: "pause", checked: SUBSYSTEMS.length, differences: diffs, warnings: [] });
+  }
+
+  if (domains.includes("audit")) {
+    const diffs: string[] = [];
+    const blob = await source.audit();
+    const ids = new Set(blob.map((e) => e.id));
+    const pgIds = new Set<string>();
+    const rows = await db.select({ id: auditEvents.eventId }).from(auditEvents);
+    for (const r of rows) pgIds.add(r.id);
+    for (const id of ids) if (!pgIds.has(id)) diffs.push(`audit event ${id} is in Blob but not in the Postgres chain`);
+    // Events only in Postgres are expected in "postgres" mode; the chain itself must always verify.
+    const verdict = await pgVerifyChain(db);
+    if (!verdict.ok) diffs.push(`the hash chain is BROKEN at seq ${verdict.problem?.seq}: ${verdict.problem?.reason}`);
+    out.push({ domain: "audit", checked: blob.length + verdict.checked, differences: cap(diffs), warnings: [] });
   }
 
   return out;

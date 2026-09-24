@@ -8,6 +8,7 @@ import type { Domain } from "./mode";
 import type { Ledger } from "@/lib/rewards/ledger";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import { METRIC_KEYS } from "@/lib/economy/rollup";
+import { pgImportAudit } from "./audit";
 
 /**
  * Copies what Blob holds into Postgres, one domain at a time (docs/PHASE6_PLAN.md §1.4, step 4).
@@ -154,6 +155,15 @@ export async function backfill(db: Db, source: BlobSource, domains: Domain[], lo
     }
     r.imported = { subsystems: entries.length };
     log(`pause: ${entries.length} switches`);
+    reports.push(r);
+  }
+
+  if (domains.includes("audit")) {
+    const r: BackfillReport = { domain: "audit", imported: {}, problems: [] };
+    const events = await source.audit();
+    const added = await pgImportAudit(db, events);
+    r.imported = { events: events.length, added };
+    log(`audit: ${events.length} events in Blob, ${added} added to the hash chain`);
     reports.push(r);
   }
 

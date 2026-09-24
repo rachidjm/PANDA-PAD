@@ -1685,6 +1685,21 @@ export const dict = {
   "admin.alt.check.notFit": { en: "does not fit", es: "no cabe" },
   "admin.alt.notAuthority": { en: "This table's authority is another wallet: connect that wallet to freeze it.", es: "La autoridad de esta tabla es otra wallet: conecta esa wallet para congelarla." },
   "admin.alt.needSession": { en: "Sign in as admin first.", es: "Inicia sesión como admin primero." },
+
+  // Admin: audit chain
+  "admin.audit.chain": { en: "Tamper-evident audit chain", es: "Cadena de auditoría a prueba de manipulación" },
+  "admin.audit.chainHelp": {
+    en: "Every event carries the hash of the previous one and the database refuses edits and deletes. You can also anchor the latest hash on Solana so even a rewritten database can't fake history.",
+    es: "Cada evento lleva el hash del anterior y la base de datos rechaza ediciones y borrados. Además puedes anclar el último hash en Solana para que ni una base de datos reescrita pueda falsear el historial.",
+  },
+  "admin.audit.verify": { en: "Verify the chain", es: "Verificar la cadena" },
+  "admin.audit.ok": { en: "Chain intact: {n} events verified, head #{seq} ({hash}…).", es: "Cadena íntegra: {n} eventos verificados, cabeza #{seq} ({hash}…)." },
+  "admin.audit.broken": { en: "CHAIN BROKEN at event #{seq}: {reason}", es: "CADENA ROTA en el evento #{seq}: {reason}" },
+  "admin.audit.blobOnly": { en: "The audit trail is still in Blob (no hash chain yet).", es: "La auditoría sigue en Blob (todavía sin cadena de hashes)." },
+  "admin.audit.anchor": { en: "Anchor the head on Solana", es: "Anclar la cabeza en Solana" },
+  "admin.audit.anchorHelp": { en: "One memo transaction signed by your wallet (network fee only).", es: "Una transacción memo firmada por tu wallet (solo la comisión de red)." },
+  "admin.audit.anchored": { en: "Anchored: the head is now published on Solana.", es: "Anclada: la cabeza ya está publicada en Solana." },
+  "admin.audit.anchors": { en: "Anchors: {n}", es: "Anclajes: {n}" },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;

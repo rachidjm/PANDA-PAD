@@ -36,7 +36,7 @@ let n = 0;
 const ids = () => ({ mint: `MODE${++n}`.padEnd(43, "m"), holder: `HOLD${n}`.padEnd(43, "h"), sig: `MSIG${n}`.padEnd(88, "s") });
 
 test("parseStorageModes: default is Blob everywhere; bad entries are reported and ignored", () => {
-  assert.deepEqual(parseStorageModes(undefined).modes, { rewards: "blob", trades: "blob", activity: "blob", pause: "blob" });
+  assert.deepEqual(parseStorageModes(undefined).modes, { rewards: "blob", trades: "blob", activity: "blob", pause: "blob", audit: "blob", sessions: "blob", launch: "blob" });
   const p = parseStorageModes("rewards=dual, trades=postgres ,nonsense,activity=maybe,pause=blob=x");
   assert.equal(p.modes.rewards, "dual");
   assert.equal(p.modes.trades, "postgres");
@@ -232,4 +232,40 @@ test("env: an unreadable PANDA_STORAGE_MODES is reported invalid instead of bein
   assert.equal(status({ PANDA_STORAGE_MODES: "rewards=dual,trades=postgres" }, "PANDA_STORAGE_MODES").status, "present");
   assert.equal(status({ PANDA_STORAGE_MODES: "rewards=maybe" }, "PANDA_STORAGE_MODES").status, "invalid");
   assert.equal(status({}, "PANDA_STORAGE_MODES").status, "absent");
+});
+
+// ── audit ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+import { listAudit, recordAudit } from "@/lib/audit/log";
+import { pgListAudit, pgVerifyChain } from "./audit";
+
+test("audit: DUAL writes Blob and the hash chain; POSTGRES writes only the chain and reads it back; a database outage never blocks the action", async () => {
+  modes("audit=dual");
+  await recordAudit({ actor: "ADMIN", action: "test.dual", object: "obj-dual" });
+  assert.ok((await pgListAudit(db, 50)).some((e) => e.action === "test.dual"), "mirrored into the chain");
+  assert.ok((await listAudit(50)).some((e) => e.action === "test.dual"), "Blob (dev memory) still has it and is what dual reads");
+
+  modes("audit=postgres");
+  await recordAudit({ actor: "ADMIN", action: "test.pg", object: "obj-pg", oldState: { a: 1 }, newState: { b: [2] } });
+  const listed = await listAudit(50);
+  assert.equal(listed[0].action, "test.pg", "postgres mode reads the chain, newest first");
+  assert.equal((await pgVerifyChain(db)).ok, true);
+
+  setDbForTests(null); // outage: recordAudit must not throw
+  await recordAudit({ actor: "ADMIN", action: "test.outage", object: "x" });
+});
+
+test("audit backfill: Blob's events are imported in order into an empty chain, and compare reports the chain as intact", async () => {
+  const { backfill } = await import("./backfill");
+  const { compare } = await import("./compare");
+  const { blobSource } = await import("./source");
+  const own = await newTestDb();
+  const events = [3, 1, 2].map((i) => ({ id: `${String(1_750_000_000_000 + i).padStart(13, "0")}-00000000000${i}`, ts: 1_750_000_000_000 + i, actor: "A", action: `old.${i}`, object: "o", requestId: `r${i}` }));
+  const src = { ...blobSource(), audit: async () => events };
+  const [report] = await backfill(own, src, ["audit"]);
+  assert.equal(report.imported.added, 3);
+  assert.deepEqual((await pgListAudit(own, 10)).map((e) => e.action), ["old.3", "old.2", "old.1"]);
+  const [cmp] = await compare(own, src, ["audit"]);
+  assert.deepEqual(cmp.differences, []);
+  const missing = { ...src, audit: async () => [...events, { ...events[0], id: "9999999999999-ffffffffffff" }] };
+  assert.ok((await compare(own, missing, ["audit"]))[0].differences.some((d) => /9999999999999/.test(d)));
 });

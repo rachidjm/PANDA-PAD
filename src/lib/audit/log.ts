@@ -2,6 +2,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { put, list } from "@vercel/blob";
 import { blobConfigured, readJson, requireToken } from "@/lib/rewards/blob-store";
 import { redact } from "./redact";
+import { getDb } from "@/lib/db/client";
+import { mirror, storageMode } from "@/lib/db/mode";
+import { pgAppendAudit, pgListAudit } from "@/lib/db/audit";
+import { alertOps } from "@/lib/alerts";
 
 /**
  * Append-only audit trail. Each event is its own immutable Blob file
@@ -65,30 +69,40 @@ export function buildEvent(input: AuditInput, ts = Date.now()): AuditEvent {
   };
 }
 
-/** Never throws. */
+/**
+ * Never throws. Where the event lands follows PANDA_STORAGE_MODES (audit): Vercel Blob (`blob`, one PUBLIC file per event — the original),
+ * both (`dual`, Blob first, then the Postgres hash chain as a mirror), or the Postgres hash chain only (`postgres`: nothing public).
+ * A failed write is logged and ALERTED but never blocks the action (an emergency pause must not be stoppable by a storage hiccup).
+ */
 export async function recordAudit(input: AuditInput): Promise<void> {
   const event = buildEvent(input);
-  console.info("[PANDA AUDIT]", JSON.stringify(event)); // also lands in Vercel logs, independent of Blob
+  console.info("[PANDA AUDIT]", JSON.stringify(event)); // also lands in Vercel logs, independent of the database
+  const mode = storageMode("audit");
   try {
-    if (inDevMemoryMode()) {
-      devEvents.push(event);
-      return;
+    if (mode !== "postgres") {
+      if (inDevMemoryMode()) devEvents.push(event);
+      else {
+        await put(pathFor(event), JSON.stringify(event), {
+          access: "public",
+          addRandomSuffix: false,
+          allowOverwrite: false,
+          contentType: "application/json",
+          token: requireToken(),
+        });
+      }
     }
-    await put(pathFor(event), JSON.stringify(event), {
-      access: "public",
-      addRandomSuffix: false,
-      allowOverwrite: false,
-      contentType: "application/json",
-      token: requireToken(),
-    });
+    if (mode === "postgres") await pgAppendAudit(getDb(), event);
+    else if (mode === "dual") await mirror("audit", event.id, () => pgAppendAudit(getDb(), event));
   } catch (err) {
     console.error("[PANDA AUDIT] failed to persist event", event.id, String(err));
+    await alertOps("Audit event could NOT be persisted", { id: event.id, action: event.action, object: event.object });
   }
 }
 
 /** Newest first. Looks back up to `days` days. */
 export async function listAudit(limit = 50, days = 7): Promise<AuditEvent[]> {
   const cap = Math.min(Math.max(1, Math.floor(limit)), 100);
+  if (storageMode("audit") === "postgres") return pgListAudit(getDb(), cap);
   if (inDevMemoryMode()) return [...devEvents].reverse().slice(0, cap);
 
   const out: AuditEvent[] = [];

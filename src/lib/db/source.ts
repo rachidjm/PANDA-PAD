@@ -5,6 +5,7 @@ import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import type { StoredEvent } from "@/lib/activity/types";
 import type { DayDoc, TotalDoc } from "@/lib/economy/rollup";
 import { EMPTY_PAUSE_STATE, type PauseState } from "@/lib/protocol/pause";
+import type { AuditEvent } from "@/lib/audit/log";
 
 /**
  * A read-only view of everything the migrated domains keep in Vercel Blob. The backfill and the comparator both read through
@@ -22,6 +23,8 @@ export interface BlobSource {
   economyDays(): Promise<DayDoc[]>;
   economyTotal(): Promise<TotalDoc | null>;
   pause(): Promise<PauseState>;
+  /** Every audit event Blob holds (one public file per event). */
+  audit(): Promise<AuditEvent[]>;
 }
 
 const base = (prefix: string, suffix = ".json") => (p: string) => p.slice(prefix.length, p.length - suffix.length);
@@ -52,5 +55,14 @@ export function blobSource(): BlobSource {
     },
     economyTotal: () => docRead<TotalDoc | null>("economy/total.json", null),
     pause: () => readJson<PauseState>("protocol/pause.json", EMPTY_PAUSE_STATE),
+    audit: async () => {
+      const paths = await listPaths("audit/events/");
+      const out: AuditEvent[] = [];
+      for (let i = 0; i < paths.length; i += 20) {
+        const batch = await Promise.all(paths.slice(i, i + 20).map((p) => readJson<AuditEvent | null>(p, null).catch(() => null)));
+        for (const e of batch) if (e) out.push(e);
+      }
+      return out;
+    },
   };
 }
