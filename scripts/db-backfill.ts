@@ -65,6 +65,8 @@ async function main() {
     }
     if (domains.includes("activity")) console.log(`activity: ${(await source.journal()).reduce((s, d) => s + d.events.length, 0)} journal events, ${(await source.economyDays()).length} economy days`);
     if (domains.includes("pause")) console.log(`pause: ${Object.keys((await source.pause()).subsystems).length} switches`);
+    if (domains.includes("audit")) console.log(`audit: ${(await source.audit()).length} events`);
+    if (domains.includes("launch")) console.log(`launch: ${Object.keys(await source.feeLocks()).length} coins waiting for their fee split`);
     return;
   }
 
