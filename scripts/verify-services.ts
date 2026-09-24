@@ -115,7 +115,7 @@ async function neon() {
       c.release();
     }
     ok(true, `migration SQL applies on real Postgres (throwaway schema ${schema})`);
-    const run = spawnSync(process.execPath, ["--import", "tsx", "--test", "src/lib/db/concurrency.real.test.ts"], {
+    const run = spawnSync(process.execPath, ["--import", "tsx", "--test", "--test-reporter=tap", "src/lib/db/concurrency.real.test.ts"], {
       env: { ...process.env, TEST_DATABASE_URL: direct, TEST_DATABASE_SCHEMA: schema },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -124,7 +124,7 @@ async function neon() {
     const pass = Number(/# pass (\d+)/.exec(out)?.[1] ?? 0);
     const fail = Number(/# fail (\d+)/.exec(out)?.[1] ?? 1);
     ok(run.status === 0 && fail === 0 && pass >= 3, "multi-connection concurrency tests (concurrency.real.test.ts)", `${pass} passed, ${fail} failed`);
-    if (run.status !== 0) console.log(out.split("\n").filter((l) => /not ok|error|expected|actual/i.test(l)).slice(0, 15).join("\n"));
+    if (run.status !== 0 || pass < 3) console.log(out.split("\n").filter((l) => !/postgres(ql)?:\/\//i.test(l)).slice(0, 60).join("\n"));
   } finally {
     await admin.query(`drop schema if exists ${schema} cascade`).catch((e) => console.log("     could not drop the throwaway schema:", (e as Error).message));
     await admin.end();
