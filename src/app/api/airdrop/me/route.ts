@@ -14,7 +14,7 @@ import { getWalletAllocation, readClaim } from "@/lib/airdrop/store";
  */
 export async function GET(req: Request) {
   if (!isEnabled("PANDA_AIRDROPS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
   if (await rateLimited(`airdrop-me:${wallet}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 

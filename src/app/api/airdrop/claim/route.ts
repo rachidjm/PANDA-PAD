@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   const paused = await pausedResponse("airdrops");
   if (paused) return paused;
 
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with this wallet to claim.", code: "AUTH_REQUIRED" }, { status: 401 });
   // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
   const tooMany = () => NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });

@@ -46,6 +46,8 @@ export default function WalletButton() {
             <WalletPanel
               publicKey={publicKey}
               onDisconnect={() => {
+                // Also ends the session on the server (a copied cookie stops working at once when sessions are revocable).
+                fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
                 disconnect();
                 setOpen(false);
               }}

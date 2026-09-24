@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
 
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
   {
     // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.

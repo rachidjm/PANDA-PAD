@@ -5,6 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
 import LookupTablePanel from "@/components/admin/LookupTablePanel";
 import AuditChainPanel from "@/components/admin/AuditChainPanel";
+import SessionsPanel from "@/components/admin/SessionsPanel";
 import { SUBSYSTEMS, confirmationPhrase, type Subsystem } from "@/lib/protocol/pause";
 
 type PausedItem = { subsystem: Subsystem; reason: string; since: number };
@@ -143,6 +144,8 @@ export default function AdminClient() {
       </section>
 
       <LookupTablePanel sessionTick={sessionTick} />
+
+      <SessionsPanel />
 
       <section className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <h2 className="text-sm font-medium">Audit trail</h2>

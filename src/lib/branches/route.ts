@@ -14,7 +14,7 @@ export const notAvailable = () => NextResponse.json({ error: "Not available." },
 export async function branchGate(req: Request, key: string, perWallet = 20): Promise<{ wallet: string } | NextResponse> {
   if (!branchesEnabled()) return notAvailable();
   if (req.method !== "GET" && !sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
   if (await rateLimited(`branch:${key}:wallet:${wallet}`, perWallet, 60_000) || await rateLimited(`branch:${key}:ip:${clientIp(req)}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests — wait a minute.", code: "RATE_LIMITED" }, { status: 429 });

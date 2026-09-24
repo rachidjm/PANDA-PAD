@@ -24,7 +24,7 @@ export async function marketGate(
     const paused = await pausedResponse("nft_market");
     if (paused) return paused;
   }
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
   // Listing, buying and cancelling move NFTs and SOL: fail closed if the limiter can't answer.
   const limited = await moneyRateGate(`market-${opts.name}:${wallet}`, opts.perMinute, 60_000, () => NextResponse.json({ error: "Too many attempts — wait a minute.", code: "RATE_LIMITED" }, { status: 429 }));

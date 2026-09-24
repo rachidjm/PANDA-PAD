@@ -9,7 +9,7 @@ import { recordAudit } from "@/lib/audit/log";
  * response to send back. Refused attempts by a signed-in non-admin are audited.
  */
 export async function requireAdmin(req: Request): Promise<{ wallet: string } | NextResponse> {
-  const session = getSession(req);
+  const session = await getSession(req);
   const verdict = checkAdmin(session, parseAdminWallets(process.env.ADMIN_WALLETS), Date.now());
   if (verdict === "ok" && session) return { wallet: session.wallet };
 

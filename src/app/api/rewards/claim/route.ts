@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing or invalid mint or holder." }, { status: 400 });
     }
     // Only the wallet's owner (proven by a signed sign-in, see /api/auth/*) can trigger its claim.
-    if (getSessionWallet(req) !== holder) {
+    if ((await getSessionWallet(req)) !== holder) {
       return NextResponse.json({ error: "Sign in with this wallet to claim.", code: "AUTH_REQUIRED" }, { status: 401 });
     }
     {

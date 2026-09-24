@@ -217,8 +217,36 @@ export const auditAnchors = pgTable("audit_anchors", {
   anchoredAt: timestamp("anchored_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Wallet sessions and sign-in nonces (phase 6, point 4) ───────────────────────────────────────────────────────────────
+/** One row per issued session token (its `jti`). Revoking = setting revoked_at; a revoked or expired session is rejected at once. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    jti: uuid("jti").primaryKey(),
+    wallet: text("wallet").notNull(),
+    issuedAt: bigint("issued_at", { mode: "number" }).notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    revokedAt: bigint("revoked_at", { mode: "number" }),
+    revokedReason: text("revoked_reason"),
+  },
+  (t) => [index("sessions_wallet").on(t.wallet), index("sessions_expires").on(t.expiresAt)]
+);
+
+/** One-time sign-in challenges. Consuming one is a single conditional UPDATE, so of two simultaneous verifications exactly one wins. */
+export const authNonces = pgTable(
+  "auth_nonces",
+  {
+    nonce: text("nonce").primaryKey(),
+    wallet: text("wallet").notNull(),
+    issuedAt: bigint("issued_at", { mode: "number" }).notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    usedAt: bigint("used_at", { mode: "number" }),
+  },
+  (t) => [index("auth_nonces_expires").on(t.expiresAt)]
+);
+
 export const schema = {
-  auditEvents, auditAnchors,
+  sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
 };

@@ -6,7 +6,7 @@ import type { Failure } from "./service";
 /** What every strategy route that changes something checks first: same site, a signed-in wallet, not too many calls. */
 export async function guardWrite(req: Request, name: string, limit: number): Promise<{ wallet: string; token: string } | NextResponse> {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
   // Strategies move funds into Jupiter's vault: fail closed if the limiter can't answer (src/lib/rate-limit.ts).
   const limited = await moneyRateGate(`strategy-${name}:${wallet}`, limit, 60_000, () => NextResponse.json({ error: "Too many requests." }, { status: 429 }));

@@ -73,7 +73,8 @@ export function consumeNonce(
 
 // ---- session token: base64url(payload).base64url(HMAC-SHA256) -------------
 
-type SessionPayload = { w: string; iat: number; exp: number };
+/** `j` is the session id (jti): what lets a session be revoked before it expires. Tokens issued before it existed have none. */
+type SessionPayload = { w: string; iat: number; exp: number; j?: string };
 
 function mac(secret: string, body: string): Buffer {
   return createHmac("sha256", secret).update(`panda-session-v1.${body}`).digest();
@@ -83,9 +84,9 @@ export function requireSecret(secret: string | undefined): asserts secret is str
   if (!secret || secret.length < 32) throw new Error("AUTH_SESSION_SECRET must be set to at least 32 characters.");
 }
 
-export function createSessionToken(wallet: string, secret: string, now: number, ttlMs = SESSION_TTL_MS): string {
+export function createSessionToken(wallet: string, secret: string, now: number, ttlMs = SESSION_TTL_MS, jti?: string): string {
   requireSecret(secret);
-  const payload: SessionPayload = { w: wallet, iat: now, exp: now + ttlMs };
+  const payload: SessionPayload = { w: wallet, iat: now, exp: now + ttlMs, ...(jti ? { j: jti } : {}) };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${mac(secret, body).toString("base64url")}`;
 }
@@ -100,7 +101,7 @@ export function readSessionToken(
   token: string | undefined | null,
   secret: string,
   now: number
-): { wallet: string; issuedAt: number } | null {
+): { wallet: string; issuedAt: number; expiresAt: number; jti?: string } | null {
   try {
     requireSecret(secret);
     if (!token) return null;
@@ -111,7 +112,7 @@ export function readSessionToken(
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as SessionPayload;
     if (typeof payload.w !== "string" || !Number.isFinite(payload.exp) || now >= payload.exp) return null;
-    return { wallet: payload.w, issuedAt: payload.iat };
+    return { wallet: payload.w, issuedAt: payload.iat, expiresAt: payload.exp, ...(typeof payload.j === "string" && /^[0-9a-f-]{36}$/.test(payload.j) ? { jti: payload.j } : {}) };
   } catch {
     return null;
   }

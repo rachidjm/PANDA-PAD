@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bs58 from "bs58";
 import { PublicKey } from "@solana/web3.js";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { burnNonce, isNonceFormat, readNonce, sameOrigin, sessionSecret, setSessionCookie } from "@/lib/auth/session";
+import { burnNonce, isNonceFormat, issueSession, readNonce, sameOrigin, sessionSecret } from "@/lib/auth/session";
 import { buildSignInMessage, verifyEd25519 } from "@/lib/auth/wallet-auth";
 import { recordAudit } from "@/lib/audit/log";
 
@@ -55,9 +55,9 @@ export async function POST(req: Request) {
     // Atomic single-use: a concurrent replay of the same signature loses here.
     if (!(await burnNonce(nonce, wallet))) return NextResponse.json(FAIL, { status: 401 });
 
-    await recordAudit({ req, actor: wallet, action: "auth.login", object: "session" });
     const res = NextResponse.json({ wallet });
-    setSessionCookie(res, wallet);
+    const { jti } = await issueSession(res, wallet); // in postgres mode a session that can't be registered is not issued
+    await recordAudit({ req, actor: wallet, action: "auth.login", object: "session", newState: { jti } });
     return res;
   } catch {
     return NextResponse.json({ error: "Couldn't complete sign-in — try again." }, { status: 500 });

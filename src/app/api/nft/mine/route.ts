@@ -10,7 +10,7 @@ import { listWalletRecords } from "@/lib/nft/store";
 /** Auth: signed-in wallet session — a wallet only sees its own uploads. Query: ?theme=<slug>. Gated by NFT_THEMES. */
 export async function GET(req: Request) {
   if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
   if (await rateLimited(`nft-mine:${wallet}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 

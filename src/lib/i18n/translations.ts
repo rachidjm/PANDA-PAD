@@ -1700,6 +1700,16 @@ export const dict = {
   "admin.audit.anchorHelp": { en: "One memo transaction signed by your wallet (network fee only).", es: "Una transacción memo firmada por tu wallet (solo la comisión de red)." },
   "admin.audit.anchored": { en: "Anchored: the head is now published on Solana.", es: "Anclada: la cabeza ya está publicada en Solana." },
   "admin.audit.anchors": { en: "Anchors: {n}", es: "Anclajes: {n}" },
+
+  "wp.closeAll": { en: "Close all my sessions", es: "Cerrar todas mis sesiones" },
+  "wp.closeAllHint": { en: "Signs this wallet out everywhere (every device and browser) at once.", es: "Cierra la sesión de esta wallet en todas partes (todos los dispositivos y navegadores) a la vez." },
+  // Admin: sessions
+  "admin.sessions.title": { en: "Revoke a wallet's sessions", es: "Revocar las sesiones de una wallet" },
+  "admin.sessions.help": { en: "Ends every live session of a suspicious wallet at once. It is recorded in the audit trail.", es: "Termina a la vez todas las sesiones activas de una wallet sospechosa. Queda en la auditoría." },
+  "admin.sessions.wallet": { en: "Wallet address", es: "Dirección de la wallet" },
+  "admin.sessions.reason": { en: "Reason (recorded)", es: "Motivo (queda registrado)" },
+  "admin.sessions.revoke": { en: "Revoke sessions", es: "Revocar sesiones" },
+  "admin.sessions.done": { en: "Revoked {n} session(s).", es: "Sesiones revocadas: {n}." },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;

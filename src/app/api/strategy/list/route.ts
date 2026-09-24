@@ -8,7 +8,7 @@ import { listStrategies } from "@/lib/strategy/store";
 export async function GET(req: Request) {
   const disabled = featureDisabledResponse("STRATEGIES");
   if (disabled) return disabled;
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
   if (await rateLimited(`strategy-list:${wallet}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const mint = new URL(req.url).searchParams.get("mint");

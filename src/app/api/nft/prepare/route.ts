@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   const paused = await pausedResponse("nft_minting");
   if (paused) return paused;
 
-  const wallet = getSessionWallet(req);
+  const wallet = await getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
   {
     // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
