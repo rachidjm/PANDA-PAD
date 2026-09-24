@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   if (disabled) return disabled;
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;
-  const g = guardWrite(req, "prepare", 20);
+  const g = await guardWrite(req, "prepare", 20);
   if (g instanceof NextResponse) return g;
   const body = await readBody(req);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });

@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
-import { rateLimited } from "@/lib/rate-limit";
+import { moneyRateGate } from "@/lib/rate-limit";
 import type { Failure } from "./service";
 
 /** What every strategy route that changes something checks first: same site, a signed-in wallet, not too many calls. */
-export function guardWrite(req: Request, name: string, limit: number): { wallet: string; token: string } | NextResponse {
+export async function guardWrite(req: Request, name: string, limit: number): Promise<{ wallet: string; token: string } | NextResponse> {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`strategy-${name}:${wallet}`, limit, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  // Strategies move funds into Jupiter's vault: fail closed if the limiter can't answer (src/lib/rate-limit.ts).
+  const limited = await moneyRateGate(`strategy-${name}:${wallet}`, limit, 60_000, () => NextResponse.json({ error: "Too many requests." }, { status: 429 }));
+  if (limited) return limited;
   // The Jupiter session token: proves to Jupiter (not to PANDA) that the wallet signed in there. It is forwarded, never stored.
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) return NextResponse.json({ error: "Missing Jupiter session.", code: "JUPITER_AUTH_REQUIRED" }, { status: 401 });

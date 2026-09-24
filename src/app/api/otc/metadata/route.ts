@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { coinCreationGuardResponse } from "@/lib/config/launch-guard";
 import { featureDisabledResponse } from "@/lib/config/guard";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { recordAudit } from "@/lib/audit/log";
 import { uploadMetadata, OtcApiError } from "@/lib/otc/client";
@@ -23,8 +23,10 @@ export async function POST(req: Request) {
   if (creationBlocked) return creationBlocked;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
-  if (rateLimited(`otc-metadata:${clientIp(req)}`, 10, 60_000)) {
-    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  {
+    // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+    const limited = await moneyRateGate(`otc-metadata:${clientIp(req)}`, 10, 60_000, () => NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 }));
+    if (limited) return limited;
   }
 
   try {

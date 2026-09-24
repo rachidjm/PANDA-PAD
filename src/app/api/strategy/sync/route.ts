@@ -8,7 +8,7 @@ import { syncStrategies } from "@/lib/strategy/service";
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("STRATEGIES");
   if (disabled) return disabled;
-  const g = guardWrite(req, "sync", 20);
+  const g = await guardWrite(req, "sync", 20);
   if (g instanceof NextResponse) return g;
   const result = await syncStrategies(realDeps(), { wallet: g.wallet, token: g.token });
   if (!result.ok) return failureResponse(result);

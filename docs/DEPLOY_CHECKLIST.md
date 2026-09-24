@@ -146,6 +146,12 @@ Nada cambia hasta que pongas `PANDA_STORAGE_MODES`. El procedimiento completo (m
 `docs/PHASE6_PLAN.md` → «Estado del punto 1». Variables: `DATABASE_URL` (cadena *pooled*, la usa la app), `DATABASE_URL_UNPOOLED` (solo `npm run db:migrate`) y
 `PANDA_STORAGE_MODES` (p. ej. `pause=dual,trades=dual`). `GET /api/health/trading` avisa si un dominio usa Postgres y no responde.
 
+### 4.4 Rate limiting (Upstash Redis) — obligatorio en producción
+
+Sin él, en producción **todas las rutas de dinero se rechazan con 503** (comprar, vender, crear moneda, reclamar, enviar transacciones…); el resto de la web sigue.
+Crea una base en Upstash (integración de Vercel o cuenta propia; plan gratuito para empezar) y pon `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN` (o `KV_REST_API_URL/TOKEN`
+si la integración usa esos nombres). Comprueba `GET /api/health/trading` → check `ratelimit` en verde. Si Upstash cae, las rutas de dinero vuelven a 503 hasta que responda (fallo cerrado, por diseño).
+
 ## 5. Vercel Pro
 
 - El plan Hobby es para uso personal no comercial según los términos de Vercel **(sin verificar: confírmalo en su página
@@ -197,6 +203,7 @@ enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a l
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
 - [ ] Respuesta legal recibida (paso 7) y `[pendiente]` de los textos legales rellenados.
+- [ ] Upstash configurado (§4.4) y el check `ratelimit` de `/api/health/trading` en verde: sin él las rutas de dinero dan 503.
 - [ ] Fase 6, punto 1 (Postgres): revisado por ti; los dominios que quieras en `dual`/`postgres` migrados con el procedimiento de `docs/PHASE6_PLAN.md` y `db:compare` sin diferencias.
 - [ ] Fase 6 (infraestructura para dinero de terceros: base de datos, rate limiting compartido, auditoría con hash-chain,
       sesiones revocables, CSP con nonces) decidida: hoy la persistencia es Vercel Blob y el rate limiting es en memoria

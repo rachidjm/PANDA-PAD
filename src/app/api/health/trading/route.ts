@@ -11,6 +11,7 @@ import { decideMoneyFlow, getNetworkStatus } from "@/lib/config/network";
 import { decideCoinCreation } from "@/lib/config/creation";
 import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
 import { pingDb } from "@/lib/db/client";
+import { getRedis } from "@/lib/rate-limit";
 
 /**
  * "Can people trade on this deployment?" — one page (open /api/health/trading) that checks each thing a trade depends
@@ -30,7 +31,7 @@ async function timed<T>(fn: () => Promise<T>, ms = 8000): Promise<T> {
 }
 
 export async function GET(req: Request) {
-  if (rateLimited(`health-trading:${clientIp(req)}`, 20, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`health-trading:${clientIp(req)}`, 20, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const checks: Check[] = [];
   const connection = new Connection(serverRpcUrl(), "confirmed");
   // Solana's free public endpoints drop and rate-limit trades, whether they are configured explicitly or are the fallback.
@@ -106,6 +107,31 @@ export async function GET(req: Request) {
     ok: creation.allowed,
     detail: creation.allowed ? "Coin creation is allowed." : "Coin creation is BLOCKED (trading still works): on mainnet, set TREASURY_IS_MULTISIG=true once NEXT_PUBLIC_PANDA_TREASURY is a multisig vault (Squads). The treasury address is written into every coin's on-chain config and can't be changed afterwards.",
   });
+
+  // 7a. Rate limiting (Upstash): money routes are refused without it in production, so trading depends on it.
+  {
+    const redis = getRedis();
+    let answers = false;
+    if (redis) {
+      try {
+        answers = (await Promise.race([redis.ping(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 2_000))])) === "PONG";
+      } catch {
+        // reported below, without the error text
+      }
+    }
+    const production = process.env.NODE_ENV === "production";
+    checks.push({
+      id: "ratelimit",
+      ok: answers || (!production && !redis),
+      detail: answers
+        ? "Upstash answers: rate limits are shared across instances."
+        : redis
+          ? "Upstash is configured but NOT answering: money routes (trades, launches, claims, sending transactions) are refused with 503 until it does; other routes use a per-instance limiter."
+          : production
+            ? "Upstash isn't configured: in production every money route is refused with 503. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN (docs/DEPLOY_CHECKLIST.md)."
+            : "Upstash isn't configured: development uses a per-instance limiter (production would refuse money routes).",
+    });
+  }
 
   // 7. Postgres, when any domain uses it (Blob → Postgres migration): reachable, and where each domain lives.
   if (needsDatabase()) {

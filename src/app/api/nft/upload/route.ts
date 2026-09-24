@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`nft-upload:ip:${clientIp(req)}`, 30, 60_000) || rateLimited(`nft-upload:wallet:${wallet}`, 8, 60_000)) {
+  if (await rateLimited(`nft-upload:ip:${clientIp(req)}`, 30, 60_000) || await rateLimited(`nft-upload:wallet:${wallet}`, 8, 60_000)) {
     return NextResponse.json({ error: "Too many uploads — wait a minute.", code: "RATE_LIMITED" }, { status: 429 });
   }
 

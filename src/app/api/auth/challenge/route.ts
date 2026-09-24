@@ -11,7 +11,7 @@ import { buildSignInMessage, CHALLENGE_TTL_MS, newNonce } from "@/lib/auth/walle
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (!sessionSecret()) return NextResponse.json({ error: "Sign-in isn't available right now." }, { status: 503 });
-  if (rateLimited(`auth-challenge:ip:${clientIp(req)}`, 20, 60_000)) {
+  if (await rateLimited(`auth-challenge:ip:${clientIp(req)}`, 20, 60_000)) {
     return NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });
   }
 
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     } catch {
       return NextResponse.json({ error: "Invalid wallet." }, { status: 400 });
     }
-    if (rateLimited(`auth-challenge:wallet:${wallet}`, 6, 60_000)) {
+    if (await rateLimited(`auth-challenge:wallet:${wallet}`, 6, 60_000)) {
       return NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });
     }
 

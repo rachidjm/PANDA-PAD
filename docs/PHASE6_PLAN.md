@@ -1,6 +1,6 @@
 # PANDA — Fase 6: infraestructura para dinero de terceros (PLAN, nada ejecutado)
 
-**Estado:** decisiones tomadas (Neon, Drizzle; Upstash fail-closed en dinero / fail-open en lectura). **Punto 1 (Postgres) implementado y a la espera de tu revisión** — ver «Estado del punto 1» dentro de §1. Los puntos 2–5 no están empezados.
+**Estado:** decisiones tomadas (Neon, Drizzle; Upstash fail-closed en dinero / fail-open en lectura; los dominios apagados se migran cuando se enciendan). **Punto 1 (Postgres) implementado, pendiente de tu revisión** (§1). **Punto 2 (Upstash) implementado** (§2). Los puntos 3–5 no están empezados.
 **Por qué existe:** hoy la persistencia es Vercel Blob (JSON con bloqueo optimista por ETag), el rate limiting vive en la memoria de
 cada instancia, la auditoría es de solo-añadir *por convención* en archivos legibles por URL, las sesiones no se pueden revocar antes
 de 2 h y el CSP no controla `script-src`. Con dinero de terceros (`FEATURE_HOLDER_REWARDS`, claims, y más adelante estrategias,
@@ -164,6 +164,26 @@ Riesgos: latencia y límites de conexiones desde funciones serverless (usar el d
 ---
 
 ## 2. Rate limiting → Upstash Redis
+
+### Estado del punto 2 (implementado)
+
+**Hecho:** `rateLimited` es ahora **asíncrono** y usa Upstash Redis (`@upstash/ratelimit`, ventana deslizante); los ~50 llamadores están actualizados y un test estático
+impide que un llamador olvide el `await` (una promesa sin `await` es siempre «verdadera» = siempre limitado). La política de fallo se decide **por tipo de ruta**, como pediste:
+
+| Tipo | Ejemplos | Si Upstash no responde |
+|---|---|---|
+| **Dinero — falla cerrado** (`moneyRateGate`, 503 `RATE_LIMIT_UNAVAILABLE`) | comprar/vender/swap, crear moneda (Estándar y OTC), reclamar rewards y airdrops, mint/confirmación de NFT, mercado NFT, estrategias, **enviar una transacción por `/api/rpc`** | se **rechaza** la petición |
+| **Lectura — falla abierto** (`rateLimited`) | mercados, portfolio, actividad, salud, sign-in, ramas, **admin** | sigue funcionando con el limitador por instancia de antes |
+
+- **Admin es fail-open a propósito:** una pausa de emergencia no puede depender de que Redis esté vivo. Tienes un test que lo fija.
+- **Decisión implícita que debes conocer:** en **producción sin Upstash configurado** las rutas de dinero también se rechazan (503). Es la lectura estricta de «si no responde, se rechaza»: sin las variables no se puede operar. `/api/health/trading` (check `ratelimit`) y el esquema de entorno lo marcan como obligatorio en producción.
+- Timeout de 1,5 s por consulta y un «cortacircuitos» de 5 s: una caída cuesta un timeout, no uno por petición. Claves con prefijo del entorno (`panda:<production|preview>:rl`) para que Preview no gaste el presupuesto de Producción.
+- Fuera de producción y sin Upstash todo usa el limitador en memoria (desarrollo y tests).
+- Acepta `UPSTASH_REDIS_REST_URL/TOKEN` o `KV_REST_API_URL/TOKEN` (**sin verificar** cuál inyecta hoy la integración de Vercel).
+
+**Verificado:** 12 tests (contador compartido con un Redis simulado, fail-closed/fail-open, timeout, cortacircuitos, no configurado, cuerpos 429 propios, política por ruta) y un servidor de **producción** real (`next start`): sin Upstash y con un Upstash inalcanzable, `POST /api/pump/buy`, `/api/rewards/claim` y `sendTransaction` por `/api/rpc` dan **503**, las lecturas (`/api/coins`, `/api/activity`, `getLatestBlockhash`) dan 200, y la segunda petición ya no espera el timeout.
+**No verificado:** ninguna llamada real a Upstash (no hay cuenta aquí): el camino feliz, el formato de la duración `"<n> ms"` en su SDK real y la latencia añadida a cada petición.
+
 
 - Hoy `rateLimited(key, limit, windowMs)` (`src/lib/rate-limit.ts`) es **síncrona** y en memoria por instancia; se usa en **~50 puntos**. Pasa a asíncrona con `@upstash/ratelimit` (ventana deslizante) sobre Upstash Redis **(nueva dependencia)**.
 - Cambio mecánico: misma firma pero `await` en los ~50 llamadores (un *codemod*) y tipos.

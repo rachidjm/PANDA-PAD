@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { buildJupiterSwapTransaction } from "@/lib/jupiter/swap";
@@ -9,7 +9,11 @@ export async function POST(req: Request) {
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;
   // Building a trade costs real RPC calls: cap it per visitor so nobody can burn the RPC budget everyone else trades with.
-  if (rateLimited(`trade-build:${clientIp(req)}`, 40, 60_000)) return NextResponse.json({ error: "Too many requests — wait a moment and try again." }, { status: 429 });
+  {
+    // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+    const limited = await moneyRateGate(`trade-build:${clientIp(req)}`, 40, 60_000, () => NextResponse.json({ error: "Too many requests — wait a moment and try again." }, { status: 429 }));
+    if (limited) return limited;
+  }
   try {
     const { mint, user, side, solAmount, tokenAmount, payMint, payAmount, slippagePct } = await req.json();
     if (!mint || !user || (side !== "buy" && side !== "sell")) {

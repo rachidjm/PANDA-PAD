@@ -15,7 +15,7 @@ import { resolvePending } from "@/lib/pump/fee-lock";
  * (the same discipline every other write path in this app follows).
  */
 export async function POST(req: Request) {
-  if (rateLimited(`register-fee:${clientIp(req)}`, 10, 60_000)) {
+  if (await rateLimited(`register-fee:${clientIp(req)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
   try {

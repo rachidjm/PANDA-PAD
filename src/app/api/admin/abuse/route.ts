@@ -37,7 +37,7 @@ const PHRASES: Record<AbuseStatus, string> = {
 
 export async function GET(req: Request) {
   if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
-  if (rateLimited(`admin:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  if (rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
       if (b.confirm !== "RUN ABUSE ANALYSIS") return bad('Confirmation must be exactly "RUN ABUSE ANALYSIS".');
       if (!Number.isSafeInteger(b.epochId) || b.epochId < 1) return bad("Invalid epoch.");
       // Each run reads a lot of storage and the chain: at most a few per minute.
-      if (rateLimited(`abuse-run:${admin.wallet}`, 3, 60_000)) return bad("Too many analysis runs — wait a minute.", 429);
+      if (await rateLimited(`abuse-run:${admin.wallet}`, 3, 60_000)) return bad("Too many analysis runs — wait a minute.", 429);
       const r = await runAnalysis({ epochId: b.epochId, actor: admin.wallet }, realAbuseDeps());
       if (!r.ok) return bad(r.error);
       await recordAudit({

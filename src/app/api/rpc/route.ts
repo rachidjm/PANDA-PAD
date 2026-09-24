@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { serverRpcUrl } from "@/lib/solana/rpc";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, rateLimited, rateVerdict } from "@/lib/rate-limit";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 
 /**
@@ -36,7 +36,7 @@ function rpcError(code: number, message: string, status: number) {
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");
   if (origin && new URL(origin).host !== req.headers.get("host")) return rpcError(-32000, "Forbidden origin.", 403);
-  if (rateLimited(`rpc:${clientIp(req)}`, 120, 60_000)) return rpcError(-32005, "Too many requests.", 429);
+  if (await rateLimited(`rpc:${clientIp(req)}`, 120, 60_000)) return rpcError(-32005, "Too many requests.", 429);
 
   const text = await req.text();
   if (text.length > 8_000) return rpcError(-32600, "Request too large.", 413);
@@ -51,8 +51,11 @@ export async function POST(req: Request) {
   if (calls.length > 10 || calls.some((c) => !c?.method || !ALLOWED_METHODS.has(c.method))) {
     return rpcError(-32601, "Method not allowed.", 403);
   }
-  if (calls.some((c) => c.method === "sendTransaction") && rateLimited(`rpc-send:${clientIp(req)}`, 20, 60_000)) {
-    return rpcError(-32005, "Too many transactions.", 429);
+  if (calls.some((c) => c.method === "sendTransaction")) {
+    // Relaying a signed transaction is a money action: fails CLOSED if the limiter can't answer (reads above fail open).
+    const verdict = await rateVerdict(`rpc-send:${clientIp(req)}`, 20, 60_000, "money");
+    if (verdict === "limited") return rpcError(-32005, "Too many transactions.", 429);
+    if (verdict === "unavailable") return rpcError(-32005, "Sending is briefly unavailable — please try again in a minute.", 503);
   }
 
   // A signed transaction is only forwarded while the network guard allows money to move (reads always go through).

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimited } from "@/lib/rate-limit";
+import { moneyRateGate } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { isEnabled } from "@/lib/config/flags";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -26,9 +26,9 @@ export async function marketGate(
   }
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`market-${opts.name}:${wallet}`, opts.perMinute, 60_000)) {
-    return NextResponse.json({ error: "Too many attempts — wait a minute.", code: "RATE_LIMITED" }, { status: 429 });
-  }
+  // Listing, buying and cancelling move NFTs and SOL: fail closed if the limiter can't answer.
+  const limited = await moneyRateGate(`market-${opts.name}:${wallet}`, opts.perMinute, 60_000, () => NextResponse.json({ error: "Too many attempts — wait a minute.", code: "RATE_LIMITED" }, { status: 429 }));
+  if (limited) return limited;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request.", code: "BAD_REQUEST" }, { status: 400 });
 

@@ -32,7 +32,7 @@ const TRANSITIONS: Record<Event, { from: readonly OtcLaunchStatus[]; to: OtcLaun
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("OTC_REWARDS");
   if (disabled) return disabled;
-  if (rateLimited(`otc-status:${clientIp(req)}`, 60, 60_000)) {
+  if (await rateLimited(`otc-status:${clientIp(req)}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
   try {

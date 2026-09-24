@@ -13,7 +13,7 @@ const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export async function GET(req: Request) {
   const wallet = new URL(req.url).searchParams.get("wallet");
   if (!wallet || !ADDRESS.test(wallet)) return NextResponse.json({ error: "Missing or invalid wallet." }, { status: 400 });
-  if (rateLimited(`pay-tokens:${clientIp(req)}`, 20, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`pay-tokens:${clientIp(req)}`, 20, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   try {
     const tokens = await getPayTokens(new Connection(serverRpcUrl(), "confirmed"), new PublicKey(wallet));
     return NextResponse.json({ tokens });

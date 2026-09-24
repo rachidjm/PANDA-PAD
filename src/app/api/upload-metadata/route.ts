@@ -21,7 +21,7 @@ const BLOB_TOKEN =
   process.env.PANDA_PAD_BLOB_READ_WRITE_TOKEN;
 
 export async function POST(req: Request) {
-  if (rateLimited(`upload-metadata:${clientIp(req)}`, 10, 60_000)) {
+  if (await rateLimited(`upload-metadata:${clientIp(req)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
   if (!BLOB_TOKEN) {

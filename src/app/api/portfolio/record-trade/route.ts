@@ -18,7 +18,7 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
  * own real pre/post balance deltas, not from what the client claims it sent or received.
  */
 export async function POST(req: Request) {
-  if (rateLimited(`record-trade:${clientIp(req)}`, 30, 60_000)) {
+  if (await rateLimited(`record-trade:${clientIp(req)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
   try {

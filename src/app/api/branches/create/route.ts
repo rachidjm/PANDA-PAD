@@ -12,7 +12,7 @@ import { publicBranch } from "@/lib/branches/view";
  * NFT_BRANCHES and the `nft_minting` pause switch. Audited.
  */
 export async function POST(req: Request) {
-  const gate = branchGate(req, "create", 5);
+  const gate = await branchGate(req, "create", 5);
   if (gate instanceof NextResponse) return gate;
   const paused = await pausedResponse("nft_minting");
   if (paused) return paused;

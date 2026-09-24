@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`appeal:${wallet}`, 10, 3_600_000) || rateLimited(`appeal:ip:${clientIp(req)}`, 20, 3_600_000)) {
+  if (await rateLimited(`appeal:${wallet}`, 10, 3_600_000) || await rateLimited(`appeal:ip:${clientIp(req)}`, 20, 3_600_000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

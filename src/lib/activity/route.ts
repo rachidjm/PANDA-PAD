@@ -13,7 +13,7 @@ const feedCache = cached<FeedResult>();
  * limited, and results are cached briefly so the third-party indexers aren't called on every request.
  */
 export async function serveFeed(req: Request, fixedMint?: string): Promise<NextResponse> {
-  if (rateLimited(`activity:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`activity:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   const url = new URL(req.url);
   const filter = (url.searchParams.get("filter") ?? "all") as FeedFilter;

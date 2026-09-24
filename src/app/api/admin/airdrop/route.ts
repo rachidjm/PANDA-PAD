@@ -19,7 +19,7 @@ import { alertOps } from "@/lib/alerts";
 export async function POST(req: Request) {
   if (!isEnabled("PANDA_AIRDROPS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  if (rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
   const paused = await pausedResponse("airdrops");

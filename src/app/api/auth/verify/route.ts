@@ -17,7 +17,7 @@ const FAIL = { error: "Sign-in failed — please try again." };
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (!sessionSecret()) return NextResponse.json({ error: "Sign-in isn't available right now." }, { status: 503 });
-  if (rateLimited(`auth-verify:ip:${clientIp(req)}`, 20, 60_000)) {
+  if (await rateLimited(`auth-verify:ip:${clientIp(req)}`, 20, 60_000)) {
     return NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });
   }
 

@@ -10,7 +10,7 @@ import { publicBranch } from "@/lib/branches/view";
  * A creator can close their branch for good but cannot pause or resume it (that is an admin decision). Audited.
  */
 export async function POST(req: Request) {
-  const gate = branchGate(req, "manage", 20);
+  const gate = await branchGate(req, "manage", 20);
   if (gate instanceof NextResponse) return gate;
 
   const b = await req.json().catch(() => null);

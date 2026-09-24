@@ -31,7 +31,7 @@ const TARGET: Record<string, BranchStatus> = { pause: "PAUSED", resume: "ACTIVE"
 export async function POST(req: Request) {
   if (!branchesEnabled()) return notAvailable();
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  if (rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
 

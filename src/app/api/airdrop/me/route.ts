@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   if (!isEnabled("PANDA_AIRDROPS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`airdrop-me:${wallet}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`airdrop-me:${wallet}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   try {
     const published = (await getEpochs()).filter((e) => e.merkleRoot && ["DISTRIBUTING", "COMPLETED", "PAUSED"].includes(e.status)).slice(-5);

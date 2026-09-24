@@ -5,7 +5,7 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 /** Auth: admin. Query: ?limit=1..100 (default 50). Output: { events } newest first. */
 export async function GET(req: Request) {
-  if (rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) {
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
   const admin = await requireAdmin(req);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
-import { rateLimited } from "@/lib/rate-limit";
+import { moneyRateGate } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { isEnabled } from "@/lib/config/flags";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -25,8 +25,11 @@ export async function POST(req: Request) {
 
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with your wallet first.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`nft-prepare:${wallet}`, 20, 60_000)) return NextResponse.json({ error: "Too many attempts — wait a minute.", code: "RATE_LIMITED" }, { status: 429 });
-
+  {
+    // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+    const limited = await moneyRateGate(`nft-prepare:${wallet}`, 20, 60_000, () => NextResponse.json({ error: "Too many attempts — wait a minute.", code: "RATE_LIMITED" }, { status: 429 }));
+    if (limited) return limited;
+  }
   const body = await req.json().catch(() => null);
   if (!body || typeof body.contentId !== "string") return NextResponse.json({ error: "Invalid request.", code: "BAD_REQUEST" }, { status: 400 });
 

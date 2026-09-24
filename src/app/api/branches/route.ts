@@ -18,7 +18,7 @@ const CACHE = { "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30
  */
 export async function GET(req: Request) {
   if (!branchesEnabled()) return notAvailable();
-  if (rateLimited(`branches:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`branches:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const params = new URL(req.url).searchParams;
   const now = Date.now();
   const rules = { ...BRANCH_CONFIG };

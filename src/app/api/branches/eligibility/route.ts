@@ -10,7 +10,7 @@ import { BRANCH_CONFIG } from "@/lib/branches/config";
  * sales didn't count and why, so the methodology is visible. Gated by NFT_THEMES + NFT_BRANCHES.
  */
 export async function GET(req: Request) {
-  const gate = branchGate(req, "eligibility", 30);
+  const gate = await branchGate(req, "eligibility", 30);
   if (gate instanceof NextResponse) return gate;
   const themeSlug = new URL(req.url).searchParams.get("theme");
   if (!themeSlug) return NextResponse.json({ error: "Pass ?theme=<slug>." }, { status: 400 });

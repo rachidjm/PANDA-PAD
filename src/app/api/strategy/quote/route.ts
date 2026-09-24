@@ -8,7 +8,7 @@ import { strategyQuote } from "@/lib/strategy/market";
  * the pool's liquidity. Each is a live quote or null; `engine` says whether order execution is configured here.
  */
 export async function GET(req: Request) {
-  if (rateLimited(`strategy-quote:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`strategy-quote:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const mint = new URL(req.url).searchParams.get("mint") || "";
   try {
     new PublicKey(mint);

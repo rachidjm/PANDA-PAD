@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { featureDisabledResponse } from "@/lib/config/guard";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { recordAudit } from "@/lib/audit/log";
 import { registerCoin } from "@/lib/otc/client";
 import { getOtcLaunch, patchOtcLaunch } from "@/lib/otc/store";
@@ -16,8 +16,10 @@ import { otcRewardAssetByMint } from "@/lib/otc/reward-assets";
 export async function POST(req: Request) {
   const disabled = featureDisabledResponse("OTC_REWARDS");
   if (disabled) return disabled;
-  if (rateLimited(`otc-register:${clientIp(req)}`, 20, 60_000)) {
-    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  {
+    // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+    const limited = await moneyRateGate(`otc-register:${clientIp(req)}`, 20, 60_000, () => NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 }));
+    if (limited) return limited;
   }
   try {
     const { mint } = await req.json();

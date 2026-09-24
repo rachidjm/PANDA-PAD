@@ -16,7 +16,7 @@ const MAX_LEDGERS = 120;
 export async function GET(req: Request) {
   const wallet = new URL(req.url).searchParams.get("wallet");
   if (!wallet || !ADDRESS.test(wallet)) return NextResponse.json({ error: "Missing or invalid wallet." }, { status: 400 });
-  if (rateLimited(`portfolio-rewards:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`portfolio-rewards:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   try {
     const mints = await getRegisteredMints();

@@ -10,7 +10,7 @@ import { resolvePending } from "@/lib/pump/fee-lock";
  * information: the coin page shows the "Set the fee split" notice only to `creator`.
  */
 export async function GET(req: Request) {
-  if (rateLimited(`fee-lock:${clientIp(req)}`, 60, 60_000)) {
+  if (await rateLimited(`fee-lock:${clientIp(req)}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
   }
   const mint = new URL(req.url).searchParams.get("mint") ?? "";

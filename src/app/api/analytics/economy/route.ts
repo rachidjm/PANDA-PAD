@@ -12,7 +12,7 @@ const cache = cached<EconomySnapshot>(60_000, 2);
  * couldn't be read comes back null with status "unavailable" — never as zero.
  */
 export async function GET(req: Request) {
-  if (rateLimited(`economy:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  if (await rateLimited(`economy:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   try {
     const snapshot = await cache("economy", () => buildEconomy(realEconomyDeps()));
     return NextResponse.json(snapshot, { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" } });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { getSessionWallet, sameOrigin } from "@/lib/auth/session";
 import { isEnabled } from "@/lib/config/flags";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -45,9 +45,10 @@ export async function POST(req: Request) {
 
   const wallet = getSessionWallet(req);
   if (!wallet) return NextResponse.json({ error: "Sign in with this wallet to claim.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (rateLimited(`airdrop-claim:ip:${clientIp(req)}`, 20, 60_000) || rateLimited(`airdrop-claim:wallet:${wallet}`, 6, 60_000)) {
-    return NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });
-  }
+  // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+  const tooMany = () => NextResponse.json({ error: "Too many attempts — wait a minute." }, { status: 429 });
+  const limited = (await moneyRateGate(`airdrop-claim:ip:${clientIp(req)}`, 20, 60_000, tooMany)) ?? (await moneyRateGate(`airdrop-claim:wallet:${wallet}`, 6, 60_000, tooMany));
+  if (limited) return limited;
 
   const body = await req.json().catch(() => null);
   if (!body || !Number.isSafeInteger(body.epochId) || body.epochId < 1) return NextResponse.json({ error: "Invalid epoch." }, { status: 400 });

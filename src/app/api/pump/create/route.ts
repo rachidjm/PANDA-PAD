@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { coinCreationGuardResponse, moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
-import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { buildCreateTransaction, buildFeeSharingTransaction, buildLaunchTransaction } from "@/lib/pump/create";
 import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
@@ -20,8 +20,10 @@ export async function POST(req: Request) {
   if (creationBlocked) return creationBlocked;
   const paused = await pausedResponse("token_launches");
   if (paused) return paused;
-  if (rateLimited(`pump-create:${clientIp(req)}`, 20, 60_000)) {
-    return NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 });
+  {
+    // Money route: fails CLOSED (503) if the limiter can't answer — see src/lib/rate-limit.ts.
+    const limited = await moneyRateGate(`pump-create:${clientIp(req)}`, 20, 60_000, () => NextResponse.json({ error: "Too many requests — slow down a little." }, { status: 429 }));
+    if (limited) return limited;
   }
   try {
     const { mint, user, name, symbol, uri, shareholders, step } = await req.json();
