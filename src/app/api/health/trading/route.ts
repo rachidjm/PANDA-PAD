@@ -10,7 +10,7 @@ import { envReport, isPublicSolanaRpc } from "@/lib/config/env";
 import { decideMoneyFlow, getNetworkStatus } from "@/lib/config/network";
 import { decideCoinCreation } from "@/lib/config/creation";
 import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
-import { pingDb } from "@/lib/db/client";
+import { databaseUrl, probeDb } from "@/lib/db/client";
 import { getRedis } from "@/lib/rate-limit";
 
 /**
@@ -112,9 +112,12 @@ export async function GET(req: Request) {
   {
     const redis = getRedis();
     let answers = false;
+    let pingMs = 0;
     if (redis) {
       try {
+        const t0 = performance.now();
         answers = (await Promise.race([redis.ping(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 2_000))])) === "PONG";
+        pingMs = Math.round(performance.now() - t0);
       } catch {
         // reported below, without the error text
       }
@@ -124,7 +127,7 @@ export async function GET(req: Request) {
       id: "ratelimit",
       ok: answers || (!production && !redis),
       detail: answers
-        ? "Upstash answers: rate limits are shared across instances."
+        ? `Upstash answers (${pingMs} ms): rate limits are shared across instances.`
         : redis
           ? "Upstash is configured but NOT answering: money routes (trades, launches, claims, sending transactions) are refused with 503 until it does; other routes use a per-instance limiter."
           : production
@@ -133,20 +136,22 @@ export async function GET(req: Request) {
     });
   }
 
-  // 7. Postgres, when any domain uses it (Blob → Postgres migration): reachable, and where each domain lives.
-  if (needsDatabase()) {
+  // 7. Postgres: reachable over the app's own connection, transactions work, and the migrations have run. Required only when a
+  // domain uses it (PANDA_STORAGE_MODES); otherwise it is reported for information.
+  if (needsDatabase() || databaseUrl()) {
+    const needed = needsDatabase();
     const { modes, problems } = parseStorageModes(process.env.PANDA_STORAGE_MODES);
-    let reachable = false;
+    let probe: Awaited<ReturnType<typeof probeDb>> | null = null;
     try {
-      await pingDb();
-      reachable = true;
+      probe = await probeDb();
     } catch {
       // reported below, without the error text (it can contain the host)
     }
+    const healthy = !!probe && probe.transactionOk && probe.schemaApplied;
     checks.push({
       id: "database",
-      ok: reachable && problems.length === 0,
-      detail: `${reachable ? "Postgres answers." : "Postgres is NOT reachable (check DATABASE_URL); domains in postgres mode fail closed and dual mode can't mirror."} Domains: ${Object.entries(modes).map(([d, m]) => `${d}=${m}`).join(", ")}.${problems.length ? ` Unreadable PANDA_STORAGE_MODES entries: ${problems.join("; ")}.` : ""}`,
+      ok: (healthy || !needed) && problems.length === 0,
+      detail: `${probe ? `Postgres answers (${probe.ms} ms); transactions ${probe.transactionOk ? "work" : "FAIL"}; schema ${probe.schemaApplied ? "applied" : "NOT applied (run the migrations: a production build applies them)"}.` : "Postgres is NOT reachable (check DATABASE_URL)."}${needed && !healthy ? " Domains in postgres mode fail closed and dual mode can't mirror." : ""} Domains: ${Object.entries(modes).map(([d, m]) => `${d}=${m}`).join(", ")}.${problems.length ? ` Unreadable PANDA_STORAGE_MODES entries: ${problems.join("; ")}.` : ""}`,
     });
   }
 

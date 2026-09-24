@@ -12,6 +12,8 @@
     "check-sharing": "tsx scripts/check-sharing.ts",
     "create-lookup-table": "tsx scripts/create-launch-lookup-table.ts",
     "check-lookup-table": "tsx scripts/check-launch-lookup-table.ts",
+    "vercel-build": "tsx scripts/vercel-build.ts",
+    "verify-services": "tsx --env-file-if-exists=.env.local scripts/verify-services.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
     "db:backfill": "tsx --env-file-if-exists=.env.local scripts/db-backfill.ts",

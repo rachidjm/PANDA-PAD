@@ -52,3 +52,33 @@ export async function pingDb(): Promise<void> {
   const { sql } = await import("drizzle-orm");
   await getDb().execute(sql`select 1`);
 }
+
+/**
+ * A deeper health probe over the app's own connection: latency, an interactive transaction with a row lock (what claims do), and whether
+ * the migrations have created the schema. Reads only; the transaction is rolled back.
+ */
+export async function probeDb(): Promise<{ ms: number; transactionOk: boolean; schemaApplied: boolean }> {
+  const { sql } = await import("drizzle-orm");
+  const db = getDb();
+  const t0 = performance.now();
+  await db.execute(sql`select 1`);
+  const ms = Math.round(performance.now() - t0);
+  let transactionOk = false;
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('panda-health'))`);
+      transactionOk = true;
+    });
+  } catch {
+    transactionOk = false;
+  }
+  let schemaApplied = false;
+  try {
+    const r = await db.execute(sql`select count(*)::int as n from information_schema.tables where table_name in ('reward_balances','reward_claims','trades','activity_events','protocol_pause')`);
+    const rows = (r as unknown as { rows?: { n: number }[] }).rows ?? (r as unknown as { n: number }[]);
+    schemaApplied = Number(rows[0]?.n) === 5;
+  } catch {
+    schemaApplied = false;
+  }
+  return { ms, transactionOk, schemaApplied };
+}

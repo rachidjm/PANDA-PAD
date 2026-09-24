@@ -5,7 +5,7 @@
  *
  * Without --yes it only READS Blob and prints what would be imported (a dry run). With --yes it writes to Postgres.
  * For the money domain (rewards) it refuses to run unless the "claims" and "fee_processing" switches are PAUSED (so nothing writes to
- * Blob while the snapshot is taken); --force skips that check and is only for an empty or throwaway database.
+ * Blob while the snapshot is taken) — unless the Blob ledger holds no balances at all; --force skips that check and is only for an empty or throwaway database.
  *
  * Order for a domain: pause it (admin panel) → db:backfill --yes → set PANDA_STORAGE_MODES=<domain>=dual → unpause →
  * db:compare daily for two days → set <domain>=postgres. docs/PHASE6_PLAN.md §1.4.
@@ -38,8 +38,14 @@ async function main() {
     const state = await source.pause();
     const notPaused = (["claims", "fee_processing"] as const).filter((s) => !isPaused(state, s));
     if (notPaused.length) {
-      console.error(`Refusing to back up the rewards ledger while money can still move: pause ${notPaused.join(" and ")} first (admin panel), or use --force on an empty/throwaway database.`);
-      process.exit(2);
+      // Nothing to protect when the ledger holds no balances at all: an empty snapshot can't lose or double anything.
+      let holders = 0;
+      for (const m of await source.registry()) holders += Object.keys((await source.ledger(m)).holders).length;
+      if (holders > 0) {
+        console.error(`Refusing to back up the rewards ledger while money can still move: pause ${notPaused.join(" and ")} first (admin panel), or use --force on an empty/throwaway database.`);
+        process.exit(2);
+      }
+      console.log("(the rewards ledger has no holder balances yet, so it is safe to import without pausing)");
     }
   }
 

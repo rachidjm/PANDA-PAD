@@ -8,12 +8,13 @@
  *   npm run db:migrate            (with DATABASE_URL_UNPOOLED pointing at that throwaway database)
  *   TEST_DATABASE_URL=postgresql://… npm test
  *
- * It only creates rows under random coin ids and deletes them afterwards.
+ * It only creates rows under random coin ids and deletes them afterwards. With TEST_DATABASE_SCHEMA it works inside that schema of the database
+ * (scripts/verify-services.ts creates a throwaway schema, runs this file in it and drops it: that is how it runs on Vercel's build).
  */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { Pool, neonConfig, type PoolClient } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { eq } from "drizzle-orm";
 import ws from "ws";
@@ -24,14 +25,22 @@ import { pgCreditHolders, pgGetLedger, pgReserveClaim, pgReserveDailyPayout } fr
 const url = process.env.TEST_DATABASE_URL?.trim();
 const skip = url ? false : "set TEST_DATABASE_URL (a throwaway Postgres with the migrations applied) to run the multi-connection concurrency tests";
 
-let pool: Pool | null = null;
+const pools: Pool[] = [];
 const real = (): Db => {
   neonConfig.webSocketConstructor = ws;
-  pool = new Pool({ connectionString: url, max: 12 });
+  const pool = new Pool({ connectionString: url, max: 12 });
+  pools.push(pool);
+  // Optional: run inside a throwaway schema of that database (scripts/verify-services.ts creates and drops one). Needs a DIRECT
+  // (unpooled) connection string, because a transaction pooler doesn't keep session settings.
+  const testSchema = process.env.TEST_DATABASE_SCHEMA?.trim();
+  if (testSchema) {
+    if (!/^[a-z0-9_]+$/.test(testSchema)) throw new Error("TEST_DATABASE_SCHEMA must be lowercase letters, digits and underscores");
+    pool.on("connect", (client: PoolClient) => void client.query(`set search_path to ${testSchema}`));
+  }
   return drizzle(pool, { schema }) as unknown as Db;
 };
 after(async () => {
-  await pool?.end();
+  await Promise.all(pools.map((p) => p.end()));
 });
 
 const rand = () => randomBytes(20).toString("hex");
