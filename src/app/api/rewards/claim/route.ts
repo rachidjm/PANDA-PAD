@@ -11,7 +11,7 @@ import {
 import { getLedger, unclaimedLamports, reserveClaim, releaseClaim, markClaimSent, confirmClaim, type Reservation } from "@/lib/rewards/ledger";
 import { DAILY_CAP_LAMPORTS, MAX_CLAIM_LAMPORTS, reserveDailyPayout, releaseDailyPayout } from "@/lib/rewards/limits";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
-import { fetchTokenPools } from "@/lib/gecko/client";
+import { fetchTokenPools, priceOfMintInPools } from "@/lib/gecko/client";
 import { meetsRewardsThreshold } from "@/lib/rewards";
 import { alertOps } from "@/lib/alerts";
 import { clientIp, moneyRateGate } from "@/lib/rate-limit";
@@ -35,11 +35,7 @@ async function realHolderValueUsd(conn: Connection, mint: string, holder: string
     fetchTokenPools(mint),
   ]);
   const amount = tokenAccounts.value[0]?.account.data.parsed?.info?.tokenAmount?.uiAmount || 0;
-  const best = [...pools.data].sort(
-    (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
-  )[0];
-  const priceUsd = best?.attributes.base_token_price_usd ? Number(best.attributes.base_token_price_usd) : 0;
-  return amount * priceUsd;
+  return amount * (priceOfMintInPools(pools.data, mint) ?? 0);
 }
 
 function isValidAddress(value: unknown): value is string {

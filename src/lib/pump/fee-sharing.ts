@@ -14,9 +14,8 @@ import { FeeShareholderInput } from "./fee-shares-validation";
  * one transaction see each other's writes, so this doesn't need the mint to
  * exist as a separate, already-confirmed transaction first.
  *
- * Only usable for a coin's first-ever fee-sharing setup, since
- * `currentShareholders` is sent empty here — updating an existing config's
- * shareholders later needs the real current list, which this module doesn't
+ * Only usable for a coin's first-ever fee-sharing setup: the current shareholders are assumed to be just the creator (what
+ * `createFeeSharingConfig` writes) — updating an existing config later needs its real current list, which this module doesn't
  * attempt yet.
  */
 export async function buildFeeSharingInstructions({
@@ -34,7 +33,10 @@ export async function buildFeeSharingInstructions({
   const updateSharesIx = await offline.updateFeeShares({
     authority: creator,
     mint,
-    currentShareholders: [],
+    // A freshly created config's only shareholder is the creator (100%). The program pays out pending fees to the CURRENT shareholders
+    // before changing the split, so their accounts must be passed: an empty list fails with the fee program's `NotEnough` error
+    // (found by simulating the launch on mainnet; every earlier size test only measured bytes).
+    currentShareholders: [creator],
     newShareholders: shareholders.map((s) => ({ address: new PublicKey(s.address), shareBps: s.shareBps })),
   });
 

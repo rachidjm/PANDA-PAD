@@ -10,7 +10,7 @@ import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
 import { getWalletPortfolio } from "@/lib/solana/portfolio";
 import { computeRewardSource, meetsRewardsThreshold, MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
-import { fetchTokenPools } from "@/lib/gecko/client";
+import { fetchTokenPools, priceOfMintInPools } from "@/lib/gecko/client";
 import { Coin, RewardSource } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -80,10 +80,7 @@ export default function RewardsDashboard() {
               // that cutoff) — needed to enforce the real $MIN_HOLDING_USD_FOR_REWARDS
               // eligibility bar, the same one Create tells the creator about.
               const { data } = await fetchTokenPools(h.mint);
-              const best = [...data].sort(
-                (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
-              )[0];
-              const priceUsd = best?.attributes.base_token_price_usd ? Number(best.attributes.base_token_price_usd) : undefined;
+              const priceUsd = priceOfMintInPools(data, h.mint);
               const holderValueUsd = priceUsd !== undefined ? priceUsd * h.amount : undefined;
 
               if (!meetsRewardsThreshold(holderValueUsd)) return null;

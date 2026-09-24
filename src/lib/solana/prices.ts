@@ -1,4 +1,4 @@
-import { fetchTokenPools } from "@/lib/gecko/client";
+import { fetchTokenPools, priceOfMintInPools } from "@/lib/gecko/client";
 import { fetchDexTokenPairs, fetchDexTokensBatch } from "@/lib/dexscreener/client";
 
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -27,9 +27,8 @@ export async function usdPrices(mints: string[]): Promise<Map<string, number>> {
       .filter((m) => !prices.has(m))
       .map(async (m) => {
         const { data } = await fetchTokenPools(m);
-        const best = [...data].sort((a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0))[0];
-        const price = Number(best?.attributes.base_token_price_usd);
-        if (price > 0) prices.set(m, price);
+        const price = priceOfMintInPools(data, m);
+        if (price !== undefined) prices.set(m, price);
       })
   );
   return prices;

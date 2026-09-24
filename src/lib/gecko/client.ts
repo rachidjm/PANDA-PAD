@@ -26,6 +26,7 @@ export type GeckoPoolAttributes = {
   name: string;
   address: string;
   base_token_price_usd: string | null;
+  quote_token_price_usd?: string | null;
   fdv_usd: string | null;
   market_cap_usd: string | null;
   reserve_in_usd: string | null;
@@ -68,6 +69,21 @@ export type GeckoPoolsResponse = {
 export function tokenIdToAddress(id: string): string {
   // included token ids look like "solana_<address>"
   return id.startsWith(`${NETWORK}_`) ? id.slice(NETWORK.length + 1) : id;
+}
+
+/**
+ * The USD price of `mint` from a list of pools that all contain it, taken from the MOST LIQUID pool. Each GeckoTerminal pool quotes
+ * TWO tokens: `base_token_price_usd` is the price of the pool's BASE token, which is not `mint` when `mint` is the QUOTE side (SOL is
+ * quote in most of its biggest pools, e.g. "TDOF / SOL"). Reading the base price blindly priced SOL at another coin's ~$0.07.
+ */
+export function priceOfMintInPools(pools: GeckoPool[], mint: string): number | undefined {
+  const best = [...pools].sort((a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0))[0];
+  if (!best) return undefined;
+  const isBase = tokenIdToAddress(best.relationships.base_token.data.id) === mint;
+  const isQuote = tokenIdToAddress(best.relationships.quote_token?.data.id ?? "") === mint;
+  const raw = isBase ? best.attributes.base_token_price_usd : isQuote ? best.attributes.quote_token_price_usd : null;
+  const price = Number(raw);
+  return Number.isFinite(price) && price > 0 ? price : undefined;
 }
 
 export async function fetchDexPools(dex: "pump-fun" | "pumpswap", page = 1, noCache = false): Promise<GeckoPoolsResponse> {

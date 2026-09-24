@@ -1,6 +1,6 @@
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { fetchTokenPools } from "@/lib/gecko/client";
+import { fetchTokenPools, priceOfMintInPools } from "@/lib/gecko/client";
 import { Coin, PortfolioHolding } from "@/lib/types";
 
 const SOL_HOLDING: Omit<PortfolioHolding, "amount" | "valueUsd"> = {
@@ -63,10 +63,8 @@ export async function getWalletPortfolio(
   await Promise.all(
     toPrice.map(async (h) => {
       const { data } = await fetchTokenPools(h.mint);
-      const best = [...data].sort(
-        (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
-      )[0];
-      if (best?.attributes.base_token_price_usd) priceByMint.set(h.mint, Number(best.attributes.base_token_price_usd));
+      const price = priceOfMintInPools(data, h.mint);
+      if (price !== undefined) priceByMint.set(h.mint, price);
     })
   );
   const priced = splHoldings.map((h) => {
@@ -75,10 +73,7 @@ export async function getWalletPortfolio(
   });
 
   const solPool = await fetchTokenPools(SOL_HOLDING.mint);
-  const solBest = [...solPool.data].sort(
-    (a, b) => Number(b.attributes.reserve_in_usd || 0) - Number(a.attributes.reserve_in_usd || 0)
-  )[0];
-  const solPriceUsd = solBest?.attributes.base_token_price_usd ? Number(solBest.attributes.base_token_price_usd) : undefined;
+  const solPriceUsd = priceOfMintInPools(solPool.data, SOL_HOLDING.mint);
   const solAmount = lamports / LAMPORTS_PER_SOL;
 
   const sol: PortfolioHolding = {

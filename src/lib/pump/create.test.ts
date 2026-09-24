@@ -103,3 +103,13 @@ test("how many shareholders fit in one transaction with real-size metadata (docu
   console.log(`[launch-alt] real-size metadata: up to ${max} of ${MAX_SHAREHOLDERS} shareholders fit in one transaction`);
   assert.ok(max >= 3, "the common case (PANDA + creator + a partner or two) must fit");
 });
+
+test("REGRESSION (found by simulating a launch on mainnet): updateFeeShares must be given the CURRENT shareholders — the creator — or the fee program fails with `NotEnough`", async () => {
+  const { buildFeeSharingInstructions } = await import("./fee-sharing");
+  const mint = Keypair.generate().publicKey;
+  const creator = Keypair.generate().publicKey;
+  const [, update] = await buildFeeSharingInstructions({ mint, creator, shareholders: split(3).map((s, i) => (i === 0 ? { ...s, address: creator.toBase58() } : s)) });
+  const last = update.keys[update.keys.length - 1];
+  assert.ok(last.pubkey.equals(creator), "the creator (the config's only shareholder at creation) is passed as a remaining account");
+  assert.equal(last.isWritable, true, "the program pays that shareholder's pending fees before changing the split");
+});

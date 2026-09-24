@@ -14,6 +14,7 @@
     "check-lookup-table": "tsx scripts/check-launch-lookup-table.ts",
     "vercel-build": "tsx scripts/vercel-build.ts",
     "verify-services": "tsx --env-file-if-exists=.env.local scripts/verify-services.ts",
+    "simulate-launch": "tsx --env-file-if-exists=.env.local scripts/simulate-launch.ts",
     "verify-audit-chain": "tsx --env-file-if-exists=.env.local scripts/verify-audit-chain.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
