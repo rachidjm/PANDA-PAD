@@ -1653,6 +1653,38 @@ export const dict = {
     es: "OTC no pudo cotizar este activo de recompensa ahora mismo — inténtalo de nuevo en un momento.",
   },
   "otc.err.badAsset": { en: "That reward asset isn't offered by OTC.", es: "Ese activo de recompensa no está disponible en OTC." },
+
+  // Admin: launch lookup table
+  "admin.alt.title": { en: "Launch lookup table (one signature per launch)", es: "Lookup table de lanzamientos (una firma por lanzamiento)" },
+  "admin.alt.intro": {
+    en: "Creating a coin and setting its fee split doesn't fit one normal transaction. With PANDA's own Address Lookup Table it does, atomically. You create it here with your wallet (two signatures: create, then freeze so nobody can change it). No key file is involved.",
+    es: "Crear una moneda y fijar su reparto no cabe en una transacción normal. Con la Address Lookup Table propia de PANDA sí, de forma atómica. La creas aquí con tu wallet (dos firmas: crear y congelar para que nadie pueda cambiarla). No interviene ningún archivo de clave.",
+  },
+  "admin.alt.state.none": { en: "Not configured: launches use two transactions and stay hidden until the fee split is set.", es: "Sin configurar: los lanzamientos usan dos transacciones y quedan ocultos hasta fijar el reparto." },
+  "admin.alt.state.ok": { en: "Configured and verified: launches are one signature.", es: "Configurada y verificada: los lanzamientos son de una sola firma." },
+  "admin.alt.state.bad": { en: "PANDA_LOOKUP_TABLE is set but the table isn't usable yet:", es: "PANDA_LOOKUP_TABLE está puesta pero la tabla aún no es utilizable:" },
+  "admin.alt.cost": { en: "Cost: about {sol} SOL of rent (locked in the table) plus network fees. It holds {n} fixed accounts.", es: "Coste: unos {sol} SOL de renta (queda bloqueada en la tabla) más comisiones de red. Contiene {n} cuentas fijas." },
+  "admin.alt.create": { en: "Create and freeze the table", es: "Crear y congelar la tabla" },
+  "admin.alt.confirm": { en: "Your wallet will ask for TWO signatures: 1) create and fill the table, 2) freeze it (irreversible). Continue?", es: "Tu wallet pedirá DOS firmas: 1) crear y rellenar la tabla, 2) congelarla (irreversible). ¿Continuar?" },
+  "admin.alt.step.create": { en: "Signature 1 of 2: creating the table…", es: "Firma 1 de 2: creando la tabla…" },
+  "admin.alt.step.freeze": { en: "Signature 2 of 2: freezing the table…", es: "Firma 2 de 2: congelando la tabla…" },
+  "admin.alt.step.verify": { en: "Checking the table on-chain…", es: "Comprobando la tabla on-chain…" },
+  "admin.alt.existing": { en: "Already created it (or stopped half way)? Paste the table address:", es: "¿Ya la creaste (o te quedaste a medias)? Pega la dirección de la tabla:" },
+  "admin.alt.verify": { en: "Check it", es: "Comprobar" },
+  "admin.alt.freezeOnly": { en: "Freeze it now", es: "Congelarla ahora" },
+  "admin.alt.done": { en: "Done. Set this in Vercel (Production) and redeploy:", es: "Hecho. Ponla en Vercel (Production) y redespliega:" },
+  "admin.alt.copy": { en: "Copy", es: "Copiar" },
+  "admin.alt.copied": { en: "Copied", es: "Copiada" },
+  "admin.alt.check.frozen": { en: "frozen (nobody can change or close it)", es: "congelada (nadie puede cambiarla ni cerrarla)" },
+  "admin.alt.check.notFrozen": { en: "NOT frozen: its authority can still deactivate it", es: "SIN congelar: su autoridad aún puede desactivarla" },
+  "admin.alt.check.complete": { en: "holds every fixed account of a launch", es: "contiene todas las cuentas fijas de un lanzamiento" },
+  "admin.alt.check.missing": { en: "missing {n} account(s)", es: "faltan {n} cuenta(s)" },
+  "admin.alt.check.fits": { en: "a launch with {n} shareholder(s): {bytes} bytes (limit 1232)", es: "un lanzamiento con {n} reparticipante(s): {bytes} bytes (límite 1232)" },
+  "admin.alt.check.notExists": { en: "That table doesn't exist on-chain.", es: "Esa tabla no existe on-chain." },
+  "admin.alt.check.inactive": { en: "The table is deactivated.", es: "La tabla está desactivada." },
+  "admin.alt.check.notFit": { en: "does not fit", es: "no cabe" },
+  "admin.alt.notAuthority": { en: "This table's authority is another wallet: connect that wallet to freeze it.", es: "La autoridad de esta tabla es otra wallet: conecta esa wallet para congelarla." },
+  "admin.alt.needSession": { en: "Sign in as admin first.", es: "Inicia sesión como admin primero." },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;

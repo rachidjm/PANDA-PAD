@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
+import LookupTablePanel from "@/components/admin/LookupTablePanel";
 import { SUBSYSTEMS, confirmationPhrase, type Subsystem } from "@/lib/protocol/pause";
 
 type PausedItem = { subsystem: Subsystem; reason: string; since: number };
@@ -18,6 +19,7 @@ export default function AdminClient() {
   const [reasons, setReasons] = useState<Partial<Record<Subsystem, string>>>({});
   const [busy, setBusy] = useState<Subsystem | "signin" | null>(null);
   const [message, setMessage] = useState("");
+  const [sessionTick, setSessionTick] = useState(0);
 
   const refresh = useCallback(async () => {
     const [status, audit] = await Promise.all([
@@ -45,6 +47,7 @@ export default function AdminClient() {
     try {
       await ensureSession();
       await refresh();
+      setSessionTick((n) => n + 1);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sign-in failed.");
     } finally {
@@ -134,6 +137,8 @@ export default function AdminClient() {
           })}
         </ul>
       </section>
+
+      <LookupTablePanel sessionTick={sessionTick} />
 
       <section className="rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <h2 className="text-sm font-medium">Audit trail</h2>
