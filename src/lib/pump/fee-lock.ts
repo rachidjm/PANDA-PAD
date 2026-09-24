@@ -5,6 +5,9 @@ import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { getFeeSharingConfig } from "./fee-sharing";
 import { registerMint } from "@/lib/rewards/registry";
 import { recordAudit } from "@/lib/audit/log";
+import { getDb } from "@/lib/db/client";
+import { mirror, storageMode } from "@/lib/db/mode";
+import { pgLoadPending, pgRegisterPending, pgRemovePending, pgStampAudited } from "@/lib/db/launch";
 
 /**
  * The fee-lock registry: PANDA-launched coins whose fee split (PANDA's locked 5% included) is NOT yet on-chain.
@@ -42,7 +45,8 @@ let cache: { at: number; doc: Doc } | null = null;
 
 async function load(): Promise<Doc> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.doc;
-  const doc = await docRead<Doc>(PATH, EMPTY);
+  // Where it lives follows PANDA_STORAGE_MODES (launch): Blob document, Blob + Postgres mirror, or Postgres only.
+  const doc: Doc = storageMode("launch") === "postgres" ? { pending: await pgLoadPending(getDb()) } : await docRead<Doc>(PATH, EMPTY);
   cache = { at: Date.now(), doc };
   return doc;
 }
@@ -75,21 +79,34 @@ export async function registerPendingFeeLock(
 ): Promise<RegisterResult> {
   if (await connection.getAccountInfo(new PublicKey(input.mint), "confirmed")) return { ok: false, reason: "exists" };
   if (Object.keys((await load()).pending).length > PRUNE_ABOVE) await pruneUncreated(connection);
-  const result = await docUpdate<Doc, RegisterResult>(PATH, EMPTY, (doc) => {
-    if (!(input.mint in doc.pending) && Object.keys(doc.pending).length >= HARD_CAP) return { next: doc, result: { ok: false, reason: "full" } };
-    doc.pending[input.mint] = { creator: input.creator, ts: Date.now(), shareholders: input.shareholders };
-    return { next: doc, result: { ok: true } };
-  });
+  const entry = { creator: input.creator, ts: Date.now(), shareholders: input.shareholders };
+  const mode = storageMode("launch");
+  let result: RegisterResult;
+  if (mode === "postgres") {
+    result = (await pgRegisterPending(getDb(), input.mint, entry, HARD_CAP)) ? { ok: true } : { ok: false, reason: "full" };
+  } else {
+    result = await docUpdate<Doc, RegisterResult>(PATH, EMPTY, (doc) => {
+      if (!(input.mint in doc.pending) && Object.keys(doc.pending).length >= HARD_CAP) return { next: doc, result: { ok: false, reason: "full" } };
+      doc.pending[input.mint] = entry;
+      return { next: doc, result: { ok: true } };
+    });
+    if (result.ok && mode === "dual") await mirror("launch", `register ${input.mint}`, () => pgRegisterPending(getDb(), input.mint, entry, HARD_CAP));
+  }
   invalidate();
   return result;
 }
 
 async function removeMints(mints: string[]): Promise<void> {
   if (mints.length === 0) return;
-  await docUpdate<Doc, void>(PATH, EMPTY, (doc) => {
-    for (const m of mints) delete doc.pending[m];
-    return { next: doc, result: undefined };
-  });
+  const mode = storageMode("launch");
+  if (mode !== "postgres") {
+    await docUpdate<Doc, void>(PATH, EMPTY, (doc) => {
+      for (const m of mints) delete doc.pending[m];
+      return { next: doc, result: undefined };
+    });
+  }
+  if (mode === "postgres") await pgRemovePending(getDb(), mints);
+  else if (mode === "dual") await mirror("launch", "remove", () => pgRemovePending(getDb(), mints));
   invalidate();
 }
 
@@ -144,12 +161,17 @@ export async function resolvePending(
 
   if (!entry.auditedAt) {
     const stamp = Date.now();
-    const first = await docUpdate<Doc, boolean>(PATH, EMPTY, (doc) => {
-      const e = doc.pending[mint];
-      if (!e || e.auditedAt) return { next: doc, result: false };
-      e.auditedAt = stamp;
-      return { next: doc, result: true };
-    });
+    let first: boolean;
+    if (storageMode("launch") === "postgres") first = await pgStampAudited(getDb(), mint, stamp);
+    else {
+      first = await docUpdate<Doc, boolean>(PATH, EMPTY, (doc) => {
+        const e = doc.pending[mint];
+        if (!e || e.auditedAt) return { next: doc, result: false };
+        e.auditedAt = stamp;
+        return { next: doc, result: true };
+      });
+      if (first && storageMode("launch") === "dual") await mirror("launch", `audited ${mint}`, () => pgStampAudited(getDb(), mint, stamp));
+    }
     invalidate();
     if (first) {
       await recordAudit({

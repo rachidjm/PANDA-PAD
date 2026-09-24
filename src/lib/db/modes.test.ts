@@ -269,3 +269,48 @@ test("audit backfill: Blob's events are imported in order into an empty chain, a
   const missing = { ...src, audit: async () => [...events, { ...events[0], id: "9999999999999-ffffffffffff" }] };
   assert.ok((await compare(own, missing, ["audit"]))[0].differences.some((d) => /9999999999999/.test(d)));
 });
+
+// ── launch (fee-lock registry) ────────────────────────────────────────────────────────────────────────────────────────
+import { getPendingFeeLocks, registerPendingFeeLock, resolvePending, withoutPendingFeeLock } from "@/lib/pump/fee-lock";
+import { Keypair } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
+import { pgLoadPending } from "./launch";
+
+const chainOf = (existing: Set<string>) => ({ getAccountInfo: async (k: { toBase58(): string }) => (existing.has(k.toBase58()) ? { data: Buffer.alloc(0) } : null), getMultipleAccountsInfo: async () => [] }) as unknown as Connection;
+
+test("launch registry: DUAL mirrors into Postgres; POSTGRES reads and writes only Postgres, and the audit-once stamp holds", async () => {
+  modes("launch=dual");
+  const m1 = Keypair.generate().publicKey.toBase58();
+  const creator = Keypair.generate().publicKey.toBase58();
+  const split = [{ address: creator, shareBps: 10_000 }];
+  assert.deepEqual(await registerPendingFeeLock(chainOf(new Set()), { mint: m1, creator, shareholders: split }), { ok: true });
+  assert.ok(m1 in (await pgLoadPending(db)), "mirrored");
+
+  modes("launch=postgres");
+  const m2 = Keypair.generate().publicKey.toBase58();
+  assert.deepEqual(await registerPendingFeeLock(chainOf(new Set()), { mint: m2, creator, shareholders: split }), { ok: true });
+  assert.deepEqual(await withoutPendingFeeLock([{ mint: m2 }]), [], "hidden from lists");
+  assert.ok(m2 in (await getPendingFeeLocks()));
+  // created on-chain without a SharingConfig: audited once
+  const onChain = chainOf(new Set([m2]));
+  const noSharing = { readSharing: async () => null, register: async () => {} };
+  for (let i = 0; i < 3; i++) await resolvePending(onChain, m2, noSharing);
+  assert.equal((await listAudit(100)).filter((e) => e.object === m2 && e.action === "token.created_without_fee_split").length <= 1, true);
+  // its split lands on-chain: it leaves the registry
+  const TREASURY = (await import("@/lib/pump/constants")).PANDA_TREASURY.toBase58();
+  const r = await resolvePending(onChain, m2, { readSharing: async () => [{ address: TREASURY, shareBps: 500 }, { address: creator, shareBps: 9500 }], register: async () => {} });
+  assert.equal(r.state, "locked");
+  assert.ok(!(m2 in (await pgLoadPending(db))));
+});
+
+test("launch backfill + compare: the registry moves over and compares equal", async () => {
+  const { backfill } = await import("./backfill");
+  const { compare } = await import("./compare");
+  const { blobSource } = await import("./source");
+  const own = await newTestDb();
+  const entries = { ["A".repeat(43)]: { creator: "C".repeat(43), ts: 1_750_000_000_000, shareholders: [{ address: "C".repeat(43), shareBps: 10_000 }], auditedAt: 1_750_000_001_000 }, ["B".repeat(43)]: { creator: "D".repeat(43), ts: 1_750_000_002_000, shareholders: null } };
+  const src = { ...blobSource(), feeLocks: async () => entries };
+  await backfill(own, src, ["launch"]);
+  assert.deepEqual((await compare(own, src, ["launch"]))[0].differences, []);
+  assert.ok((await compare(own, { ...src, feeLocks: async () => ({ ...entries, ["Z".repeat(43)]: { creator: "C".repeat(43), ts: 1, shareholders: null } }) }, ["launch"]))[0].differences.some((d) => /only in Blob/.test(d)));
+});

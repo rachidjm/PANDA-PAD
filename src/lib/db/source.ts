@@ -6,6 +6,7 @@ import type { StoredEvent } from "@/lib/activity/types";
 import type { DayDoc, TotalDoc } from "@/lib/economy/rollup";
 import { EMPTY_PAUSE_STATE, type PauseState } from "@/lib/protocol/pause";
 import type { AuditEvent } from "@/lib/audit/log";
+import type { PendingFeeLock } from "@/lib/pump/fee-lock";
 
 /**
  * A read-only view of everything the migrated domains keep in Vercel Blob. The backfill and the comparator both read through
@@ -25,6 +26,8 @@ export interface BlobSource {
   pause(): Promise<PauseState>;
   /** Every audit event Blob holds (one public file per event). */
   audit(): Promise<AuditEvent[]>;
+  /** Coins waiting for their fee split (mint → entry). */
+  feeLocks(): Promise<Record<string, PendingFeeLock>>;
 }
 
 const base = (prefix: string, suffix = ".json") => (p: string) => p.slice(prefix.length, p.length - suffix.length);
@@ -55,6 +58,7 @@ export function blobSource(): BlobSource {
     },
     economyTotal: () => docRead<TotalDoc | null>("economy/total.json", null),
     pause: () => readJson<PauseState>("protocol/pause.json", EMPTY_PAUSE_STATE),
+    feeLocks: async () => (await docRead<{ pending: Record<string, PendingFeeLock> }>("launch/pending-fee-lock.json", { pending: {} })).pending,
     audit: async () => {
       const paths = await listPaths("audit/events/");
       const out: AuditEvent[] = [];

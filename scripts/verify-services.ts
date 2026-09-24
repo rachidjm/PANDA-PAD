@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import { getRedis, rateVerdict, setRateBackendForTests } from "../src/lib/rate-limit";
+import { recordViolations, topViolations } from "../src/lib/security/csp-store";
 
 let failures = 0;
 const ok = (cond: boolean, label: string, detail = "") => {
@@ -60,6 +61,12 @@ async function upstash() {
   for (let i = 0; i < 20; i++) warm.push((await timed(() => rateVerdict(`verify:${randomBytes(6).toString("hex")}`, 100, 10_000, "money")))[1]);
   console.log(`     warm, distinct keys: ${stats(warm)}`);
   const parallel = await Promise.all(Array.from({ length: 30 }, () => rateVerdict(`verify:shared:${key}`, 10, 10_000, "money")));
+  // CSP report aggregation (the report-only period's storage): write a synthetic violation, read it back, remove it.
+  const probe = { directive: "verify-probe", blocked: `https://verify-${randomBytes(3).toString("hex")}.invalid`, page: "/verify", source: "" };
+  await recordViolations([probe]);
+  const seen = (await topViolations(500)).some((r) => r.blocked === probe.blocked && r.count >= 1);
+  await redis.hdel("panda:csp:v1:counts", `${probe.directive}|${probe.blocked}|${probe.page}|${probe.source}`);
+  ok(seen, "CSP report aggregation stores and reads back a violation (then removed)");
   ok(parallel.filter((v) => v === "ok").length === 10, "30 simultaneous requests on one key: exactly 10 allowed (the counter is shared and atomic)", `${parallel.filter((v) => v === "ok").length} ok`);
 }
 

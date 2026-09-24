@@ -9,6 +9,7 @@ import type { Ledger } from "@/lib/rewards/ledger";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import { METRIC_KEYS } from "@/lib/economy/rollup";
 import { pgImportAudit } from "./audit";
+import { pendingFeeLocks } from "./schema";
 
 /**
  * Copies what Blob holds into Postgres, one domain at a time (docs/PHASE6_PLAN.md §1.4, step 4).
@@ -164,6 +165,18 @@ export async function backfill(db: Db, source: BlobSource, domains: Domain[], lo
     const added = await pgImportAudit(db, events);
     r.imported = { events: events.length, added };
     log(`audit: ${events.length} events in Blob, ${added} added to the hash chain`);
+    reports.push(r);
+  }
+
+  if (domains.includes("launch")) {
+    const r: BackfillReport = { domain: "launch", imported: {}, problems: [] };
+    const pending = Object.entries(await source.feeLocks());
+    await db.transaction(async (tx) => {
+      await tx.delete(pendingFeeLocks); // re-snapshot: Postgres ends up equal to Blob
+      for (const [mint, e] of pending) await tx.insert(pendingFeeLocks).values({ mint, creator: e.creator, ts: e.ts, shareholders: e.shareholders, auditedAt: e.auditedAt ?? null });
+    });
+    r.imported = { pending: pending.length };
+    log(`launch: ${pending.length} coins waiting for their fee split`);
     reports.push(r);
   }
 

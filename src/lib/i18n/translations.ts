@@ -1710,6 +1710,15 @@ export const dict = {
   "admin.sessions.reason": { en: "Reason (recorded)", es: "Motivo (queda registrado)" },
   "admin.sessions.revoke": { en: "Revoke sessions", es: "Revocar sesiones" },
   "admin.sessions.done": { en: "Revoked {n} session(s).", es: "Sesiones revocadas: {n}." },
+
+  // Admin: CSP reports
+  "admin.csp.title": { en: "Content-Security-Policy reports", es: "Informes de Content-Security-Policy" },
+  "admin.csp.mode.report-only": { en: "Mode: REPORT-ONLY — browsers report what they would block; nothing is blocked yet.", es: "Modo: SOLO INFORME — los navegadores informan de lo que bloquearían; aún no se bloquea nada." },
+  "admin.csp.mode.enforce": { en: "Mode: ENFORCE — violations are blocked.", es: "Modo: ENFORCE — las violaciones se bloquean." },
+  "admin.csp.mode.off": { en: "Mode: OFF — no CSP is sent.", es: "Modo: OFF — no se envía ninguna CSP." },
+  "admin.csp.load": { en: "Load reports", es: "Cargar informes" },
+  "admin.csp.none": { en: "No violations reported yet. Keep browsing PANDA with your wallet (Phantom, mobile) for a week or two before enforcing.", es: "Aún no hay violaciones. Sigue usando PANDA con tu wallet (Phantom, móvil) una o dos semanas antes de activar el bloqueo." },
+  "admin.csp.count": { en: "times", es: "veces" },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;

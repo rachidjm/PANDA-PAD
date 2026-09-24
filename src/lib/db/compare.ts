@@ -9,6 +9,7 @@ import { pgGetPauseState } from "./pause";
 import { activityEvents, auditEvents, economyDaily, rewardCredits, rewardLedgers } from "./schema";
 import { METRIC_KEYS } from "@/lib/economy/rollup";
 import { pgVerifyChain } from "./audit";
+import { pgLoadPending } from "./launch";
 import { SUBSYSTEMS } from "@/lib/protocol/pause";
 
 /**
@@ -138,6 +139,18 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
     const verdict = await pgVerifyChain(db);
     if (!verdict.ok) diffs.push(`the hash chain is BROKEN at seq ${verdict.problem?.seq}: ${verdict.problem?.reason}`);
     out.push({ domain: "audit", checked: blob.length + verdict.checked, differences: cap(diffs), warnings: [] });
+  }
+
+  if (domains.includes("launch")) {
+    const diffs: string[] = [];
+    const blob = await source.feeLocks();
+    const pg = await pgLoadPending(db);
+    for (const m of new Set([...Object.keys(blob), ...Object.keys(pg)])) {
+      if (!blob[m]) diffs.push(`fee-lock ${m}: only in Postgres`);
+      else if (!pg[m]) diffs.push(`fee-lock ${m}: only in Blob`);
+      else if (!eq2(blob[m], pg[m])) diffs.push(`fee-lock ${m}: Blob ${JSON.stringify(blob[m])} vs Postgres ${JSON.stringify(pg[m])}`);
+    }
+    out.push({ domain: "launch", checked: Object.keys(blob).length, differences: cap(diffs), warnings: [] });
   }
 
   return out;

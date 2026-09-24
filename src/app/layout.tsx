@@ -12,6 +12,8 @@ import MobileTabBar from "@/components/MobileTabBar";
 import SkipLink from "@/components/SkipLink";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
+import { connection } from "next/server";
+import { cspMode } from "@/lib/security/csp";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -30,7 +32,9 @@ export const metadata: Metadata = {
   description: "Create and trade coins on Solana — GIFs, memes, or your own idea, all in one place.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // A nonce only exists per request, so with a CSP on every page is rendered per request (not prerendered at build).
+  if (cspMode() !== "off") await connection();
   return (
     <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col pb-16 sm:pb-0">

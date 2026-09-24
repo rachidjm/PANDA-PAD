@@ -245,8 +245,18 @@ export const authNonces = pgTable(
   (t) => [index("auth_nonces_expires").on(t.expiresAt)]
 );
 
+// ── Launch: coins waiting for their fee split (two-transaction fallback) ────────────────────────────────────────────────
+/** PANDA-launched coins whose fee split isn't on-chain yet; they stay out of every list until it is (src/lib/pump/fee-lock.ts). */
+export const pendingFeeLocks = pgTable("pending_fee_locks", {
+  mint: text("mint").primaryKey(),
+  creator: text("creator").notNull(),
+  ts: bigint("ts", { mode: "number" }).notNull(),
+  shareholders: jsonb("shareholders"),
+  auditedAt: bigint("audited_at", { mode: "number" }),
+});
+
 export const schema = {
-  sessions, authNonces, auditEvents, auditAnchors,
+  pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
 };
