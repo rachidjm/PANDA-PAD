@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import type { BlobSource } from "./source";
 import type { Domain } from "./mode";
@@ -6,7 +6,7 @@ import { pgGetLedger, pgGetPayoutDay, pgGetRegisteredMints, pgOpenClaims } from 
 import { pgGetTrades, pgGetBackfillMark } from "./trades";
 import { pgReadTotal } from "./activity";
 import { pgGetPauseState } from "./pause";
-import { activityEvents, auditEvents, economyDaily, rewardCredits, rewardLedgers } from "./schema";
+import { activityEvents, auditEvents, authNonces, economyDaily, rewardCredits, rewardLedgers, sessions } from "./schema";
 import { METRIC_KEYS } from "@/lib/economy/rollup";
 import { pgVerifyChain } from "./audit";
 import { pgLoadPending } from "./launch";
@@ -151,6 +151,14 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
       else if (!eq2(blob[m], pg[m])) diffs.push(`fee-lock ${m}: Blob ${JSON.stringify(blob[m])} vs Postgres ${JSON.stringify(pg[m])}`);
     }
     out.push({ domain: "launch", checked: Object.keys(blob).length, differences: cap(diffs), warnings: [] });
+  }
+
+  if (domains.includes("sessions")) {
+    // Sessions and nonces are short-lived and not copied from Blob (a token is stateless there): there is nothing to compare, only to
+    // confirm that dual mode is registering them in Postgres.
+    const [{ n: live }] = await db.select({ n: sql<number>`count(*)::int` }).from(sessions);
+    const [{ n: nonces }] = await db.select({ n: sql<number>`count(*)::int` }).from(authNonces);
+    out.push({ domain: "sessions", checked: Number(live) + Number(nonces), differences: [], warnings: [`Postgres holds ${live} session(s) and ${nonces} sign-in nonce(s) (informational)`] });
   }
 
   return out;
