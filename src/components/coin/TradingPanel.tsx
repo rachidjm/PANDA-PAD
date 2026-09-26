@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState } from "react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -282,7 +283,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
             <input
               value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))}
               placeholder="0.0"
               inputMode="decimal"
               disabled={busy}
@@ -373,7 +374,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-clay-red/50">
             <input
               value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))}
               placeholder="0"
               inputMode="decimal"
               disabled={busy}

@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
@@ -308,7 +309,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
               <span className="mb-1 block text-xs text-panda-grey">{t("sltp.stopLossLabel")}</span>
               <input
                 value={slPrice}
-                onChange={(e) => setSlPrice(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => setSlPrice(sanitizeDecimalInput(e.target.value))}
                 placeholder="0.00"
                 disabled={busy}
                 className="w-full rounded-xl border border-paper/15 bg-ink px-3 py-2.5 text-sm outline-none focus:border-clay-red/50 disabled:opacity-50"
@@ -318,7 +319,7 @@ export default function StopLossTakeProfit({ coin }: { coin: Coin }) {
               <span className="mb-1 block text-xs text-panda-grey">{t("sltp.takeProfitLabel")}</span>
               <input
                 value={tpPrice}
-                onChange={(e) => setTpPrice(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => setTpPrice(sanitizeDecimalInput(e.target.value))}
                 placeholder="0.00"
                 disabled={busy}
                 className="w-full rounded-xl border border-paper/15 bg-ink px-3 py-2.5 text-sm outline-none focus:border-bamboo/50 disabled:opacity-50"

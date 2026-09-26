@@ -105,7 +105,7 @@ export function buildReport(tx: ParsedTransactionWithMeta, signature: string, op
     postTokenBalances: meta?.postTokenBalances as TxView["postTokenBalances"],
     fee: networkFee,
   };
-  const derived = failed ? null : deriveTrade(view, wallet);
+  const derived = failed ? null : deriveTrade(view, wallet, 0.00001); // a fee check is often run on a tiny test trade
 
   let trade: TxReport["trade"] = null;
   if (derived) {

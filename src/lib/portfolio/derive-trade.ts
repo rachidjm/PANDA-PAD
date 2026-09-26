@@ -28,7 +28,8 @@ export type DerivedTrade = { mint: string; side: "buy" | "sell"; solAmount: numb
  * The SOL amount is the wallet's net SOL change adjusted for the network fee,
  * so it also includes any account rent — an estimate, not an exact price.
  */
-export function deriveTrade(tx: TxView, wallet: string): DerivedTrade | null {
+/** `minSol`: smaller SOL movements are treated as transfers, not trades (0.0005 SOL by default; the fee checker lowers it to read tiny test trades). */
+export function deriveTrade(tx: TxView, wallet: string, minSol = 0.0005): DerivedTrade | null {
   const walletIndex = tx.keys.findIndex((k) => k.pubkey === wallet && k.signer);
   if (walletIndex === -1) return null;
 
@@ -54,6 +55,6 @@ export function deriveTrade(tx: TxView, wallet: string): DerivedTrade | null {
   if (!side) return null;
 
   const solAmount = Math.abs(solDelta) - (side === "buy" ? fee : -fee);
-  if (solAmount < 0.0005) return null; // a transfer or airdrop, not a paid swap
+  if (solAmount < minSol) return null; // a transfer or airdrop, not a paid swap
   return { mint, side, solAmount, tokenAmount: Math.abs(tokenDelta) };
 }

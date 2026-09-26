@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -295,7 +296,7 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
             <input
               value={draft.amount}
-              onChange={(e) => draw.patchDraft(draft.id, { amount: e.target.value.replace(/[^0-9.]/g, "") })}
+              onChange={(e) => draw.patchDraft(draft.id, { amount: sanitizeDecimalInput(e.target.value) })}
               placeholder="0"
               inputMode="decimal"
               aria-label={t("draw.amount")}
@@ -423,7 +424,7 @@ function PriceInput({ value, label, onCommit }: { value?: number; label: string;
   return (
     <input
       value={text ?? (value !== undefined ? plainPrice(value) : "")}
-      onChange={(e) => setText(e.target.value.replace(/[^0-9.]/g, ""))}
+      onChange={(e) => setText(sanitizeDecimalInput(e.target.value))}
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && commit()}
       inputMode="decimal"

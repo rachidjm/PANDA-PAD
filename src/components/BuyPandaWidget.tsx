@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState } from "react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -173,7 +174,7 @@ export default function BuyPandaWidget() {
           <input
             id="buy-panda-amount"
             value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))}
             placeholder="0.0"
             inputMode="decimal"
             disabled={busy}

@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useRef, useState } from "react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import Link from "next/link";
@@ -446,7 +447,7 @@ export default function CreateClient() {
           <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
             <input
               value={firstBuyAmount}
-              onChange={(e) => setFirstBuyAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => setFirstBuyAmount(sanitizeDecimalInput(e.target.value))}
               placeholder="0"
               inputMode="decimal"
               className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey"
