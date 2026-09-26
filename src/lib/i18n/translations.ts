@@ -42,8 +42,6 @@ export const dict = {
   },
 
   // Home hero
-  "nft.soon.kicker": { en: "PANDA NFTs", es: "NFTs de PANDA" },
-  "nft.soon.title": { en: "Coming soon", es: "Próximamente" },
   "home.kicker": { en: "PANDA", es: "PANDA" },
   "home.title1": { en: "The Solana", es: "El launchpad de" },
   "home.title2": { en: "coin launchpad", es: "monedas de Solana" },
@@ -214,6 +212,10 @@ export const dict = {
   "act.srcGraduations": { en: "graduations", es: "graduaciones" },
   "act.loadError": { en: "Couldn't load the feed — try again in a moment.", es: "No se pudo cargar el feed — inténtalo de nuevo en un momento." },
   "act.notice": {
+    en: "Trades, launches and graduations are read from public indexers (GeckoTerminal, Pump.fun): only coins with real activity appear, and launches need some traction. Trades made here are recorded by PANDA after checking the transaction on-chain.",
+    es: "Las operaciones, lanzamientos y graduaciones se leen de indexadores públicos (GeckoTerminal, Pump.fun): solo aparecen monedas con actividad real y los lanzamientos necesitan algo de tracción. Las operaciones hechas aquí las registra PANDA tras comprobar la transacción on-chain.",
+  },
+  "act.noticeHolders": {
     en: "Trades, launches and graduations are read from public indexers (GeckoTerminal, Pump.fun): only coins with real activity appear, and launches need some traction. Fee distributions, reward claims and trades made here are recorded by PANDA after checking the transaction on-chain.",
     es: "Las operaciones, lanzamientos y graduaciones se leen de indexadores públicos (GeckoTerminal, Pump.fun): solo aparecen monedas con actividad real y los lanzamientos necesitan algo de tracción. Los repartos de comisiones, cobros de recompensas y operaciones hechas aquí los registra PANDA tras comprobar la transacción on-chain.",
   },
@@ -221,8 +223,8 @@ export const dict = {
   // Economy (analytics)
   "eco.title": { en: "PANDA economy", es: "Economía de PANDA" },
   "eco.intro": {
-    en: "Each number is measured on its own, in its own unit, and is never added to another. SOL amounts come from transactions PANDA verified on-chain, ledgers and stored sales; airdrops are PANDA tokens, not SOL.",
-    es: "Cada cifra se mide por separado, en su propia unidad, y nunca se suma a otra. Los importes en SOL salen de transacciones que PANDA verificó on-chain, de ledgers y de ventas guardadas; los airdrops son tokens PANDA, no SOL.",
+    en: "Each number is measured on its own, in its own unit, and is never added to another. SOL amounts come from transactions PANDA verified on-chain.",
+    es: "Cada cifra se mide por separado, en su propia unidad, y nunca se suma a otra. Los importes en SOL salen de transacciones que PANDA verificó on-chain.",
   },
   "eco.unavailable": { en: "Unavailable right now", es: "No disponible ahora" },
   "eco.nothingYet": { en: "Nothing recorded yet", es: "Aún no hay nada registrado" },

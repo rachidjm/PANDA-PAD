@@ -35,15 +35,7 @@ export default function LegalPageLayout({ page }: { page: LegalPage }) {
       <div className="mt-5 space-y-4">
         {page.body[lang].map((paragraph, i) => (
           <p key={i} className={`text-sm leading-relaxed ${i === 0 ? "text-clay-red" : "text-panda-grey"}`}>
-            {paragraph.split(/(\[COMPLETAR: [^\]]+\])/).map((part, j) =>
-              part.startsWith("[COMPLETAR:") ? (
-                <mark key={j} className="rounded bg-meme-orange/20 px-1 font-medium text-meme-orange">
-                  {part}
-                </mark>
-              ) : (
-                part
-              )
-            )}
+            {paragraph}
           </p>
         ))}
       </div>

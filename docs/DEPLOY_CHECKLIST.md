@@ -111,7 +111,7 @@ ninguna variable obligatoria salga `absent` o `invalid`.
    claves en dispositivos distintos. Un multisig 1-de-1 no aporta nada.
 3. Squads te da una dirección de multisig y una **dirección de vault** (la que guarda los fondos). La que va en
    `NEXT_PUBLIC_PANDA_TREASURY` es la de **vault**, no la del multisig ni la de un miembro.
-4. **Antes de crear ninguna moneda real:** fija ahí la tesorería definitiva. La dirección de la tesorería se escribe en la
+4. **Hecho (2026-09-26):** la tesorería es el Vault de Squads `DCZaeTXLDwkwE4a8xayS3o9hCiPwgH1deotvyS5VEE6n` (umbral 2/3, retirada con 2 firmas probada), en `NEXT_PUBLIC_PANDA_TREASURY`; `TREASURY_IS_MULTISIG=true` libera la creación de monedas en mainnet (redespliega tras ponerla). **Antes de crear ninguna moneda real:** fija ahí la tesorería definitiva. La dirección de la tesorería se escribe en la
    configuración de comisiones **on-chain de cada moneda** al crearla (es el 5 % de PANDA), así que cambiarla después no
    corrige las monedas ya creadas.
 5. Envía ≥ 0,002 SOL al vault (paso 3). Haz una compra de prueba y comprueba con `scripts/verify-tx.ts` que el 0,5 %
@@ -151,8 +151,10 @@ Blob se queda solo para imágenes/metadatos y para los archivos de funciones apa
 - Las migraciones se aplican solas en cada despliegue de producción (`scripts/vercel-build.ts`; si una falla, el despliegue no sale y el anterior sigue sirviendo).
 - Comprobaciones contra los servicios reales (las variables Sensitive no se pueden descargar, así que corren dentro del build): `vercel deploy --prod --build-env PANDA_BUILD_TASKS=verify-services,verify-audit,compare`
   y lee el log del build; imprime también los modos activos (`dominio=modo`), sin secretos.
-- Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás. **Borrarlas es decisión tuya** (no hay script): no lo hagas antes de que pase ese plazo y de haber mirado `compare`.
-  La política de privacidad dice que esas copias antiguas se eliminan tras un periodo de transición: hazlo de verdad.
+- Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás. Borrarlas es **decisión tuya**, con `npm run blob:purge` (**simulación por defecto**; `-- --yes` borra de verdad):
+  solo toca esos archivos de datos ya migrados (lista blanca en `src/lib/db/blob-purge.ts`; nunca imágenes/metadatos ni los archivos de funciones que aún no están en Postgres), y **se niega** si algún dominio no está en `postgres`,
+  si `db:compare` encuentra diferencias, si la cadena de auditoría no verifica o si el último archivo congelado tiene menos de 30 días (`--min-age-days`). Como el token de Blob es Sensitive y no se descarga, o lo pegas en tu shell para esa ejecución
+  o lo corres en el build de Vercel: `vercel deploy --prod --build-env PANDA_BUILD_TASKS=purge-blob` (simulación) y añade `--build-env PANDA_BUILD_PURGE=yes` para borrar. La política de privacidad dice que esas copias se eliminan tras la transición: hazlo pasado el plazo.
 - Marcha atrás de un dominio: ponerlo otra vez en `blob` (la copia de Blob no se ha tocado desde el cambio 2; lo escrito después solo está en Postgres).
 
 ### 4.4 Rate limiting (Upstash Redis) — obligatorio en producción
@@ -180,8 +182,8 @@ si la integración usa esos nombres). Comprueba `GET /api/health/trading` → ch
 
 ## 7. Consulta legal (antes de activar nada custodial)
 
-Los textos legales del repo son un **borrador escrito por el equipo, no por un abogado**, y tienen huecos deliberados marcados como
-`[COMPLETAR: …]` (titular, NIF, domicilio, correo, edad mínima, jurisdicción, plazo de conservación; se ven resaltados en la web y `legalPlaceholders()` los lista). Antes de abrir al público y, sobre todo, **antes de activar
+Los textos legales del repo son un **borrador escrito por el equipo, no por un abogado**. Por decisión tuya **no publican ningún dato del titular** (nombre, NIF, domicilio, correo) y no remiten a ninguno;
+ya llevan tus decisiones: mayores de 18, no se ofrece en EE. UU. ni en países sancionados (UE/ONU/OFAC), ley española, 5 años de conservación de operaciones, actividad y lanzamientos. Antes de abrir al público y, sobre todo, **antes de activar
 `FEATURE_STRATEGIES`**, pide a un abogado con experiencia en criptoactivos (en el EEE, MiCA) que responda:
 
 1. **Custodia.** ¿Se considera PANDA custodio o prestador de servicios de criptoactivos por (a) el Rewards Pool
@@ -196,7 +198,8 @@ Los textos legales del repo son un **borrador escrito por el equipo, no por un a
 4. **Emisión.** ¿Qué implica lanzar el token $PANDA cuando llegue el momento (folleto/whitepaper, restricciones)?
 5. **Datos personales.** Neon (EE. UU.), Upstash y Vercel guardan direcciones de wallet, sesiones y auditoría (inmutable: la base rechaza editar o borrar) y la IP como clave de un contador de
    rate limit durante un minuto (hasta una hora en unas pocas acciones): ¿base jurídica, transferencia fuera del EEE, derecho de supresión frente a una auditoría inmutable, plazos de conservación?
-6. **Entidad, domicilio y jurisdicción** para rellenar los campos `[COMPLETAR]`, y términos de servicio revisados.
+6. **Identificación del titular y contacto.** El sitio no publica identidad ni contacto del titular (decisión del propietario): ¿es compatible con el deber de información de la LSSI y con atender derechos RGPD? ¿Qué cambia si no hay entidad?
+   Y términos de servicio revisados (incl. la exclusión de EE. UU. y países sancionados, que hoy es solo un término: no hay bloqueo geográfico en el código).
 7. **Publicidad y consumidores.** Textos de riesgo y "no es asesoramiento" en ES/EN: ¿suficientes?
 
 Mientras esa respuesta no exista, `FEATURE_STRATEGIES` se queda apagado. Los textos legales ya cambian solos cuando se
@@ -210,7 +213,7 @@ Lo enciendes tú. Es la única función en la que **PANDA retiene fondos** (la w
 - [ ] `NEXT_PUBLIC_PANDA_REWARDS_POOL` (pública) y `PANDA_REWARDS_POOL_SECRET_KEY` (Sensitive) puestas; la wallet del pool con ~0,01 SOL para las comisiones de sus pagos. Está en Vercel; comprueba que la dirección es la que crees.
 - [ ] Tesorería multisig y `TREASURY_IS_MULTISIG=true` (sin ello no se puede crear la moneda de prueba en mainnet).
 - [ ] Sesión admin y `/api/health/trading` en verde (`ok: true`, `database` y `ratelimit` en verde).
-- [ ] Respuesta legal sobre la custodia del Rewards Pool (paso 7) o decisión asumida por ti; los `[COMPLETAR]` rellenados.
+- [ ] Respuesta legal sobre la custodia del Rewards Pool (paso 7) o decisión asumida por ti.
 - [ ] `REWARDS_MAX_CLAIM_SOL` y `REWARDS_DAILY_CAP_SOL` con valores pequeños para la prueba (topes por reclamo y por día).
 
 **Al ponerla a `true` (y redesplegar) cambia sola la web**: aparece la página Rewards (enlaces, pestaña en la moneda, bloque en Portfolio, tarjetas en Analytics), Create muestra la banda «Holders» y los textos legales añaden la custodia del Rewards Pool.
@@ -233,7 +236,7 @@ Lo enciendes tú. Es la única función en la que **PANDA retiene fondos** (la w
 - [ ] Paso 4.2 hecho (`PANDA_LOOKUP_TABLE` puesta y `check-lookup-table` en `CHECK OK`); si no, sabes que se usa el respaldo de dos transacciones.
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
-- [ ] Respuesta legal recibida (paso 7) y los `[COMPLETAR]` de los textos legales rellenados.
+- [ ] Respuesta legal recibida (paso 7).
 - [ ] Upstash configurado (§4.4) y el check `ratelimit` de `/api/health/trading` en verde: sin él las rutas de dinero dan 503.
 - [x] Fase 6 cerrada (2026-09-26): los siete dominios en `postgres`, Upstash real verificado, auditoría con hash-chain, sesiones revocables, CSP en `report-only`. Pendiente tuyo: `CSP_MODE=enforce` tras los informes limpios y borrar las copias de Blob pasados 30 días.
 - [ ] Fase 6 (infraestructura para dinero de terceros: base de datos, rate limiting compartido, auditoría con hash-chain,

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { getLegalPage, LEGAL_LAST_UPDATED, LEGAL_PAGES, LEGAL_SLUGS, legalPlaceholders, type LegalOptions, type LegalSlug } from "./legal-content";
+import { getLegalPage, LEGAL_LAST_UPDATED, LEGAL_PAGES, LEGAL_SLUGS, type LegalOptions, type LegalSlug } from "./legal-content";
 import { dict } from "@/lib/i18n/translations";
 import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
@@ -159,23 +159,46 @@ test("dates: the update date is valid, not in the future, and shown on every pag
     for (const opts of [OFF, ALL_ON]) {
       const page = getLegalPage(slug, opts);
       assert.equal(page.body.en.length, page.body.es.length, `${slug}: ES/EN paragraph counts differ`);
-      const marks = (l: "en" | "es") => page.body[l].map((p) => (p.match(/\[COMPLETAR:/g) ?? []).length);
-      assert.deepEqual(marks("en"), marks("es"), `${slug}: placeholders differ between languages`);
     }
   }
   const layout = readFileSync(path.join(process.cwd(), "src", "components", "legal", "LegalPageLayout.tsx"), "utf8");
   assert.match(layout, /page\.updated/);
 });
 
-test("what the operator still has to supply is marked [COMPLETAR: …] — nothing invented — and listed by legalPlaceholders()", () => {
-  const list = legalPlaceholders();
-  const legalNotice = list.filter((p) => p.slug === "legal-notice").map((p) => p.what).join(" | ");
-  for (const field of [/razón social|nombre/i, /NIF/, /calle|domicilio/i, /correo/i]) assert.match(legalNotice, field);
-  assert.ok(list.some((p) => p.slug === "terms-of-service" && /edad/i.test(p.what)), "minimum age");
-  assert.ok(list.some((p) => p.slug === "terms-of-service" && /jurisdicci/i.test(p.what)), "governing law");
-  assert.ok(list.some((p) => p.slug === "privacy-policy"), "privacy controller / contact");
-  // The old free-text placeholders are gone.
-  for (const lang of LANGS) assert.doesNotMatch(everything(ALL_ON, lang), /to be added|pendiente de añadir|\[pendiente\]|\[to be added\]/i);
+test("NO personal or identity data of the owner, and no text that points to information that doesn't exist (contact, owner details)", () => {
+  const OWNER_DATA = /\[COMPLETAR|\b(e-?mail|correo|contact[ao]?|contacta|domicilio|NIF|CIF|razón social|registered address|company name|tax id|write to|escribe a|titular)\b/i;
+  const uiStrings = Object.entries(dict).flatMap(([k, v]) => LANGS.map((l) => ({ where: `dict ${k}/${l}`, s: (v as Record<string, string>)[l] })));
+  const pages = LANGS.flatMap((lang) => LEGAL_SLUGS.flatMap((slug) => getLegalPage(slug, ALL_ON).body[lang].map((s) => ({ where: `${slug}/${lang}`, s }))));
+  for (const { where, s } of [...pages, ...uiStrings]) assert.doesNotMatch(s, OWNER_DATA, `${where}: ${s.slice(0, 90)}`);
+  for (const lang of LANGS) assert.doesNotMatch(everything(ALL_ON, lang), /to be added|\[pendiente\]|pendiente de añadir|\[to be/i);
+  // nothing outside the texts publishes it either
+  const meta = readFileSync(path.join(process.cwd(), "src", "app", "layout.tsx"), "utf8");
+  assert.doesNotMatch(meta, /mailto:|@[a-z0-9-]+\.(com|es|org|net)\b/i);
+});
+
+test("the operator's decisions are in the texts: 18+, no US or sanctioned countries, Spanish law, 5 years of records, regions", () => {
+  for (const lang of LANGS) {
+    const terms = text("terms-of-service", lang, OFF);
+    assert.match(terms, /18 (years|años)/);
+    assert.match(terms, /United States|Estados Unidos/);
+    assert.match(terms, /OFAC/);
+    assert.match(terms, /European Union|Unión Europea/);
+    assert.match(terms, /United Nations|Naciones Unidas/);
+    assert.match(terms, /Spanish law|ley española/);
+    const privacy = text("privacy-policy", lang, OFF);
+    assert.match(privacy, /5 (years|años)/);
+    assert.match(privacy, /US East/);
+    assert.match(privacy, /Paris|París/, "the Blob store is in cdg1 (Paris)");
+    assert.match(privacy, /Neon/);
+    assert.match(privacy, /Upstash/);
+  }
+});
+
+test("the NFT 'coming soon' teaser is gone from the home page (nothing is promised that isn't switched on)", () => {
+  assert.ok(!("nft.soon.title" in dict) && !("nft.soon.kicker" in dict));
+  const home = readFileSync(path.join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+  assert.doesNotMatch(home, /NftComingSoon/);
+  assert.equal(existsSync(path.join(process.cwd(), "src", "components", "home", "NftComingSoon.tsx")), false);
 });
 
 test("$PANDA: described as not launched until its mint is configured, then as a market-priced token with no promises", () => {
@@ -193,4 +216,21 @@ test("the Rewards page and its links exist only while holder rewards are on", ()
   assert.match(read("src/components/portfolio/PortfolioView.tsx"), /holderRewards/);
   assert.match(read("src/components/analytics/EconomyView.tsx"), /holderRewards/);
   assert.match(read("src/components/coin/CoinClient.tsx"), /holderRewards/);
+});
+
+test("ES and EN dictionary strings state the same numbers, percentages and units (no language says something the other doesn't)", () => {
+  const nums = (s: string) => [...s.replace(/(\d),(\d)/g, "$1.$2").matchAll(/\d+(?:\.\d+)?\s?%?/g)].map((m) => m[0].replace(/\s/g, "")).sort();
+  const bad: string[] = [];
+  for (const [k, v] of Object.entries(dict)) {
+    const e = nums((v as { en: string }).en), s = nums((v as { es: string }).es);
+    if (JSON.stringify(e) !== JSON.stringify(s)) bad.push(`${k}: en ${e.join(",")} / es ${s.join(",")}`);
+  }
+  for (const slug of LEGAL_SLUGS) {
+    const page = getLegalPage(slug, ALL_ON);
+    page.body.en.forEach((p, i) => {
+      const e = nums(p), s = nums(page.body.es[i]);
+      if (JSON.stringify(e) !== JSON.stringify(s)) bad.push(`${slug}[${i}]: en ${e.join(",")} / es ${s.join(",")}`);
+    });
+  }
+  assert.deepEqual(bad, []);
 });

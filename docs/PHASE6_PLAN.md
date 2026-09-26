@@ -16,7 +16,7 @@ airdrops o NFT) ninguno de los cinco es aceptable a escala.
 
 | Punto | Estado |
 |---|---|
-| 1. Blob → Postgres | **Hecho.** Los siete dominios (`rewards, trades, activity, pause, audit, sessions, launch`) en `postgres`. Blob queda para imágenes/metadatos y para los archivos de funciones apagadas (puntos, airdrops, ramas, temas/NFT, estrategias, abuso), que migrarán cuando se enciendan. Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás; **borrarlas es decisión tuya** (no hay script). |
+| 1. Blob → Postgres | **Hecho.** Los siete dominios (`rewards, trades, activity, pause, audit, sessions, launch`) en `postgres`. Blob queda para imágenes/metadatos y para los archivos de funciones apagadas (puntos, airdrops, ramas, temas/NFT, estrategias, abuso), que migrarán cuando se enciendan. Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás; **borrarlas es decisión tuya**, con `npm run blob:purge` (simulación por defecto; ver `docs/DEPLOY_CHECKLIST.md` §4.3). |
 | 2. Upstash | **Hecho y verificado** contra Upstash real (camino feliz, formato de duración, ~4 ms, contador atómico compartido). Rutas de dinero fallan cerradas; lecturas, inicio de sesión y admin abiertas. |
 | 3. Auditoría con hash-chain | **Hecho.** Cadena verificada (21/21 eventos), triggers append-only en la base, anclaje en Solana con memo firmado por la wallet admin (0 anclajes hechos todavía). |
 | 4. Sesiones revocables + limpieza de nonces | **Hecho.** `sessions=postgres`: un token vale solo mientras su fila esté viva; cerrar sesión y "cerrar todas" revocan de verdad; cron diario de limpieza. |

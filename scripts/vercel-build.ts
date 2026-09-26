@@ -5,7 +5,8 @@
  *    migration fails the build fails and the previous deployment keeps serving: a schema problem never reaches users.
  * 2. Optional one-off tasks, only when PANDA_BUILD_TASKS is set for THAT deployment (`vercel deploy --build-env PANDA_BUILD_TASKS=…`,
  *    never stored in the project): they run where the "Sensitive" variables exist and print to the build log, which is how they are
- *    read. Tasks: verify-services, verify-audit, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run).
+ *    read. Tasks: verify-services, verify-audit, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run),
+ *    purge-blob (deletes the frozen Blob copies of migrated data; a dry run unless PANDA_BUILD_PURGE=yes — see scripts/blob-purge.ts).
  *    A failing task is reported but does not block the deployment of the same code.
  * 3. `next build`.
  */
@@ -48,6 +49,8 @@ for (const t of tasks) {
     const args = ["--domains", process.env.PANDA_BUILD_DOMAINS || "pause,trades,activity,rewards"];
     if (process.env.PANDA_BUILD_BACKFILL === "yes") args.push("--yes");
     run(`db:backfill${process.env.PANDA_BUILD_BACKFILL === "yes" ? " --yes" : " (dry run)"}`, tsx("scripts/db-backfill.ts", ...args), false);
+  } else if (t === "purge-blob") {
+    run(`blob:purge${process.env.PANDA_BUILD_PURGE === "yes" ? " --yes (REAL DELETION)" : " (dry run)"}`, tsx("scripts/blob-purge.ts"), false);
   } else console.log(`(unknown build task "${t}" ignored)`);
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { useFeatures, type Features } from "@/components/providers/FeaturesProvider";
 
 type PausedItem = { subsystem: string; reason: string; since: number };
 
@@ -23,10 +24,25 @@ const NET_KEYS: Record<string, DictKey> = {
   env_missing: "net.banner.env_missing",
 };
 
+/** Which feature a pause switch belongs to: a pause of a feature that is switched off on this deployment is not announced (there is nothing to pause). */
+const FEATURE_OF: Record<string, keyof Features | undefined> = {
+  claims: "holderRewards",
+  reward_calculations: "holderRewards",
+  fee_processing: "holderRewards",
+  airdrops: "airdrops",
+  nft_minting: "themes",
+  nft_market: "market",
+};
+
 /** Shown only while a protocol subsystem is paused; renders nothing otherwise. Status is read from the server, never assumed. */
 export default function ProtocolBanner() {
   const { t } = useLanguage();
-  const [paused, setPaused] = useState<PausedItem[]>([]);
+  const features = useFeatures();
+  const [allPaused, setPaused] = useState<PausedItem[]>([]);
+  const paused = allPaused.filter((p) => {
+    const f = FEATURE_OF[p.subsystem];
+    return !f || features[f];
+  });
   // The network guard: why money flows are blocked (null when they are allowed).
   const [blockedReason, setBlockedReason] = useState<string | null>(null);
 

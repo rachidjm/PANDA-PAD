@@ -19,6 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
     "db:backfill": "tsx --env-file-if-exists=.env.local scripts/db-backfill.ts",
+    "blob:purge": "tsx --env-file-if-exists=.env.local scripts/blob-purge.ts",
     "db:compare": "tsx --env-file-if-exists=.env.local scripts/db-compare.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },

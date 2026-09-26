@@ -5,6 +5,7 @@ import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
 import { formatRelativeTime, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { FeedResult } from "@/lib/activity/service";
 import { FEED_FILTERS, FeedEvent, FeedFilter, FeedKind } from "@/lib/activity/types";
 
@@ -102,6 +103,7 @@ export default function ActivityView(p: {
   onFilter: (f: FeedFilter) => void;
   state: LoadState;
 }) {
+  const { holderRewards } = useFeatures(); // fee distributions and reward claims exist only while holder rewards are on
   const { t } = useLanguage();
   const down = p.sources ? (Object.keys(p.sources) as (keyof FeedResult["sources"])[]).filter((k) => p.sources![k] === "unavailable") : [];
 
@@ -116,7 +118,7 @@ export default function ActivityView(p: {
       </div>
 
       <div className="mt-6 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden" role="tablist" aria-label={t("act.title")}>
-        {FEED_FILTERS.map((f) => (
+        {FEED_FILTERS.filter((f) => holderRewards || (f !== "fees" && f !== "rewards")).map((f) => (
           <button
             key={f}
             role="tab"
@@ -163,7 +165,7 @@ export default function ActivityView(p: {
         ))}
       </div>
 
-      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{t("act.notice")}</p>
+      <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{t(holderRewards ? "act.noticeHolders" : "act.notice")}</p>
     </div>
   );
 }
