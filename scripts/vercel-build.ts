@@ -10,6 +10,7 @@
  * 3. `next build`.
  */
 import { spawnSync } from "node:child_process";
+import { parseStorageModes } from "../src/lib/db/mode";
 
 const run = (label: string, args: string[], fatal: boolean): boolean => {
   console.log(`\n=== ${label} ===`);
@@ -26,6 +27,14 @@ const tsx = (script: string, ...extra: string[]) => ["--import", "tsx", script, 
 
 const production = process.env.VERCEL_ENV === "production";
 const hasDb = !!(process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.DATABASE_URL?.trim());
+
+{
+  // Which storage mode each domain is really running in for THIS build (domain=mode only, no secrets): the way to confirm a variable change took effect.
+  const { modes, problems } = parseStorageModes(process.env.PANDA_STORAGE_MODES);
+  console.log(`=== storage modes (this deployment) ===
+${Object.entries(modes).map(([d, m]) => `${d}=${m}`).join(", ")}${problems.length ? `
+PROBLEMS: ${problems.join("; ")}` : ""}`);
+}
 
 if (production && hasDb) run("database migrations", tsx("scripts/db-migrate.ts"), true);
 else console.log(`(skipping database migrations: ${production ? "no database configured" : "not a production build"})`);
