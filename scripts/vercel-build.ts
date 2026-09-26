@@ -43,6 +43,7 @@ else console.log(`(skipping database migrations: ${production ? "no database con
 const tasks = (process.env.PANDA_BUILD_TASKS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 for (const t of tasks) {
   if (t === "verify-services") run("verify-services", tsx("scripts/verify-services.ts"), false);
+  else if (t === "verify-rpc") run("verify-rpc", tsx("scripts/verify-rpc.ts"), false);
   else if (t === "verify-audit") run("verify-audit-chain", tsx("scripts/verify-audit-chain.ts"), false);
   else if (t === "compare") run("db:compare", tsx("scripts/db-compare.ts", ...(process.env.PANDA_BUILD_DOMAINS ? ["--domains", process.env.PANDA_BUILD_DOMAINS] : [])), false);
   else if (t === "backfill") {
