@@ -1,3 +1,5 @@
+import { sanitizeDecimalInput } from "./input";
+
 /**
  * Typing what to spend in the currency you think in. A buy is always paid in SOL on-chain, so a figure typed in
  * dollars or euros is converted to SOL with the real, current rates before anything is built or signed, and the
@@ -87,3 +89,18 @@ export function toBaseUnits(value: number, decimals: number): string {
   const digits = (whole + frac.slice(0, keep).padEnd(decimals, "0")).replace(/^0+(?=\d)/, "");
   return digits === "" ? "0" : digits;
 }
+
+// ── The first buy of a new coin: typed in SOL, dollars or euros ─────────────────────────────────────────────
+/**
+ * The SOL a launch's first buy will spend for what is typed. Nothing typed (or not a positive number) → 0, no buy. A dollar/euro figure with no
+ * live rate → `noRate` (the launch is held back with a message; never a guessed rate).
+ */
+export function firstBuyFromInput(unit: BuyUnit, text: string, rates: BuyRates): { sol: number; noRate: boolean } {
+  const value = parseFloat(sanitizeDecimalInput(text)); // a comma is a decimal mark here too (see input.ts)
+  if (!Number.isFinite(value) || value <= 0) return { sol: 0, noRate: false };
+  const sol = unitToSol(unit, value, rates);
+  return sol === null ? { sol: 0, noRate: true } : { sol, noRate: false };
+}
+
+/** The presets of the first-buy box, per unit. */
+export const FIRST_BUY_PRESETS: Record<BuyUnit, number[]> = { SOL: [0.5, 1, 2, 5], USD: [5, 10, 25, 50], EUR: [5, 10, 25, 50] };

@@ -1,6 +1,5 @@
 "use client";
 
-import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useRef, useState } from "react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import Link from "next/link";
@@ -18,11 +17,14 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useCreationStatus } from "@/components/create/useCreationBlocked";
+import FirstBuyField from "@/components/create/FirstBuyField";
+import { useRates } from "@/components/coin/useRates";
+import { firstBuyFromInput, type BuyUnit } from "@/lib/trading/amount";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fees" | "buying" | "done" | "error";
 
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
-const firstBuyPresets = [0.5, 1, 2, 5];
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 export default function CreateClient() {
   const { connection } = useConnection();
@@ -45,6 +47,10 @@ export default function CreateClient() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
+  const [firstBuyUnit, setFirstBuyUnit] = useState<BuyUnit>("SOL");
+  // Live SOL/euro rates, so the first buy can be typed in dollars or euros (it is always paid in SOL).
+  const rates = useRates(SOL_MINT);
+  const firstBuy = firstBuyFromInput(firstBuyUnit, firstBuyAmount, rates);
   const [buyError, setBuyError] = useState("");
   const [feeResult, setFeeResult] = useState<FeeDistributionResult | null>(null);
   const [feeSummary, setFeeSummary] = useState("");
@@ -70,7 +76,7 @@ export default function CreateClient() {
 
   // The split must be complete and valid: an empty or broken plan never falls through to "no fee distribution".
   const feeReady = !!feeResult && feeResult.lines.length > 0 && !feeResult.issue && !feeResult.invalidNumber;
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked;
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked && !firstBuy.noRate;
 
   const kindLabel = (kind: "panda" | "creator" | "holders" | "partner") =>
     kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
@@ -183,7 +189,7 @@ export default function CreateClient() {
         }
       }
 
-      const buyAmount = parseFloat(firstBuyAmount);
+      const buyAmount = firstBuy.sol;
       if (buyAmount > 0) {
         setStage("buying");
         try {
@@ -439,45 +445,14 @@ export default function CreateClient() {
           </Field>
         </div>
 
-        <div>
-          <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.firstBuy")}</span>
-          <p className="mb-2 text-xs text-panda-grey">
-            {t(singleTx ? "cr.firstBuyDescOne" : "cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
-          </p>
-          <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
-            <input
-              value={firstBuyAmount}
-              onChange={(e) => setFirstBuyAmount(sanitizeDecimalInput(e.target.value))}
-              placeholder="0"
-              inputMode="decimal"
-              className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey"
-            />
-            <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">SOL</span>
-          </div>
-          <div className="mt-2 grid grid-cols-5 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setFirstBuyAmount("")}
-              className={`rounded-xl py-2 text-xs font-semibold transition-colors ${
-                !firstBuyAmount ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
-              }`}
-            >
-              {t("cr.none")}
-            </button>
-            {firstBuyPresets.map((p) => (
-              <button
-                type="button"
-                key={p}
-                onClick={() => setFirstBuyAmount(String(p))}
-                className={`rounded-xl py-2 text-xs font-semibold transition-colors ${
-                  firstBuyAmount === String(p) ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
-                }`}
-              >
-                {p} SOL
-              </button>
-            ))}
-          </div>
-        </div>
+        <FirstBuyField
+          value={firstBuyAmount}
+          unit={firstBuyUnit}
+          onValue={setFirstBuyAmount}
+          onUnit={setFirstBuyUnit}
+          rates={rates}
+          description={t(singleTx ? "cr.firstBuyDescOne" : "cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
+        />
 
         {connected && publicKey ? (
           <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
@@ -508,7 +483,8 @@ export default function CreateClient() {
           ticker={ticker.trim()}
           imageSrc={imagePreview}
           lines={feeResult.lines}
-          firstBuySol={parseFloat(firstBuyAmount) > 0 ? parseFloat(firstBuyAmount) : 0}
+          firstBuySol={firstBuy.sol}
+          firstBuyNote={firstBuyUnit !== "SOL" && firstBuy.sol > 0 ? `${firstBuyUnit === "USD" ? "$" : "€"}${firstBuyAmount}` : undefined}
           singleTx={singleTx}
           onBack={() => setConfirming(false)}
           onConfirm={() => {

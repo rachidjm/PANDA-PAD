@@ -1273,6 +1273,7 @@ export const dict = {
     en: "Buy some of {coin} the moment it launches, paid in SOL — as its very first trade. This is a separate transaction after the launch, so you sign it on its own.",
     es: "Compra algo de {coin} en el momento en que se lanza, pagado en SOL — como su primera operación. Es una transacción aparte tras el lanzamiento, así que la firmas por separado.",
   },
+  "cr.firstBuyUnitHint": { en: "Type it in SOL, dollars or euros: the purchase is always in SOL, converted at the live rate shown above.", es: "Escríbelo en SOL, dólares o euros: la compra siempre es en SOL, convertida al tipo en vivo que se muestra arriba." },
   "cr.yourCoin": { en: "your coin", es: "tu moneda" },
   "cr.none": { en: "None", es: "Ninguna" },
   "cr.feeDistribution": { en: "Fee distribution", es: "Reparto de comisiones" },

@@ -18,6 +18,7 @@ export default function LaunchConfirm({
   imageSrc,
   lines,
   firstBuySol,
+  firstBuyNote,
   singleTx,
   onBack,
   onConfirm,
@@ -27,6 +28,8 @@ export default function LaunchConfirm({
   imageSrc: string | null;
   lines: FeeLine[];
   firstBuySol: number;
+  /** What the creator typed when it wasn't SOL (e.g. "$10"), shown beside the SOL figure that will really be spent. */
+  firstBuyNote?: string;
   singleTx: boolean;
   onBack: () => void;
   onConfirm: () => void;
@@ -91,7 +94,7 @@ export default function LaunchConfirm({
 
         <div className="mt-3 flex items-center justify-between px-3.5 text-sm">
           <span className="text-panda-grey">{t("cr.confirmFirstBuy")}</span>
-          <span className="font-medium">{firstBuySol > 0 ? `${firstBuySol} SOL` : t("cr.confirmNoBuy")}</span>
+          <span className="font-medium">{firstBuySol > 0 ? `${firstBuySol} SOL${firstBuyNote ? ` (≈ ${firstBuyNote})` : ""}` : t("cr.confirmNoBuy")}</span>
         </div>
 
         <p className="mt-4 text-xs text-panda-grey">{t(singleTx ? "cr.confirmBodyOne" : "cr.confirmBody")}</p>
