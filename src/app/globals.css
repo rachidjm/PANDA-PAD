@@ -124,34 +124,6 @@ main:focus {
   50% { transform: translateY(-3px) scale(1.008); }
 }
 
-.panda-ears { transform-origin: 120px 54px; }
-.panda-ear { transform-box: fill-box; transform-origin: center; transition: transform 0.35s ease; }
-
-.panda-figure:hover .panda-ear-l { transform: rotate(-8deg); }
-.panda-figure:hover .panda-ear-r { transform: rotate(8deg); }
-
-.panda-eye { transform-box: fill-box; transform-origin: center; transition: transform 0.08s ease; }
-.panda-eye.blinking { transform: scaleY(0.08); }
-
-.panda-coin-spin { transform-box: fill-box; transform-origin: center; animation: panda-spin 2.4s linear infinite; }
-@keyframes panda-spin {
-  0% { transform: scaleX(1) rotate(0deg); }
-  50% { transform: scaleX(0.25) rotate(180deg); }
-  100% { transform: scaleX(1) rotate(360deg); }
-}
-
-.panda-coin-bounce { transform-box: fill-box; transform-origin: center; animation: panda-coin-bounce 0.9s ease-in-out infinite; }
-@keyframes panda-coin-bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-
-.panda-prop-loading { animation: panda-run 0.5s ease-in-out infinite; }
-@keyframes panda-run {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
 .panda-pose-tradeUp { animation: panda-cheer 0.7s ease-in-out; }
 @keyframes panda-cheer {
   0% { transform: translateY(0) rotate(0); }
@@ -168,28 +140,11 @@ main:focus {
   100% { transform: translateX(0) rotate(0); }
 }
 
-.panda-pose-success .panda-prop-success { animation: panda-lift 0.8s ease-out; }
-@keyframes panda-lift {
-  0% { transform: translateY(14px) scale(0.6); opacity: 0; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-
 .panda-pose-error { animation: panda-shake 0.5s ease-in-out; }
 @keyframes panda-shake {
   0%, 100% { transform: rotate(0); }
   25% { transform: rotate(-3deg); }
   75% { transform: rotate(3deg); }
-}
-
-.panda-pencil {
-  stroke-dasharray: 34;
-  stroke-dashoffset: 34;
-  animation: panda-draw 1.4s ease-in-out infinite;
-}
-@keyframes panda-draw {
-  0% { stroke-dashoffset: 34; }
-  50% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -34; }
 }
 
 /* ---------------------------------------------------------------- */

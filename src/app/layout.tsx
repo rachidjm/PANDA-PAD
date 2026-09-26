@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
-import { PandaDefs } from "@/components/panda/Panda";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ProtocolBanner from "@/components/ProtocolBanner";
@@ -38,7 +37,6 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col pb-16 sm:pb-0">
-        <PandaDefs />
         <LanguageProvider>
           <MotionProvider>
             <FeaturesProvider

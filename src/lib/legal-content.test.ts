@@ -266,3 +266,16 @@ test("the strategy vault notice says whose it is and that PANDA has no access â€
   const store = readFileSync(path.join(process.cwd(), "src", "lib", "strategy", "store.ts"), "utf8");
   assert.match(store, /never the Jupiter session token/);
 });
+
+test("the old drawn PANDA logo is gone: one logo (public/logo.png) drives the header, footer, ecosystem card, favicon, app icon and the mascot", () => {
+  const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
+  const panda = read("src/components/panda/Panda.tsx");
+  assert.match(panda, /src="\/logo\.png"/);
+  assert.doesNotMatch(panda, /M120 40|ink-wobble|viewBox="0 0 240 240"|mark\?/);
+  assert.equal(existsSync(path.join(process.cwd(), "src", "app", "icon.tsx")), false, "the generated drawn icon is gone");
+  assert.doesNotMatch(read("src/app/layout.tsx"), /PandaDefs/);
+  const css = read("src/app/globals.css");
+  assert.doesNotMatch(css, /panda-ear|panda-eye|panda-coin|panda-prop|panda-pencil/);
+  for (const f of ["src/components/Navbar.tsx", "src/components/Footer.tsx", "src/components/home/PandaEcosystemCard.tsx", "src/components/create/LaunchModeToggle.tsx"]) assert.match(read(f), /<Logo /, `${f} uses the logo`);
+  for (const f of ["public/logo.png", "src/app/icon.png", "src/app/apple-icon.png", "src/app/favicon.ico"]) assert.equal(existsSync(path.join(process.cwd(), f)), true, f);
+});
