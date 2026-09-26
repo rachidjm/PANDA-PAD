@@ -26,7 +26,7 @@ export const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
 
 export const PANDA_FEE_BPS = 50; // 0.5% on each buy and each sell (1% for a round trip)
 
-const DEFAULT_TREASURY = "GJvaNLciu58gCyJap2tzGam76SS1w2Bg9bHbfKyzxb8m";
+const DEFAULT_TREASURY = "DCZaeTXLDwkwE4a8xayS3o9hCiPwgH1deotvyS5VEE6n"; // PANDA's Squads vault (2-of-3 multisig)
 
 /**
  * A malformed address in the environment must not take the whole app down at import time: it falls back to the built-in
