@@ -139,6 +139,35 @@ export async function fetchTokenInfo(address: string): Promise<GeckoTokenInfoAtt
   }
 }
 
+export type GeckoTokenSummary = {
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  image_url: string | null;
+  /** GeckoTerminal's own USD price for the token (null when it has no usable pool). */
+  price_usd: string | null;
+};
+
+/**
+ * Name, symbol, logo and USD price of up to any number of tokens in ONE request per 30 mints (GeckoTerminal's batch endpoint) — how a wallet's
+ * holdings that PANDA didn't launch get their metadata without one request each. Mints GeckoTerminal doesn't know are simply absent from
+ * the map; a failed batch is skipped (callers fall back), never thrown.
+ */
+export async function fetchTokensMulti(addresses: string[]): Promise<Map<string, GeckoTokenSummary>> {
+  const out = new Map<string, GeckoTokenSummary>();
+  const unique = [...new Set(addresses)];
+  for (let i = 0; i < unique.length; i += 30) {
+    try {
+      const res = await geckoGet<{ data?: { attributes: GeckoTokenSummary }[] }>(`/networks/${NETWORK}/tokens/multi/${unique.slice(i, i + 30).join(",")}`, 60);
+      for (const t of res.data ?? []) if (t.attributes?.address) out.set(t.attributes.address, t.attributes);
+    } catch {
+      // rate-limited or down: those tokens keep whatever else is known about them
+    }
+  }
+  return out;
+}
+
 /** All pools trading a given token, across every dex on the network — used to look up a coin by mint when it isn't pump-fun/pumpswap. */
 export async function fetchTokenPools(tokenAddress: string): Promise<GeckoPoolsResponse> {
   try {

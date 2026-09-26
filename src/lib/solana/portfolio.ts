@@ -1,6 +1,6 @@
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { fetchTokenPools, priceOfMintInPools } from "@/lib/gecko/client";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { fetchTokenPools, fetchTokensMulti, priceOfMintInPools } from "@/lib/gecko/client";
 import { Coin, PortfolioHolding } from "@/lib/types";
 
 const SOL_HOLDING: Omit<PortfolioHolding, "amount" | "valueUsd"> = {
@@ -12,7 +12,7 @@ const SOL_HOLDING: Omit<PortfolioHolding, "amount" | "valueUsd"> = {
 
 /**
  * Reads everything real that a wallet holds — its SOL balance plus every SPL
- * token account with a nonzero balance — directly from Solana. Read-only:
+ * and Token-2022 token account with a nonzero balance — directly from Solana. Read-only:
  * PANDA never touches these funds, only looks at them. Prices are filled in
  * only where a real source has one (PANDA-launched coins already in `coins`,
  * or any token GeckoTerminal indexes); everything else shows no price rather
@@ -23,43 +23,61 @@ export async function getWalletPortfolio(
   owner: PublicKey,
   coins: Coin[]
 ): Promise<PortfolioHolding[]> {
-  const [lamports, tokenAccounts] = await Promise.all([
+  // Pump.fun launches new coins under Token-2022, so a wallet's tokens live under TWO token programs: reading only the classic one hid
+  // every recent pump.fun coin (the buyer saw the purchase in Activity but not in Holdings).
+  const [lamports, classic, token2022] = await Promise.all([
     connection.getBalance(owner),
     connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }),
+    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
   ]);
 
   const byMint = new Map(coins.map((c) => [c.mint.toLowerCase(), c]));
 
-  const splHoldings = tokenAccounts.value
-    .map((acc): PortfolioHolding | null => {
-      const info = acc.account.data.parsed?.info;
-      const amount = info?.tokenAmount?.uiAmount;
-      if (!amount || amount <= 0) return null;
-      const mint = info.mint as string;
-      const coin = byMint.get(mint.toLowerCase());
-      return {
-        mint,
-        amount,
-        decimals: info.tokenAmount.decimals,
-        symbol: coin?.ticker,
-        name: coin?.name,
-        image: coin?.image,
-        doodle: coin?.doodle,
-        bg: coin?.bg,
-        changePct: coin?.changePct,
-      };
-    })
-    .filter((h): h is PortfolioHolding => h !== null);
+  // One row per mint (several token accounts of the same mint are summed).
+  const balances = new Map<string, { amount: number; decimals: number }>();
+  for (const acc of [...classic.value, ...token2022.value]) {
+    const info = acc.account.data.parsed?.info;
+    const amount = info?.tokenAmount?.uiAmount;
+    if (!amount || amount <= 0) continue;
+    const mint = info.mint as string;
+    const cur = balances.get(mint);
+    balances.set(mint, { amount: (cur?.amount ?? 0) + amount, decimals: info.tokenAmount.decimals });
+  }
 
-  // Fill in a real USD price/value for as many holdings as we reasonably can
-  // — one GeckoTerminal request per unpriced token. GeckoTerminal's free
-  // tier is a shared, easily-saturated rate limit (see live-coins.ts), so a
-  // wallet holding many tokens only gets its largest few enriched; the rest
-  // still show up, just without a value, instead of one portfolio load
-  // burning the whole app's request budget.
-  const MAX_PRICE_LOOKUPS = 12;
-  const toPrice = [...splHoldings].sort((a, b) => b.amount - a.amount).slice(0, MAX_PRICE_LOOKUPS);
+  // Name, logo and price for tokens PANDA didn't launch come from GeckoTerminal — ONE batched request for the whole wallet (plus SOL).
+  const mints = [...balances.keys()];
+  const meta = await fetchTokensMulti([SOL_HOLDING.mint, ...mints]);
+
+  const splHoldings = mints.map((mint): PortfolioHolding => {
+    const { amount, decimals } = balances.get(mint)!;
+    const coin = byMint.get(mint.toLowerCase());
+    const info = meta.get(mint);
+    return {
+      mint,
+      amount,
+      decimals,
+      symbol: coin?.ticker ?? (info?.symbol || undefined),
+      name: coin?.name ?? (info?.name || undefined),
+      image: coin?.image ?? (info?.image_url && !/missing/.test(info.image_url) ? info.image_url : undefined),
+      doodle: coin?.doodle,
+      bg: coin?.bg,
+      changePct: coin?.changePct,
+    };
+  });
+
   const priceByMint = new Map<string, number>();
+  const batchPrice = (mint: string) => {
+    const p = Number(meta.get(mint)?.price_usd);
+    return Number.isFinite(p) && p > 0 ? p : undefined;
+  };
+  for (const h of splHoldings) {
+    const p = batchPrice(h.mint);
+    if (p !== undefined) priceByMint.set(h.mint, p);
+  }
+  // Only tokens the batch couldn't price get an individual pool lookup (GeckoTerminal's free tier is a shared, easily-saturated rate
+  // limit — see live-coins.ts — so only the largest few are tried; the rest show "no price" rather than a guessed one).
+  const MAX_PRICE_LOOKUPS = 6;
+  const toPrice = splHoldings.filter((h) => !priceByMint.has(h.mint)).sort((a, b) => b.amount - a.amount).slice(0, MAX_PRICE_LOOKUPS);
   await Promise.all(
     toPrice.map(async (h) => {
       const { data } = await fetchTokenPools(h.mint);
@@ -72,8 +90,7 @@ export async function getWalletPortfolio(
     return { ...h, priceUsd, valueUsd: priceUsd !== undefined ? priceUsd * h.amount : undefined };
   });
 
-  const solPool = await fetchTokenPools(SOL_HOLDING.mint);
-  const solPriceUsd = priceOfMintInPools(solPool.data, SOL_HOLDING.mint);
+  const solPriceUsd = batchPrice(SOL_HOLDING.mint) ?? priceOfMintInPools((await fetchTokenPools(SOL_HOLDING.mint)).data, SOL_HOLDING.mint);
   const solAmount = lamports / LAMPORTS_PER_SOL;
 
   const sol: PortfolioHolding = {
