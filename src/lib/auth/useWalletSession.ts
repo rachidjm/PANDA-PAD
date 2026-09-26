@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { ADMIN_FRESH_MS } from "@/lib/auth/admin-policy";
 
 /**
  * Proves the connected wallet is really the user's: asks the server for a
@@ -15,14 +16,16 @@ export function useWalletSession() {
   const { publicKey, signMessage } = useWallet();
   const { t } = useLanguage();
 
-  const ensureSession = useCallback(async (): Promise<void> => {
+  /** `adminFresh`: an admin action needs a sign-in from the last few minutes — an older session is replaced by a new signature. */
+  const ensureSession = useCallback(async (opts?: { adminFresh?: boolean }): Promise<void> => {
     if (!publicKey) throw new Error(t("auth.failed"));
     const wallet = publicKey.toBase58();
 
     const current = await fetch("/api/auth/session", { cache: "no-store" })
       .then((r) => r.json())
       .catch(() => null);
-    if (current?.wallet === wallet) return;
+    const fresh = !opts?.adminFresh || (typeof current?.issuedAt === "number" && Date.now() - current.issuedAt < ADMIN_FRESH_MS - 2 * 60_000);
+    if (current?.wallet === wallet && fresh) return;
 
     if (!signMessage) throw new Error(t("auth.noSign"));
 

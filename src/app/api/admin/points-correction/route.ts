@@ -14,11 +14,11 @@ import { recordAudit } from "@/lib/audit/log";
  * the epoch that is ACTIVE right now, referencing the one it fixes. Gated by PANDA_POINTS.
  */
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const b = await req.json().catch(() => null);
   const bad = (error: string) => NextResponse.json({ error }, { status: 400 });

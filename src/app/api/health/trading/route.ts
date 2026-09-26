@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/auth/admin";
 import { Connection } from "@solana/web3.js";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { serverRpcUrl } from "@/lib/solana/rpc";
@@ -14,7 +15,7 @@ import { databaseUrl, probeDb } from "@/lib/db/client";
 import { getRedis } from "@/lib/rate-limit";
 
 /**
- * "Can people trade on this deployment?" — one page (open /api/health/trading) that checks each thing a trade depends
+ * "Can people trade on this deployment?" — one page (open /api/health/trading while signed in as an admin) that checks each thing a trade depends
  * on and says which one is missing. Read-only, no secrets in the answer (only yes/no and what to do): every environment
  * variable is reported as present / absent / invalid, never by its value.
  */
@@ -31,6 +32,8 @@ async function timed<T>(fn: () => Promise<T>, ms = 8000): Promise<T> {
 }
 
 export async function GET(req: Request) {
+  const admin = await requireAdmin(req); // internal state (env presence, treasury, database, Upstash): admins only, 404 to everyone else
+  if (admin instanceof NextResponse) return admin;
   if (await rateLimited(`health-trading:${clientIp(req)}`, 20, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const checks: Check[] = [];
   const connection = new Connection(serverRpcUrl(), "confirmed");

@@ -8,11 +8,11 @@ import { pgVerifyChain, pgAuditHead } from "@/lib/db/audit";
 
 /** Auth: admin. Query: ?limit=1..100 (default 50). Output: { events } newest first. */
 export async function GET(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
   const limit = Number(new URL(req.url).searchParams.get("limit") ?? 50);
   try {
     // ?verify=1 (only when the trail is in Postgres): re-derive the whole hash chain and report it.

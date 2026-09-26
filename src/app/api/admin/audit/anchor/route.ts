@@ -19,10 +19,10 @@ import { storageMode } from "@/lib/db/mode";
  * Requires the audit trail to be in Postgres (dual or postgres).
  */
 export async function POST(req: Request) {
-  if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   if (storageMode("audit") === "blob") return NextResponse.json({ error: "The audit trail isn't in Postgres yet (PANDA_STORAGE_MODES audit=dual or postgres)." }, { status: 409 });
 
   const body = await req.json().catch(() => null);

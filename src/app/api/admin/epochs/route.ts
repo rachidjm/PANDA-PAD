@@ -20,9 +20,9 @@ import { alertOps } from "@/lib/alerts";
  * `reward_calculations` pause switch. Gated by the PANDA_POINTS flag.
  */
 export async function GET(req: Request) {
-  if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   try {
     return NextResponse.json({ epochs: await getEpochs() }, { headers: { "Cache-Control": "no-store" } });
   } catch {
@@ -31,11 +31,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const body = await req.json().catch(() => null);
   const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });

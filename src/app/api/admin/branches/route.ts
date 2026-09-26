@@ -16,9 +16,9 @@ import type { BranchStatus } from "@/lib/branches/branch";
  * Audited with the reason.
  */
 export async function GET(req: Request) {
-  if (!branchesEnabled()) return notAvailable();
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!branchesEnabled()) return notAvailable();
   try {
     return NextResponse.json({ branches: await listBranches() }, { headers: { "Cache-Control": "no-store" } });
   } catch {
@@ -29,11 +29,11 @@ export async function GET(req: Request) {
 const TARGET: Record<string, BranchStatus> = { pause: "PAUSED", resume: "ACTIVE", close: "CLOSED" };
 
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!branchesEnabled()) return notAvailable();
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const b = await req.json().catch(() => null);
   const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });

@@ -17,10 +17,10 @@ import { checkLaunchTable } from "@/lib/pump/launch-alt-check";
  * Nothing here changes the chain; PANDA_LOOKUP_TABLE itself is set by the owner in Vercel.
  */
 export async function POST(req: Request) {
-  if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
-  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   const body = await req.json().catch(() => null);
   const connection = new Connection(serverRpcUrl(), "confirmed");

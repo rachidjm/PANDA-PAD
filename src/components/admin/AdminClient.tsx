@@ -39,7 +39,7 @@ export default function AdminClient() {
     } else {
       setEvents(null);
       const body = await audit.json().catch(() => ({}));
-      setMessage(audit.status === 403 ? "This wallet isn't an admin." : body.error || "Couldn't load the audit log.");
+      setMessage(audit.status === 404 ? "" : audit.status === 401 ? "Sign in as admin to continue." : body.error || "Couldn't load the audit log."); // 404 = no admin session: stay quiet
     }
   }, []);
 
@@ -51,7 +51,7 @@ export default function AdminClient() {
   async function signIn() {
     setBusy("signin");
     try {
-      await ensureSession();
+      await ensureSession({ adminFresh: true });
       await refresh();
       setSessionTick((n) => n + 1);
     } catch (err) {
@@ -75,7 +75,7 @@ export default function AdminClient() {
       });
       const body = await res.json().catch(() => ({}));
       if (res.status === 401) {
-        await ensureSession(); // the session is missing or too old for an admin action: re-sign, then retry once
+        await ensureSession({ adminFresh: true }); // the session is missing or too old for an admin action: re-sign, then retry once
         return setMessage("Signed in again — press the button once more.");
       }
       if (!res.ok) throw new Error(body.error || "Failed.");

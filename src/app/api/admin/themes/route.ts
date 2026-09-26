@@ -16,9 +16,9 @@ import { recordAudit } from "@/lib/audit/log";
  * "closing" a theme by hand is only ever a way to stop it EARLIER. Audited. Gated by NFT_THEMES.
  */
 export async function GET(req: Request) {
-  if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   try {
     return NextResponse.json({ themes: await listThemes() }, { headers: { "Cache-Control": "no-store" } });
   } catch {
@@ -27,11 +27,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!isEnabled("NFT_THEMES")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const b = await req.json().catch(() => null);
   const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });

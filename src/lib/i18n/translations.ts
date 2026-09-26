@@ -1701,6 +1701,8 @@ export const dict = {
   "admin.audit.anchored": { en: "Anchored: the head is now published on Solana.", es: "Anclada: la cabeza ya está publicada en Solana." },
   "admin.audit.anchors": { en: "Anchors: {n}", es: "Anclajes: {n}" },
 
+  "wp.adminSignIn": { en: "Sign in as admin", es: "Entrar como admin" },
+  "wp.adminSigning": { en: "Signing…", es: "Firmando…" },
   "wp.closeAll": { en: "Close all my sessions", es: "Cerrar todas mis sesiones" },
   "wp.closeAllHint": { en: "Signs this wallet out everywhere (every device and browser) at once.", es: "Cierra la sesión de esta wallet en todas partes (todos los dispositivos y navegadores) a la vez." },
   // Admin: sessions

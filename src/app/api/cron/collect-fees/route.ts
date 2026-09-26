@@ -28,9 +28,9 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  if (!isAuthorized(req)) return new NextResponse(null, { status: 404 }); // a stranger learns nothing, not even that the route exists
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;
-  if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   // Coins launched in two transactions whose split is still missing: keep the registry honest (and audit them) even if nobody opens them.
   await resolveAllPending(new Connection(serverRpcUrl(), "confirmed"))
     .then((r) => r.waiting > 0 && console.warn(`[PANDA fee-lock] ${r.waiting} coin(s) still waiting for their fee split`))

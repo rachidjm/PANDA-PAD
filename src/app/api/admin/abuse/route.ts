@@ -36,10 +36,10 @@ const PHRASES: Record<AbuseStatus, string> = {
 };
 
 export async function GET(req: Request) {
-  if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
-  if (await rateLimited(`admin:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
+  if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  if (await rateLimited(`admin:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   const url = new URL(req.url);
   const headers = { "Cache-Control": "no-store" };
@@ -60,11 +60,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!isEnabled("PANDA_POINTS")) return NextResponse.json({ error: "Not available." }, { status: 404 });
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const b = await req.json().catch(() => null);
   const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });

@@ -16,7 +16,7 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!isAuthorized(req)) return new NextResponse(null, { status: 404 }); // a stranger learns nothing, not even that the route exists
   if (storageMode("sessions") === "blob") return NextResponse.json({ skipped: "sessions are still in Blob" });
   try {
     const result = await pgCleanupAuth(getDb(), Date.now());

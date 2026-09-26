@@ -3,7 +3,6 @@ import { getPauseState } from "@/lib/protocol/pause-store";
 import { SUBSYSTEMS } from "@/lib/protocol/pause";
 import { moneyFlowStatus } from "@/lib/config/launch-guard";
 import { decideCoinCreation } from "@/lib/config/creation";
-import { sessionsRevocable } from "@/lib/auth/session";
 import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection } from "@solana/web3.js";
@@ -26,7 +25,7 @@ export async function GET() {
       const e = state.subsystems[subsystem];
       return e?.paused ? [{ subsystem, reason: e.reason, since: e.since }] : [];
     });
-    return NextResponse.json({ paused, moneyFlows, creation, sessions: { revocable: sessionsRevocable() } }, { headers: { "Cache-Control": "public, s-maxage=5, stale-while-revalidate=10" } });
+    return NextResponse.json({ paused, moneyFlows, creation }, { headers: { "Cache-Control": "public, s-maxage=5, stale-while-revalidate=10" } });
   } catch {
     return NextResponse.json({ paused: [], moneyFlows: { allowed: true }, creation: { allowed: true }, unavailable: true }, { headers: { "Cache-Control": "no-store" } });
   }

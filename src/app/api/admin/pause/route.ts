@@ -14,12 +14,12 @@ import { alertOps } from "@/lib/alerts";
  * Effect: flips one subsystem's switch. Audited and alerted; deletes nothing.
  */
 export async function POST(req: Request) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`admin:ip:${clientIp(req)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
-  const admin = await requireAdmin(req);
-  if (admin instanceof NextResponse) return admin;
 
   const body = await req.json().catch(() => null);
   const { subsystem, paused, reason, confirm } = body ?? {};

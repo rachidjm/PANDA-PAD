@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import CoinAvatar from "@/components/CoinAvatar";
@@ -10,6 +11,7 @@ import { Coin, PortfolioHolding } from "@/lib/types";
 import { formatUsd, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { useWalletSession } from "@/lib/auth/useWalletSession";
 
 type State = "loading" | "ready" | "error";
 
@@ -22,18 +24,49 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [revocable, setRevocable] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [adminEligible, setAdminEligible] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminError, setAdminError] = useState("");
+  const router = useRouter();
+  const { ensureSession } = useWalletSession();
 
-  // "Close all my sessions" is offered only where the server can actually revoke sessions.
+  // "Close all my sessions" is offered only where the server can actually revoke sessions — and only to a signed-in wallet, which is the
+  // only caller the server tells.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/protocol/status")
+    fetch("/api/auth/session", { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => !cancelled && setRevocable(d?.sessions?.revocable === true))
+      .then((d) => !cancelled && setRevocable(d?.wallet === publicKey.toBase58() && d?.revocable === true))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [publicKey]);
+
+  // "Sign in as admin" appears only for a wallet listed as an admin; the server answers every other wallet with a 404 and nothing shows.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/admin-eligible", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wallet: publicKey.toBase58() }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => !cancelled && setAdminEligible(d?.eligible === true))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey]);
+
+  async function adminSignIn() {
+    setAdminBusy(true);
+    setAdminError("");
+    try {
+      await ensureSession({ adminFresh: true });
+      router.push("/admin");
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : t("auth.failed"));
+    } finally {
+      setAdminBusy(false);
+    }
+  }
 
   async function closeAll() {
     setClosing(true);
@@ -132,6 +165,18 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
               {i.label}
             </Link>
           ))}
+        {adminEligible && (
+          <>
+            <button
+              onClick={adminSignIn}
+              disabled={adminBusy}
+              className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-paper hover:bg-paper/10 transition-colors disabled:opacity-50"
+            >
+              {adminBusy ? t("wp.adminSigning") : t("wp.adminSignIn")}
+            </button>
+            {adminError && <p className="px-3 pb-1 text-xs text-clay-red">{adminError}</p>}
+          </>
+        )}
         <button
           onClick={onDisconnect}
           className="w-full rounded-xl px-3 py-2 text-left text-sm text-paper/70 hover:bg-paper/10 hover:text-paper transition-colors"
