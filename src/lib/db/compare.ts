@@ -137,6 +137,8 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[], mod
         else diffs.push(`economy ${d.day} ${k}: Blob ${a} vs Postgres ${b}`);
       }
     }
+    const [{ n: pgEvents }] = await db.select({ n: sql<number>`count(*)::int` }).from(activityEvents);
+    notes.push(`Blob journal holds ${blobIds.size} event(s); Postgres holds ${pgEvents}${frozen("activity") ? ` (${Number(pgEvents) - blobIds.size} recorded since the switch)` : ""}`);
     out.push({ domain: "activity", checked, differences: cap(diffs), warnings: [], notes: cap(notes) });
   }
 
