@@ -13,7 +13,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 export default function Navbar() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const { themes } = useFeatures();
+  const { themes, holderRewards } = useFeatures();
 
   // Things that stick under the header (the PANDA ecosystem strip) need to know how tall it is: 68px on a desktop, more on a phone with its second row.
   const headerRef = useRef<HTMLElement>(null);
@@ -34,7 +34,7 @@ export default function Navbar() {
     { href: "/discover", label: t("nav.discover") },
     { href: "/create", label: t("nav.create") },
     ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
-    { href: "/rewards", label: t("nav.rewards") },
+    ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
   ];
 

@@ -19,7 +19,7 @@ type State = "loading" | "ready" | "error";
 export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: PublicKey; onDisconnect: () => void }) {
   const connection = useReadConnection();
   const { t } = useLanguage();
-  const { points, airdrops } = useFeatures();
+  const { points, airdrops, holderRewards } = useFeatures();
   const [state, setState] = useState<State>("loading");
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [revocable, setRevocable] = useState(false);
@@ -155,7 +155,7 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
           {t("wp.open")}
         </Link>
         {[
-          { href: "/rewards", label: t("nav.rewards"), show: true },
+          { href: "/rewards", label: t("nav.rewards"), show: holderRewards },
           { href: "/points", label: t("nav.points"), show: points },
           { href: "/airdrops", label: t("nav.airdrops"), show: airdrops },
         ]

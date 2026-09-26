@@ -5,7 +5,9 @@ import { LEGAL_PAGES, LEGAL_SLUGS, LegalPage } from "@/lib/legal-content";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function LegalPageLayout({ page }: { page: LegalPage }) {
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
+  // Fixed formatting in UTC, so the server and the browser print the same day.
+  const updated = new Date(`${page.updated}T00:00:00Z`).toLocaleDateString(lang === "es" ? "es-ES" : "en-GB", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" });
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-12">
@@ -27,10 +29,21 @@ export default function LegalPageLayout({ page }: { page: LegalPage }) {
       </nav>
 
       <h1 className="font-display text-2xl font-bold">{page.title[lang]}</h1>
+      <p className="mt-1 text-xs text-panda-grey">
+        {t("legal.updated")}: <time dateTime={page.updated}>{updated}</time>
+      </p>
       <div className="mt-5 space-y-4">
         {page.body[lang].map((paragraph, i) => (
           <p key={i} className={`text-sm leading-relaxed ${i === 0 ? "text-clay-red" : "text-panda-grey"}`}>
-            {paragraph}
+            {paragraph.split(/(\[COMPLETAR: [^\]]+\])/).map((part, j) =>
+              part.startsWith("[COMPLETAR:") ? (
+                <mark key={j} className="rounded bg-meme-orange/20 px-1 font-medium text-meme-orange">
+                  {part}
+                </mark>
+              ) : (
+                part
+              )
+            )}
           </p>
         ))}
       </div>

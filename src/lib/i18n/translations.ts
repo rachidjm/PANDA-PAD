@@ -30,10 +30,15 @@ export const dict = {
 
   // Footer
   "footer.product": { en: "Product", es: "Producto" },
+  "legal.updated": { en: "Last updated", es: "Última actualización" },
   "footer.legal": { en: "Legal", es: "Legal" },
   "footer.disclaimer": {
-    en: "PANDA is a non-custodial interface for launching and trading coins on Solana. It isn't a financial advisor, broker, or exchange, and nothing on this site is investment advice. Memecoins are extremely volatile and can lose all value.",
-    es: "PANDA es una interfaz no custodial para lanzar y operar monedas en Solana. No es un asesor financiero, un bróker ni un exchange, y nada en este sitio es asesoramiento de inversión. Las memecoins son extremadamente volátiles y pueden perder todo su valor.",
+    en: "PANDA is a non-custodial interface for launching and trading coins on Solana: it never holds your funds or your keys. It isn't a financial advisor, broker, or exchange, and nothing on this site is investment advice. Memecoins are extremely volatile and can lose all value.",
+    es: "PANDA es una interfaz no custodial para lanzar y operar monedas en Solana: nunca retiene tus fondos ni tus claves. No es un asesor financiero, un bróker ni un exchange, y nada en este sitio es asesoramiento de inversión. Las memecoins son extremadamente volátiles y pueden perder todo su valor.",
+  },
+  "footer.disclaimerCustody": {
+    en: "PANDA is an interface for launching and trading coins on Solana. Buying, selling and launching are non-custodial: PANDA never holds your funds or keys for them. Some optional features are the exception, as described in the Legal pages. It isn't a financial advisor, broker, or exchange, and nothing on this site is investment advice. Memecoins are extremely volatile and can lose all value.",
+    es: "PANDA es una interfaz para lanzar y operar monedas en Solana. Comprar, vender y lanzar son acciones no custodiales: PANDA nunca retiene tus fondos ni tus claves para ellas. Algunas funciones opcionales son la excepción, como se describe en las páginas legales. No es un asesor financiero, un bróker ni un exchange, y nada en este sitio es asesoramiento de inversión. Las memecoins son extremadamente volátiles y pueden perder todo su valor.",
   },
 
   // Home hero
@@ -56,7 +61,10 @@ export const dict = {
     es: "No se pudo actualizar (la fuente de datos está limitada ahora mismo) — mostrando los últimos precios conocidos.",
   },
   "home.ecosystemLabel": { en: "PANDA ecosystem", es: "Ecosistema PANDA" },
-  "home.ecosystemBlurb": { en: "— the token powering the ecosystem", es: "— el token que impulsa el ecosistema" },
+  "home.ecosystemBlurb": {
+    en: "— PANDA's own token",
+    es: "— el token propio de PANDA",
+  },
   "home.section.new": { en: "New", es: "Nuevas" },
   "home.section.trending": { en: "Trending", es: "Tendencia" },
   "home.section.topGainers": { en: "Top Gainers", es: "Mayores subidas" },
@@ -977,15 +985,21 @@ export const dict = {
   // Rewards page
   "rw.title": { en: "Earn with PANDA", es: "Gana con PANDA" },
   "rw.intro": {
-    en: "Every trade on PANDA pays a fee. Instead of disappearing, it flows back to the people holding the coin.",
-    es: "Cada operación en PANDA paga una comisión. En vez de desaparecer, vuelve a las personas que tienen la moneda.",
+    en: "When the creator of a coin sends part of its creator fees to holders, the people holding that coin can claim their share here.",
+    es: "Cuando el creador de una moneda destina parte de sus comisiones de creador a los holders, quienes tengan esa moneda pueden reclamar aquí su parte.",
   },
   "rw.step1": { en: "Trade", es: "Operar" },
   "rw.step1d": { en: "You buy or sell a coin.", es: "Compras o vendes una moneda." },
   "rw.step2": { en: "Fees", es: "Comisiones" },
-  "rw.step2d": { en: "A small fee is taken from the trade.", es: "Se cobra una pequeña comisión de la operación." },
+  "rw.step2d": {
+    en: "Pump.fun pays the coin's creator a fee on its trading.",
+    es: "Pump.fun paga al creador de la moneda una comisión por su trading.",
+  },
   "rw.step3": { en: "Fee Distribution", es: "Reparto de comisiones" },
-  "rw.step3d": { en: "The creator routes a share of it to holders.", es: "El creador destina una parte a los holders." },
+  "rw.step3d": {
+    en: "When launching, the creator sends a share of those creator fees to holders.",
+    es: "Al lanzar la moneda, el creador destina una parte de esas comisiones de creador a los holders.",
+  },
   "rw.step4": { en: "Rewards", es: "Recompensas" },
   "rw.step4d": { en: "Your real share becomes claimable in your wallet.", es: "Tu parte real pasa a ser reclamable en tu wallet." },
 
@@ -1400,14 +1414,14 @@ export const dict = {
   // Holders tab
   "coin.holders.title": { en: "Holder data isn't available yet", es: "Los datos de holders aún no están disponibles" },
   "coin.holders.subtitle": {
-    en: "We only have real price and trade data for now — a holder breakdown needs our own indexer, coming soon.",
-    es: "Por ahora solo tenemos datos reales de precio y operaciones — un desglose de holders necesita nuestro propio indexador, próximamente.",
+    en: "We only have real price and trade data for now.",
+    es: "Por ahora solo tenemos datos reales de precio y operaciones.",
   },
 
   // Rewards tab (on coin page)
   "coin.rewardsTab.blurb": {
-    en: "Every trade of ${ticker} pays a small fee. A share flows back to holders as $PANDA rewards.",
-    es: "Cada operación de ${ticker} paga una pequeña comisión. Una parte vuelve a los holders como recompensas en $PANDA.",
+    en: "If the creator of ${ticker} sends part of its creator fees to holders, holders can claim their share of them, paid in SOL.",
+    es: "Si el creador de ${ticker} destina parte de sus comisiones de creador a los holders, estos pueden reclamar su parte, pagada en SOL.",
   },
   "coin.rewardsTab.link": { en: "See how rewards work", es: "Ver cómo funcionan las recompensas" },
 
@@ -1445,8 +1459,8 @@ export const dict = {
   "trading.pandaFee": { en: "PANDA fee ({pct}%)", es: "Comisión PANDA ({pct}%)" },
   "trading.youPay": { en: "You pay", es: "Pagas" },
   "trading.sellFeeNote": {
-    en: "PANDA takes a {pct}% fee out of the SOL you receive — the exact amount depends on the price at the moment you sell, shown in your wallet before you sign.",
-    es: "PANDA retiene un {pct}% de comisión del SOL que recibes — el importe exacto depende del precio en el momento de vender, y se muestra en tu wallet antes de firmar.",
+    en: "PANDA's fee is {pct}% of the SOL you get from the sale (estimated when the transaction is built), sent as a separate transfer inside the same transaction. Your wallet shows it before you sign.",
+    es: "La comisión de PANDA es el {pct}% del SOL que obtienes con la venta (estimado al construir la transacción), y se envía como una transferencia aparte dentro de la misma transacción. Tu wallet la muestra antes de firmar.",
   },
   "trading.connectToTrade": { en: "Connect wallet to trade", es: "Conecta tu wallet para operar" },
   "trading.preparing": { en: "Preparing transaction…", es: "Preparando transacción…" },

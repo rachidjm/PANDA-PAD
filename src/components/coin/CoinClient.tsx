@@ -30,7 +30,7 @@ type Props = {
 export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
   const [tab, setTab] = useState<Tab>("Trades");
   const { t } = useLanguage();
-  const { strategies } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
+  const { strategies, holderRewards } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
   const positive = coin.changePct >= 0;
 
   return (
@@ -117,7 +117,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           <div className="py-6">
             {tab === "Trades" && <TradesTab trades={trades} coin={coin} live={tradesLive} />}
             {tab === "Holders" && <HoldersTab />}
-            {tab === "Rewards" && <RewardsTab coin={coin} />}
+            {tab === "Rewards" && holderRewards && <RewardsTab coin={coin} />}
           </div>
         
         </div>

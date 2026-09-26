@@ -43,7 +43,7 @@ export const PANDA_TREASURY = (() => {
 
 /**
  * PANDA's fixed cut of every coin's Fee Distribution — not configurable by
- * the creator, not skippable. Paid to PANDA_TREASURY, same wallet as the 1%
+ * the creator, not skippable. Paid to PANDA_TREASURY, same wallet as the 0.5%
  * trading fee above (a second, distinct real revenue stream into it). See
  * FeeDistributionStep.tsx: the creator only ever chooses how the *remaining*
  * 9500 bps is split (Creator vs Holders).

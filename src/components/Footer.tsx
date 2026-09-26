@@ -4,14 +4,16 @@ import Link from "next/link";
 import Logo from "@/components/Logo";
 import { LEGAL_PAGES, LEGAL_SLUGS } from "@/lib/legal-content";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 export default function Footer() {
   const { lang, t } = useLanguage();
+  const { holderRewards, strategies } = useFeatures();
 
   const productLinks = [
     { href: "/discover", label: t("nav.discover") },
     { href: "/create", label: t("nav.create") },
-    { href: "/rewards", label: t("nav.rewards") },
+    ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
     { href: "/activity", label: t("act.title") },
   ];
@@ -52,7 +54,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <p className="mt-8 border-t border-paper/10 pt-6 text-xs text-panda-grey">{t("footer.disclaimer")}</p>
+        <p className="mt-8 border-t border-paper/10 pt-6 text-xs text-panda-grey">{t(strategies || holderRewards ? "footer.disclaimerCustody" : "footer.disclaimer")}</p>
       </div>
     </footer>
   );

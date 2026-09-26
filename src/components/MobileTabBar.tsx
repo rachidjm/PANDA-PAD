@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 /**
  * The phone's main navigation: the five places people go most, at thumb height (spec §28). Everything else
@@ -30,11 +31,13 @@ const ITEMS: Item[] = [
 export default function MobileTabBar() {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const { holderRewards } = useFeatures();
+  const items = ITEMS.filter((i) => i.href !== "/rewards" || holderRewards); // Rewards only while holder rewards are on
 
   return (
     <nav aria-label={t("nav.mobile")} className="fixed inset-x-0 bottom-0 z-40 border-t border-paper/10 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-      <ul className="mx-auto grid max-w-md grid-cols-5">
-        {ITEMS.map((i) => {
+      <ul className={`mx-auto grid max-w-md ${items.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+        {items.map((i) => {
           const active = i.href === "/" ? pathname === "/" : pathname === i.href || pathname.startsWith(i.href + "/");
           return (
             <li key={i.href}>

@@ -11,12 +11,14 @@ import { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import { allocation, buildRows, summarize } from "@/lib/portfolio/view";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 /** Loads what a connected wallet holds (from Solana), what PANDA knows of its trades, and its holder rewards; the page itself is PortfolioView. */
 export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   const connection = useReadConnection();
   const { connected, publicKey } = useWallet();
   const { t } = useLanguage();
+  const { holderRewards } = useFeatures();
   const address = publicKey?.toBase58() ?? null;
 
   const [holdingsState, setHoldingsState] = useState<LoadState>("loading");
@@ -54,7 +56,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   }, [address]);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address || !holderRewards) return; // holder rewards are switched off: nothing to read
     let cancelled = false;
     Promise.resolve()
       .then(() => {
@@ -71,7 +73,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, holderRewards]);
 
   useEffect(() => {
     if (!connected || !publicKey) return;

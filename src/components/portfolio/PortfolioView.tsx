@@ -6,6 +6,7 @@ import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import type { Pnl, Slice, Summary, TokenRow } from "@/lib/portfolio/view";
@@ -82,6 +83,7 @@ function PnlCell({ pnl }: { pnl: Pnl }) {
 
 export default function PortfolioView(p: PortfolioViewProps) {
   const { t, lang } = useLanguage();
+  const { holderRewards } = useFeatures();
   const [tab, setTab] = useState<"holdings" | "closed">("holdings");
   const [sort, setSort] = useState<SortMode>("value");
 
@@ -122,7 +124,7 @@ export default function PortfolioView(p: PortfolioViewProps) {
           <p className="mt-2 text-xs text-panda-grey">{t("pf.pricedOnly", { n: s.unpricedCount })}</p>
         )}
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className={`mt-5 grid gap-3 ${holderRewards ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           <Stat
             label={t("pf.pnlOpen")}
             chip={s.unrealized ? <KindChip kind={s.unrealized.kind} /> : undefined}
@@ -146,33 +148,35 @@ export default function PortfolioView(p: PortfolioViewProps) {
             )}
           </Stat>
 
-          <Stat
-            label={t("pf.rewards")}
-            foot={
-              p.rewards !== "loading" && p.rewards !== "error" && p.rewards.earnedLamports > 0 ? (
-                <>
-                  {t("pf.rewardsReady")}
-                  <br />
-                  {t("pf.rewardsEarned", { earned: sol(p.rewards.earnedLamports, lang), claimed: sol(p.rewards.claimedLamports, lang) })}
-                </>
-              ) : undefined
-            }
-          >
-            {p.rewards === "loading" ? (
-              <span className="text-sm font-medium text-panda-grey">…</span>
-            ) : p.rewards === "error" ? (
-              <span className="text-sm font-medium text-panda-grey">{t("pf.rewardsError")}</span>
-            ) : p.rewards.earnedLamports === 0 ? (
-              <span className="text-sm font-medium text-panda-grey">{t("pf.rewardsNone")}</span>
-            ) : (
-              <span>
-                {sol(p.rewards.claimableLamports, lang)} <span className="text-sm font-medium text-panda-grey">SOL</span>
-              </span>
-            )}
-          </Stat>
+          {holderRewards && (
+            <Stat
+              label={t("pf.rewards")}
+              foot={
+                p.rewards !== "loading" && p.rewards !== "error" && p.rewards.earnedLamports > 0 ? (
+                  <>
+                    {t("pf.rewardsReady")}
+                    <br />
+                    {t("pf.rewardsEarned", { earned: sol(p.rewards.earnedLamports, lang), claimed: sol(p.rewards.claimedLamports, lang) })}
+                  </>
+                ) : undefined
+              }
+            >
+              {p.rewards === "loading" ? (
+                <span className="text-sm font-medium text-panda-grey">…</span>
+              ) : p.rewards === "error" ? (
+                <span className="text-sm font-medium text-panda-grey">{t("pf.rewardsError")}</span>
+              ) : p.rewards.earnedLamports === 0 ? (
+                <span className="text-sm font-medium text-panda-grey">{t("pf.rewardsNone")}</span>
+              ) : (
+                <span>
+                  {sol(p.rewards.claimableLamports, lang)} <span className="text-sm font-medium text-panda-grey">SOL</span>
+                </span>
+              )}
+            </Stat>
+          )}
         </div>
 
-        {p.rewards !== "loading" && p.rewards !== "error" && (
+        {holderRewards && p.rewards !== "loading" && p.rewards !== "error" && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="text-panda-grey">{p.rewards.partial ? t("pf.rewardsPartial") : ""}</span>
             <Link href="/rewards" className="font-medium text-meme-orange hover:underline">

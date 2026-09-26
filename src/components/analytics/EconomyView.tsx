@@ -4,6 +4,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { formatSolAmount, formatTokenUnits } from "@/lib/economy/format";
 import { truncateAddress } from "@/lib/format";
 import type { EconomySnapshot } from "@/lib/economy/snapshot";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 
 export type EconomyState = "loading" | "ready" | "error";
 export type PublicAddresses = { treasury: string; rewardsPool: string | null; tokenMint: string | null };
@@ -65,6 +66,7 @@ function DayBars({ days }: { days: { day: string; lamports: number }[] }) {
 
 export default function EconomyView({ data, state, addresses }: { data: EconomySnapshot | null; state: EconomyState; addresses: PublicAddresses }) {
   const { t, lang } = useLanguage();
+  const { holderRewards, airdrops, themes } = useFeatures(); // a card for a feature that is switched off would describe something that isn't there
   const sol = (n: number) => `${formatSolAmount(n, lang)} SOL`;
   const since = (ts: number | null) => (ts ? t("eco.since", { date: new Date(ts).toLocaleDateString(lang, { year: "numeric", month: "short", day: "numeric" }) }) : null);
   const d = data;
@@ -121,7 +123,7 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
                   <>
                     <Big>{sol(d.creatorFees.totalLamports)}</Big>
                     <p className="mb-2 mt-1 text-xs text-panda-grey">{t("eco.creatorSub", { n: d.creatorFees.distributions.toLocaleString(lang) })}</p>
-                    <Line label={t("eco.creatorHolders")} value={sol(d.creatorFees.toRewardsPoolLamports)} />
+                    {holderRewards && <Line label={t("eco.creatorHolders")} value={sol(d.creatorFees.toRewardsPoolLamports)} />}
                     <Line label={t("eco.creatorPanda")} value={sol(d.creatorFees.toTreasuryLamports)} />
                     <Line label={t("eco.creatorOthers")} value={sol(d.creatorFees.toOthersLamports)} />
                     <Notes items={[since(d.creatorFees.since), d.creatorFees.incomplete && t("eco.incomplete")]} />
@@ -132,6 +134,7 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
               )}
             </Card>
 
+{holderRewards && (
             <Card title={t("eco.rewards")} unit="SOL" source={d.rewards ? t("eco.rewardsSource", { n: d.rewards.coins }) : undefined}>
               {d.rewards ? (
                 d.rewards.coins === 0 || d.rewards.creditedLamports === 0 ? (
@@ -149,7 +152,9 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
                 <Unavailable />
               )}
             </Card>
+            )}
 
+{airdrops && (
             <Card title={t("eco.airdrops")} unit="PANDA" source={t("eco.airdropSource")}>
               {d.airdrops ? (
                 d.airdrops.epochs.length === 0 && d.airdrops.unverifiedEpochs.length === 0 ? (
@@ -181,7 +186,9 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
                 <Unavailable />
               )}
             </Card>
+            )}
 
+{themes && (
             <Card title={t("eco.nft")} unit="SOL" source={t("eco.nftSource")}>
               {d.nft ? (
                 d.nft.primary.sales + d.nft.secondary.sales === 0 ? (
@@ -198,6 +205,7 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
                 <Unavailable />
               )}
             </Card>
+            )}
           </>
         )}
       </div>
@@ -208,7 +216,7 @@ export default function EconomyView({ data, state, addresses }: { data: EconomyS
         <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
           {[
             [t("eco.treasury"), addresses.treasury, "account"],
-            [t("eco.rewardsPool"), addresses.rewardsPool, "account"],
+            [t("eco.rewardsPool"), holderRewards ? addresses.rewardsPool : null, "account"],
             [t("eco.tokenMint"), addresses.tokenMint, "token"],
           ].map(([label, address, kind]) =>
             address ? (
