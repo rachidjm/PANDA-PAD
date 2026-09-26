@@ -12,6 +12,22 @@ airdrops o NFT) ninguno de los cinco es aceptable a escala.
 
 ---
 
+## Estado final (2026-09-26): fase 6 cerrada en producción
+
+| Punto | Estado |
+|---|---|
+| 1. Blob → Postgres | **Hecho.** Los siete dominios (`rewards, trades, activity, pause, audit, sessions, launch`) en `postgres`. Blob queda para imágenes/metadatos y para los archivos de funciones apagadas (puntos, airdrops, ramas, temas/NFT, estrategias, abuso), que migrarán cuando se enciendan. Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás; **borrarlas es decisión tuya** (no hay script). |
+| 2. Upstash | **Hecho y verificado** contra Upstash real (camino feliz, formato de duración, ~4 ms, contador atómico compartido). Rutas de dinero fallan cerradas; lecturas, inicio de sesión y admin abiertas. |
+| 3. Auditoría con hash-chain | **Hecho.** Cadena verificada (21/21 eventos), triggers append-only en la base, anclaje en Solana con memo firmado por la wallet admin (0 anclajes hechos todavía). |
+| 4. Sesiones revocables + limpieza de nonces | **Hecho.** `sessions=postgres`: un token vale solo mientras su fila esté viva; cerrar sesión y "cerrar todas" revocan de verdad; cron diario de limpieza. |
+| 5. CSP con nonces | **Hecho en modo `report-only`** (por defecto). Para aplicar: revisar `/admin` → informes CSP tras 1–2 semanas de uso real (Phantom, móvil) y poner `CSP_MODE=enforce`. |
+
+Procedimiento y valores de `PANDA_STORAGE_MODES` usados:
+1. `pause=dual,trades=dual,activity=dual,audit=dual,launch=dual,sessions=dual,rewards=dual` (backfill hecho con `claims` y `fee_processing` pausados; con el ledger de holders vacío).
+2. `pause=postgres,trades=postgres,activity=postgres,audit=postgres,launch=postgres,rewards=dual,sessions=dual`.
+3. `pause=postgres,trades=postgres,activity=postgres,audit=postgres,launch=postgres,sessions=postgres,rewards=postgres` (**valor final**).
+Marcha atrás: volver el dominio a `blob` (Blob no se ha modificado desde el cambio 2). Diferencia respecto al plan: no se creó una *rama* de Neon (se usó un esquema temporal en la misma base) y las comprobaciones contra los servicios reales se ejecutaron dentro del build de Vercel (`PANDA_BUILD_TASKS`), porque las variables Sensitive no se pueden descargar.
+
 ## 0. Resumen
 
 | # | Punto | Depende de | Esfuerzo | Coste mensual incremental (sin verificar) |

@@ -18,7 +18,7 @@ pásamela antes de seguir. No repitas a ciegas: una compra repetida son más com
    Reparto orientativo: las pruebas de trading ≈ 0,07 SOL entre compras y ventas; cada primera compra de una moneda abre
    una cuenta de token (≈ 0,002 SOL de renta, recuperable cerrando la cuenta); crear una moneda cuesta más que un trade
    (renta de cuentas + red; el importe exacto de Pump.fun **(sin verificar)**: mide tu saldo antes y después).
-2. **Despliegue en verde.** Abre `https://<tu-dominio>/api/health/trading` y comprueba: `ok: true`,
+2. **Despliegue en verde.** Con sesión de admin, abre `https://<tu-dominio>/api/health/trading` (sin ella da 404) y comprueba: `ok: true`,
    `network.state = "ok"`, `moneyFlows.allowed = true`, ninguna variable obligatoria `absent`/`invalid`, tesorería con
    ≥ 0,002 SOL. Si algo está en rojo, corrígelo antes (`docs/DEPLOY_CHECKLIST.md`).
 3. **Herramientas de solo lectura** (en tu máquina, en la carpeta del proyecto). Necesitan `SOLANA_RPC_URL` de mainnet en tu

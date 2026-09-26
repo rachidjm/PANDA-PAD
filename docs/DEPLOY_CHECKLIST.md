@@ -5,7 +5,7 @@ Alcance de este lanzamiento: **Discover, comprar/vender, crear moneda Estándar 
 esté probado con dinero real. Ningún paso de este documento requiere que me pases una clave: las claves solo las pones tú
 en Vercel.
 
-Cómo saber en cualquier momento qué falta: abre `https://<tu-dominio>/api/health/trading`. Dice, variable por variable,
+Cómo saber en cualquier momento qué falta: con la sesión de admin iniciada en ese navegador (menú de la wallet → «Entrar como admin»), abre `https://<tu-dominio>/api/health/trading` (a cualquiera sin sesión de admin le da 404). Dice, variable por variable,
 si está `present`, `absent` o `invalid` (nunca su valor), la red que detecta el RPC, el saldo de la tesorería y qué corregir.
 
 > Marcado **(sin verificar)** = dato de un tercero (precios, planes, normativa) que no he podido comprobar desde el código.
@@ -55,7 +55,11 @@ agrupada y comentada, está en `.env.example`.
 | `AUTH_SESSION_SECRET` | ≥ 32 caracteres aleatorios | Nadie inicia sesión ni reclama recompensas. |
 | `ADMIN_WALLETS` | Direcciones públicas separadas por comas | Nadie es admin. |
 | `CRON_SECRET` | Cadena aleatoria larga | El cron diario se niega a ejecutarse. |
-| `BLOB_READ_WRITE_TOKEN` | Lo pone Vercel al conectar un Blob store | No se puede crear moneda (metadatos) ni guardar ledgers. |
+| `BLOB_READ_WRITE_TOKEN` | Lo pone Vercel al conectar un Blob store | No se puede crear moneda (metadatos) ni guardar imágenes. |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | Las pone la integración de Neon (paso 4.3) | Con `PANDA_STORAGE_MODES` en `postgres` la app falla cerrada (no cae a Blob). |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` (o `UPSTASH_REDIS_REST_*`) | Las pone la integración de Upstash (paso 4.4) | En producción las rutas de dinero dan 503. |
+| `PANDA_STORAGE_MODES` | **Valor final (fase 6 cerrada):** `pause=postgres,trades=postgres,activity=postgres,audit=postgres,launch=postgres,sessions=postgres,rewards=postgres` | Sin ella todo sigue en Blob (comportamiento antiguo). |
+| `CSP_MODE` | Opcional. Por defecto `report-only`; `enforce` bloquea; `off` lo quita. Ponlo en `enforce` solo tras 1–2 semanas de informes limpios en `/admin` (Phantom y móvil incluidos). | Se queda en solo informar. |
 
 Generar los secretos aleatorios (un comando por secreto, en tu máquina):
 
@@ -84,7 +88,7 @@ vender siguen funcionando) con un aviso ES/EN en Create y `503 COIN_CREATION_BLO
 `NEXT_PUBLIC_PANDA_TREASURY` ya sea la dirección de vault de tu multisig de Squads (paso 4.1). Es tu declaración: el código no
 puede comprobar desde la cadena que una dirección sea un multisig.
 
-Después de desplegar: abre `/api/health/trading` y comprueba `network.state = "ok"`, `moneyFlows.allowed = true` y que
+Después de desplegar: abre `/api/health/trading` (con sesión de admin) y comprueba `network.state = "ok"`, `moneyFlows.allowed = true` y que
 ninguna variable obligatoria salga `absent` o `invalid`.
 
 ## 3. Fondear la tesorería
@@ -140,11 +144,16 @@ Sin la variable todo funciona igual con el respaldo de dos transacciones, pero l
 "Fijar reparto de comisiones" en la página de la moneda, y cada moneda creada sin reparto queda en auditoría
 (`token.created_without_fee_split`, y `token.fee_split_locked` cuando se fija).
 
-### 4.3 Postgres (Neon) — fase 6, punto 1 (opcional hasta que decidas migrar)
+### 4.3 Postgres (Neon) — hecho (fase 6 cerrada)
 
-Nada cambia hasta que pongas `PANDA_STORAGE_MODES`. El procedimiento completo (migración del esquema, backfill, doble escritura, comparación, cambio de lectura) está en
-`docs/PHASE6_PLAN.md` → «Estado del punto 1». Variables: `DATABASE_URL` (cadena *pooled*, la usa la app), `DATABASE_URL_UNPOOLED` (solo `npm run db:migrate`) y
-`PANDA_STORAGE_MODES` (p. ej. `pause=dual,trades=dual`). `GET /api/health/trading` avisa si un dominio usa Postgres y no responde.
+La migración está terminada: los siete dominios (`rewards, trades, activity, pause, audit, sessions, launch`) están en `postgres` (valor exacto en la tabla del paso 2).
+Blob se queda solo para imágenes/metadatos y para los archivos de funciones apagadas (puntos, airdrops, ramas, temas/NFT, estrategias, abuso), que se migrarán cuando se enciendan.
+- Las migraciones se aplican solas en cada despliegue de producción (`scripts/vercel-build.ts`; si una falla, el despliegue no sale y el anterior sigue sirviendo).
+- Comprobaciones contra los servicios reales (las variables Sensitive no se pueden descargar, así que corren dentro del build): `vercel deploy --prod --build-env PANDA_BUILD_TASKS=verify-services,verify-audit,compare`
+  y lee el log del build; imprime también los modos activos (`dominio=modo`), sin secretos.
+- Las copias congeladas de Blob de los siete dominios se conservan 30 días como vuelta atrás. **Borrarlas es decisión tuya** (no hay script): no lo hagas antes de que pase ese plazo y de haber mirado `compare`.
+  La política de privacidad dice que esas copias antiguas se eliminan tras un periodo de transición: hazlo de verdad.
+- Marcha atrás de un dominio: ponerlo otra vez en `blob` (la copia de Blob no se ha tocado desde el cambio 2; lo escrito después solo está en Postgres).
 
 ### 4.4 Rate limiting (Upstash Redis) — obligatorio en producción
 
@@ -171,8 +180,8 @@ si la integración usa esos nombres). Comprueba `GET /api/health/trading` → ch
 
 ## 7. Consulta legal (antes de activar nada custodial)
 
-Los textos legales del repo son un **borrador escrito por el equipo, no por un abogado**, y tienen huecos deliberados
-(entidad, domicilio, jurisdicción, contacto). Antes de abrir al público y, sobre todo, **antes de activar
+Los textos legales del repo son un **borrador escrito por el equipo, no por un abogado**, y tienen huecos deliberados marcados como
+`[COMPLETAR: …]` (titular, NIF, domicilio, correo, edad mínima, jurisdicción, plazo de conservación; se ven resaltados en la web y `legalPlaceholders()` los lista). Antes de abrir al público y, sobre todo, **antes de activar
 `FEATURE_STRATEGIES`**, pide a un abogado con experiencia en criptoactivos (en el EEE, MiCA) que responda:
 
 1. **Custodia.** ¿Se considera PANDA custodio o prestador de servicios de criptoactivos por (a) el Rewards Pool
@@ -185,13 +194,35 @@ Los textos legales del repo son un **borrador escrito por el equipo, no por un a
    **(sin verificar: fechas y su aplicación en tu Estado miembro)**; y si una interfaz de software puramente no custodial
    queda fuera.
 4. **Emisión.** ¿Qué implica lanzar el token $PANDA cuando llegue el momento (folleto/whitepaper, restricciones)?
-5. **Datos personales.** El registro de operaciones y los ledgers guardan direcciones de wallet en archivos legibles por
-   URL, y hay una cookie de sesión: ¿qué exige el RGPD y qué debe decir la política de privacidad?
-6. **Entidad, domicilio y jurisdicción** para rellenar los campos `[pendiente]`, y términos de servicio revisados.
+5. **Datos personales.** Neon (EE. UU.), Upstash y Vercel guardan direcciones de wallet, sesiones y auditoría (inmutable: la base rechaza editar o borrar) y la IP como clave de un contador de
+   rate limit durante un minuto (hasta una hora en unas pocas acciones): ¿base jurídica, transferencia fuera del EEE, derecho de supresión frente a una auditoría inmutable, plazos de conservación?
+6. **Entidad, domicilio y jurisdicción** para rellenar los campos `[COMPLETAR]`, y términos de servicio revisados.
 7. **Publicidad y consumidores.** Textos de riesgo y "no es asesoramiento" en ES/EN: ¿suficientes?
 
 Mientras esa respuesta no exista, `FEATURE_STRATEGIES` se queda apagado. Los textos legales ya cambian solos cuando se
 enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a la revisión.
+
+## 8. Encender `FEATURE_HOLDER_REWARDS` (checklist de prueba con 1–2 €)
+
+Lo enciendes tú. Es la única función en la que **PANDA retiene fondos** (la wallet del Rewards Pool con su clave en el servidor). Antes de ponerla a `true`:
+
+**Requisitos (todos)**
+- [ ] `NEXT_PUBLIC_PANDA_REWARDS_POOL` (pública) y `PANDA_REWARDS_POOL_SECRET_KEY` (Sensitive) puestas; la wallet del pool con ~0,01 SOL para las comisiones de sus pagos. Está en Vercel; comprueba que la dirección es la que crees.
+- [ ] Tesorería multisig y `TREASURY_IS_MULTISIG=true` (sin ello no se puede crear la moneda de prueba en mainnet).
+- [ ] Sesión admin y `/api/health/trading` en verde (`ok: true`, `database` y `ratelimit` en verde).
+- [ ] Respuesta legal sobre la custodia del Rewards Pool (paso 7) o decisión asumida por ti; los `[COMPLETAR]` rellenados.
+- [ ] `REWARDS_MAX_CLAIM_SOL` y `REWARDS_DAILY_CAP_SOL` con valores pequeños para la prueba (topes por reclamo y por día).
+
+**Al ponerla a `true` (y redesplegar) cambia sola la web**: aparece la página Rewards (enlaces, pestaña en la moneda, bloque en Portfolio, tarjetas en Analytics), Create muestra la banda «Holders» y los textos legales añaden la custodia del Rewards Pool.
+
+**Prueba con 1–2 € (en este orden)**
+1. Crea una moneda de prueba con reparto **Holders** (p. ej. Creator 45 % / Holders 50 % + PANDA 5 %). `npm run check-sharing -- <mint>` debe mostrar el 5 % de PANDA y el Rewards Pool. Una sola firma si `singleTx` es true.
+2. Con otra wallet, compra ~0,5 € de esa moneda (`npm run verify-tx -- <firma>` → `MATCH`, 0,5 %) y otra pequeña compra y venta para generar comisiones de creador.
+3. Espera al cron diario de las 12:00 UTC (o haz la distribución manual sin permisos) y mira `/rewards` con la wallet holder: debe salir «Disponible para reclamar» > 0 y el ledger en Postgres (`compare` sin diferencias).
+4. Reclama (una firma de mensaje gratis, no una transacción): debe llegar SOL a la wallet, con enlace a la transacción; comprueba en Solscan que sale del Rewards Pool y que el ledger (`reward_balances`) cuadra (`claimed + reserved ≤ credited`).
+5. Comprueba la auditoría: `/admin` → «Verify the chain» en verde y el evento del reclamo; ancla la cabeza en Solana una vez.
+6. Cierra sesión y prueba que un reclamo con la cookie copiada falla (sesión revocada).
+7. Si algo falla: pausa `claims` y `fee_processing` en `/admin` (deja de pagar al instante), apaga el flag y avísame.
 
 ---
 
@@ -202,9 +233,9 @@ enciende (añaden la custodia de Privy y sus riesgos), pero eso no sustituye a l
 - [ ] Paso 4.2 hecho (`PANDA_LOOKUP_TABLE` puesta y `check-lookup-table` en `CHECK OK`); si no, sabes que se usa el respaldo de dos transacciones.
 - [ ] `docs/MAINNET_TEST_PLAN.md` ejecutado entero con 0,01–0,05 SOL.
 - [ ] Pasos 5 y 6 hechos.
-- [ ] Respuesta legal recibida (paso 7) y `[pendiente]` de los textos legales rellenados.
+- [ ] Respuesta legal recibida (paso 7) y los `[COMPLETAR]` de los textos legales rellenados.
 - [ ] Upstash configurado (§4.4) y el check `ratelimit` de `/api/health/trading` en verde: sin él las rutas de dinero dan 503.
-- [ ] Fase 6, punto 1 (Postgres): revisado por ti; los dominios que quieras en `dual`/`postgres` migrados con el procedimiento de `docs/PHASE6_PLAN.md` y `db:compare` sin diferencias.
+- [x] Fase 6 cerrada (2026-09-26): los siete dominios en `postgres`, Upstash real verificado, auditoría con hash-chain, sesiones revocables, CSP en `report-only`. Pendiente tuyo: `CSP_MODE=enforce` tras los informes limpios y borrar las copias de Blob pasados 30 días.
 - [ ] Fase 6 (infraestructura para dinero de terceros: base de datos, rate limiting compartido, auditoría con hash-chain,
       sesiones revocables, CSP con nonces) decidida: hoy la persistencia es Vercel Blob y el rate limiting es en memoria
       por instancia; ninguno es apto para dinero de terceros a escala.
