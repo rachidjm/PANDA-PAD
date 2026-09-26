@@ -1,7 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import type { BlobSource } from "./source";
-import type { Domain } from "./mode";
+import type { Domain, StorageMode } from "./mode";
 import { pgGetLedger, pgGetPayoutDay, pgGetRegisteredMints, pgOpenClaims } from "./rewards";
 import { pgGetTrades, pgGetBackfillMark } from "./trades";
 import { pgReadTotal } from "./activity";
@@ -17,14 +17,20 @@ import { SUBSYSTEMS } from "@/lib/protocol/pause";
  * `differences` is empty when they agree; `warnings` are things that aren't a mismatch but need a human (a payout that was sent and
  * has no recorded outcome). Run it daily during "dual" and before switching a domain to "postgres".
  */
-export type CompareReport = { domain: Domain; checked: number; differences: string[]; warnings: string[] };
+export type CompareReport = { domain: Domain; checked: number; differences: string[]; warnings: string[]; /** Expected and informational: in a "postgres" domain Blob is a frozen copy and Postgres is AHEAD of it. */ notes: string[] };
 
 const MAX_LISTED = 25;
 const cap = (list: string[]) => (list.length > MAX_LISTED ? [...list.slice(0, MAX_LISTED), `… and ${list.length - MAX_LISTED} more`] : list);
 const eq2 = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export async function compare(db: Db, source: BlobSource, domains: Domain[]): Promise<CompareReport[]> {
+/**
+ * `modes` (the deployment's PANDA_STORAGE_MODES): for a domain in "postgres" mode Blob is no longer written (a frozen copy), so Postgres being
+ * AHEAD of it (newer trades, a later pause state, more audit events) is expected and reported as a note. What is still a difference there is
+ * anything Blob holds that Postgres doesn't (a migration gap) or anything that looks newer in Blob (a write that went to Blob after the switch).
+ */
+export async function compare(db: Db, source: BlobSource, domains: Domain[], modes: Partial<Record<Domain, StorageMode>> = {}): Promise<CompareReport[]> {
   const out: CompareReport[] = [];
+  const frozen = (d: Domain) => modes[d] === "postgres";
 
   if (domains.includes("rewards")) {
     const diffs: string[] = [];
@@ -68,26 +74,34 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
     for (const c of await pgOpenClaims(db)) {
       if (c.status === "sent" || Date.now() - c.createdAt.getTime() > 10 * 60_000) warnings.push(`claim ${c.id} (${c.lamports} lamports to ${c.wallet}) is "${c.status}" with no recorded outcome${c.signature ? `, signature ${c.signature}` : ""}: check it on-chain`);
     }
-    out.push({ domain: "rewards", checked, differences: cap(diffs), warnings: cap(warnings) });
+    out.push({ domain: "rewards", checked, differences: cap(diffs), warnings: cap(warnings), notes: [] });
   }
 
   if (domains.includes("trades")) {
     const diffs: string[] = [];
+    const notes: string[] = [];
     const wallets = await source.tradeWallets();
     for (const wallet of wallets) {
       const blob = await source.trades(wallet);
       const pg = await pgGetTrades(db, wallet);
-      if (!eq2(blob, pg)) diffs.push(`${wallet}: Blob has ${blob.length} trades, Postgres ${pg.length}${blob.length === pg.length ? " (same count, different content or order)" : ""}`);
+      if (eq2(blob, pg)) continue;
+      const pgSigs = new Set(pg.map((t) => t.signature));
+      const missing = blob.filter((t) => !pgSigs.has(t.signature));
+      if (frozen("trades") && missing.length === 0 && pg.length >= blob.length) notes.push(`${wallet}: frozen Blob has ${blob.length} trades, Postgres ${pg.length} (${pg.length - blob.length} recorded since the switch)`);
+      else diffs.push(`${wallet}: Blob has ${blob.length} trades, Postgres ${pg.length}${blob.length === pg.length ? " (same count, different content or order)" : ""}${missing.length ? ` — ${missing.length} only in Blob` : ""}`);
     }
     for (const m of await source.backfillMarks()) {
       const pg = await pgGetBackfillMark(db, m.wallet);
-      if (pg?.at !== m.at) diffs.push(`scan marker of ${m.wallet}: Blob ${m.at} vs Postgres ${pg?.at ?? "none"}`);
+      if (pg?.at === m.at) continue;
+      if (frozen("trades") && pg && pg.at >= m.at) notes.push(`scan marker of ${m.wallet}: Postgres is newer than the frozen Blob copy`);
+      else diffs.push(`scan marker of ${m.wallet}: Blob ${m.at} vs Postgres ${pg?.at ?? "none"}`);
     }
-    out.push({ domain: "trades", checked: wallets.length, differences: cap(diffs), warnings: [] });
+    out.push({ domain: "trades", checked: wallets.length, differences: cap(diffs), warnings: [], notes: cap(notes) });
   }
 
   if (domains.includes("activity")) {
     const diffs: string[] = [];
+    const notes: string[] = [];
     let checked = 0;
     const journal = await source.journal();
     const blobIds = new Map<string, string>();
@@ -104,27 +118,41 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
     if (total) {
       checked++;
       const pg = await pgReadTotal(db);
-      for (const k of METRIC_KEYS) if ((total.metrics[k] ?? 0) !== pg.metrics[k]) diffs.push(`economy total ${k}: Blob ${total.metrics[k] ?? 0} vs Postgres ${pg.metrics[k]}`);
+      for (const k of METRIC_KEYS) {
+        const a = total.metrics[k] ?? 0;
+        if (a === pg.metrics[k]) continue;
+        if (frozen("activity") && pg.metrics[k] >= a) notes.push(`economy total ${k}: frozen Blob ${a}, Postgres ${pg.metrics[k]}`);
+        else diffs.push(`economy total ${k}: Blob ${a} vs Postgres ${pg.metrics[k]}`);
+      }
       if (total.since !== pg.since) diffs.push(`economy total since: Blob ${total.since} vs Postgres ${pg.since}`);
     }
     for (const d of await source.economyDays()) {
       checked++;
       const [row] = await db.select().from(economyDaily).where(eq(economyDaily.day, d.day));
-      for (const k of METRIC_KEYS) if ((d.metrics[k] ?? 0) !== (row?.[k] ?? 0)) diffs.push(`economy ${d.day} ${k}: Blob ${d.metrics[k] ?? 0} vs Postgres ${row?.[k] ?? 0}`);
+      for (const k of METRIC_KEYS) {
+        const a = d.metrics[k] ?? 0;
+        const b = row?.[k] ?? 0;
+        if (a === b) continue;
+        if (frozen("activity") && b >= a) notes.push(`economy ${d.day} ${k}: frozen Blob ${a}, Postgres ${b}`);
+        else diffs.push(`economy ${d.day} ${k}: Blob ${a} vs Postgres ${b}`);
+      }
     }
-    out.push({ domain: "activity", checked, differences: cap(diffs), warnings: [] });
+    out.push({ domain: "activity", checked, differences: cap(diffs), warnings: [], notes: cap(notes) });
   }
 
   if (domains.includes("pause")) {
     const diffs: string[] = [];
+    const notes: string[] = [];
     const blob = await source.pause();
     const pg = await pgGetPauseState(db);
     for (const s of SUBSYSTEMS) {
       const a = blob.subsystems[s];
       const b = pg.subsystems[s];
-      if (!eq2(a ?? null, b ?? null)) diffs.push(`${s}: Blob ${JSON.stringify(a ?? null)} vs Postgres ${JSON.stringify(b ?? null)}`);
+      if (eq2(a ?? null, b ?? null)) continue;
+      if (frozen("pause") && b && (b.since ?? 0) > (a?.since ?? 0)) notes.push(`${s}: changed in Postgres since the switch (frozen Blob: ${a?.paused ? "paused" : "running"}, Postgres: ${b.paused ? "paused" : "running"})`);
+      else diffs.push(`${s}: Blob ${JSON.stringify(a ?? null)} vs Postgres ${JSON.stringify(b ?? null)}`);
     }
-    out.push({ domain: "pause", checked: SUBSYSTEMS.length, differences: diffs, warnings: [] });
+    out.push({ domain: "pause", checked: SUBSYSTEMS.length, differences: diffs, warnings: [], notes });
   }
 
   if (domains.includes("audit")) {
@@ -138,7 +166,7 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
     // Events only in Postgres are expected in "postgres" mode; the chain itself must always verify.
     const verdict = await pgVerifyChain(db);
     if (!verdict.ok) diffs.push(`the hash chain is BROKEN at seq ${verdict.problem?.seq}: ${verdict.problem?.reason}`);
-    out.push({ domain: "audit", checked: blob.length + verdict.checked, differences: cap(diffs), warnings: [] });
+    out.push({ domain: "audit", checked: blob.length + verdict.checked, differences: cap(diffs), warnings: [], notes: [`Blob holds ${blob.length} event(s); the Postgres chain holds ${rows.length}${frozen("audit") ? ` (${rows.length - blob.length} recorded since the switch; a frozen Blob must not grow)` : ""}`] });
   }
 
   if (domains.includes("launch")) {
@@ -150,7 +178,7 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
       else if (!pg[m]) diffs.push(`fee-lock ${m}: only in Blob`);
       else if (!eq2(blob[m], pg[m])) diffs.push(`fee-lock ${m}: Blob ${JSON.stringify(blob[m])} vs Postgres ${JSON.stringify(pg[m])}`);
     }
-    out.push({ domain: "launch", checked: Object.keys(blob).length, differences: cap(diffs), warnings: [] });
+    out.push({ domain: "launch", checked: Object.keys(blob).length, differences: cap(diffs), warnings: [], notes: [] });
   }
 
   if (domains.includes("sessions")) {
@@ -158,7 +186,7 @@ export async function compare(db: Db, source: BlobSource, domains: Domain[]): Pr
     // confirm that dual mode is registering them in Postgres.
     const [{ n: live }] = await db.select({ n: sql<number>`count(*)::int` }).from(sessions);
     const [{ n: nonces }] = await db.select({ n: sql<number>`count(*)::int` }).from(authNonces);
-    out.push({ domain: "sessions", checked: Number(live) + Number(nonces), differences: [], warnings: [`Postgres holds ${live} session(s) and ${nonces} sign-in nonce(s) (informational)`] });
+    out.push({ domain: "sessions", checked: Number(live) + Number(nonces), differences: [], warnings: [`Postgres holds ${live} session(s) and ${nonces} sign-in nonce(s) (informational)`], notes: [] });
   }
 
   return out;

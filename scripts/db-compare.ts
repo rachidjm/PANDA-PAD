@@ -4,11 +4,12 @@
  *   npm run db:compare [-- --domains rewards,trades,activity,pause]
  *
  * Exit code 0 = no differences; 1 = differences (listed) — do NOT switch a domain to "postgres" until it is 0 for two days in "dual".
- * Warnings (a payout that was sent with no recorded outcome) don't change the exit code but must be looked at by a human.
+ * A domain in "postgres" mode has a frozen Blob copy: Postgres being ahead of it is printed as NOTE (expected), while anything Blob has that
+ * Postgres lacks is still a DIFF. Warnings (a payout that was sent with no recorded outcome) don't change the exit code but must be looked at by a human.
  * Needs BLOB_READ_WRITE_TOKEN and DATABASE_URL in the environment (`vercel env pull .env.local`).
  */
 import { getDb } from "../src/lib/db/client";
-import { DOMAINS, type Domain } from "../src/lib/db/mode";
+import { DOMAINS, parseStorageModes, type Domain } from "../src/lib/db/mode";
 import { blobSource } from "../src/lib/db/source";
 import { compare } from "../src/lib/db/compare";
 
@@ -25,11 +26,12 @@ function domainsArg(): Domain[] {
 }
 
 async function main() {
-  const reports = await compare(getDb(), blobSource(), domainsArg());
+  const reports = await compare(getDb(), blobSource(), domainsArg(), parseStorageModes(process.env.PANDA_STORAGE_MODES).modes);
   let bad = 0;
   for (const r of reports) {
     console.log(`\n${r.domain}: ${r.checked} checked — ${r.differences.length === 0 ? "no differences" : `${r.differences.length} DIFFERENCE(S)`}`);
     for (const d of r.differences) console.log("  DIFF ", d);
+    for (const n of r.notes) console.log("  NOTE ", n);
     for (const w of r.warnings) console.log("  WARN ", w);
     bad += r.differences.length;
   }

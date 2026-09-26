@@ -16,7 +16,7 @@ import { recordActivity } from "@/lib/activity/record";
 import { setPause } from "@/lib/protocol/pause-store";
 import { pgOpenClaims, pgReserveClaim } from "./rewards";
 import { rewardBalances, rewardClaims, trades } from "./schema";
-import { pgGetTrades } from "./trades";
+import { pgAddTrades, pgGetTrades } from "./trades";
 
 /**
  * The migration end to end, on real code paths: data is written to (in-memory) Blob through the real stores in "blob" mode — the way
@@ -129,4 +129,27 @@ test("COMPARE warns about a payout that was sent and has no recorded outcome (mo
   assert.equal((await pgOpenClaims(db)).length >= 1, true);
   const rewards = (await compare(db, src, ["rewards"]))[0];
   assert.ok(rewards.warnings.some((w) => /no recorded outcome/.test(w) && /UNKNOWN/.test(w)));
+});
+
+test("FROZEN BLOB (a domain in postgres mode): Postgres being ahead is a note, but anything only in Blob — or a write that reached Blob after the switch — is still a difference", async () => {
+  const src = blobSource();
+  await backfill(db, src, [...DOMAINS]);
+  const modes = { trades: "postgres", pause: "postgres", audit: "postgres" } as const;
+  for (const r of await compare(db, src, ["trades", "pause"], modes)) assert.deepEqual(r.differences, [], r.domain);
+
+  // After the switch: a new trade and a pause change land ONLY in Postgres.
+  const A = "A".repeat(43);
+  await pgAddTrades(db, A, [{ mint: "M".repeat(43), ticker: "TT", side: "buy", solAmount: 0.02, tokenAmount: 192_216.9, solPriceUsdAtTrade: 100, signature: "AFTERSWITCH", ts: 1_750_000_100_000 }]);
+  await db.execute(sql`update protocol_pause set since = since + 5000, paused = not paused where subsystem = 'claims'`);
+  const ahead = await compare(db, src, ["trades", "pause"], modes);
+  for (const r of ahead) assert.deepEqual(r.differences, [], `${r.domain}: Postgres ahead of a frozen Blob is expected`);
+  assert.ok(ahead.find((r) => r.domain === "trades")!.notes.some((n) => /recorded since the switch/.test(n)));
+  assert.ok(ahead.find((r) => r.domain === "pause")!.notes.some((n) => /claims/.test(n)));
+  // ...while the same state read as "dual" is a difference (there a lost Blob write matters).
+  assert.ok((await compare(db, src, ["trades"], {}))[0].differences.length > 0);
+
+  // A trade that reaches Blob after the switch (a write path that ignored the mode) is a difference in a frozen domain.
+  await recordTrade("Z".repeat(43), { mint: "M".repeat(43), ticker: "TT", side: "buy", solAmount: 0.1, tokenAmount: 5, solPriceUsdAtTrade: 100, signature: "LEAKED", ts: 1_750_000_200_000 });
+  const leaked = (await compare(db, src, ["trades"], modes))[0];
+  assert.ok(leaked.differences.some((d) => /only in Blob|Blob has 1 trades, Postgres 0/.test(d)), leaked.differences.join("|"));
 });
