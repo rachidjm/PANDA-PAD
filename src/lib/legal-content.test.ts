@@ -234,3 +234,35 @@ test("ES and EN dictionary strings state the same numbers, percentages and units
   }
   assert.deepEqual(bad, []);
 });
+
+test("the strategy vault notice says whose it is and that PANDA has no access — and the code backs that claim (no key, no signing, no stored Jupiter token)", () => {
+  for (const lang of LANGS) {
+    const noAccess = lang === "en" ? /no keys/ : /no tiene claves/;
+    for (const slug of ["legal-notice", "terms-of-service", "risk-disclosure"] as const) {
+      const t = text(slug, lang, { custody: true });
+      assert.match(t, noAccess, `${slug}/${lang}`);
+      assert.match(t, /Privy/, `${slug}/${lang}`);
+    }
+  }
+  for (const k of ["draw.custody", "sltp.disclosure"] as const) {
+    assert.match(dict[k].en, /Privy/); assert.match(dict[k].en, /no keys/); assert.match(dict[k].en, /only you/);
+    assert.match(dict[k].es, /Privy/); assert.match(dict[k].es, /no tiene claves/); assert.match(dict[k].es, /solo tú/);
+  }
+  // The claim is only as good as the code: nothing that talks to Jupiter's vault may hold a key or sign. (Relaying a transaction the USER
+  // already signed — the strategy fee step's sendRawTransaction — is not signing.)
+  const walk = (dir: string, out: string[] = []) => {
+    for (const n of readdirSync(dir)) {
+      const p = path.join(dir, n);
+      if (statSync(p).isDirectory()) walk(p, out);
+      else if (/\.tsx?$/.test(n) && !/\.test\./.test(n)) out.push(p);
+    }
+    return out;
+  };
+  const roots = ["src/lib/strategy", "src/lib/jupiter", "src/app/api/strategy", "src/app/api/jupiter"].map((r) => path.join(process.cwd(), r));
+  for (const f of roots.flatMap((r) => walk(r))) {
+    const body = readFileSync(f, "utf8");
+    assert.doesNotMatch(body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""), /Keypair|secretKey|SECRET_KEY|\.sign\(|signTransaction\(/, `${path.relative(process.cwd(), f)} holds a key or signs`);
+  }
+  const store = readFileSync(path.join(process.cwd(), "src", "lib", "strategy", "store.ts"), "utf8");
+  assert.match(store, /never the Jupiter session token/);
+});

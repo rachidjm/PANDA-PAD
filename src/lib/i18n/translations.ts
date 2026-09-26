@@ -822,8 +822,8 @@ export const dict = {
     es: "No tienes suficiente en la wallet: faltan unos {short}.",
   },
   "draw.custody": {
-    en: "Confirming moves your {asset} into a Jupiter-managed vault (held by Privy — not PANDA, and not your wallet) until the strategy finishes or you cancel it. PANDA never holds your keys. This is a different trust model from a normal trade.",
-    es: "Al confirmar, tus {asset} pasan a una bóveda gestionada por Jupiter (custodiada por Privy — no por PANDA ni por tu wallet) hasta que la estrategia termine o la canceles. PANDA nunca tiene tus claves. Es un modelo de confianza distinto al de un trade normal.",
+    en: "Confirming moves your {asset} into a Jupiter Trigger vault — a custodial account managed by Privy on Jupiter's service, not PANDA's and not your wallet's — until the strategy finishes or you cancel it. PANDA has no keys and no access to it and cannot move or withdraw your funds; only you can, by signing the cancellation. This is a different trust model from a normal trade.",
+    es: "Confirmar traslada tus {asset} a una bóveda de Jupiter Trigger — una cuenta custodial gestionada por Privy en el servicio de Jupiter, no de PANDA ni de tu wallet — hasta que la estrategia termine o la canceles. PANDA no tiene claves ni acceso a ella y no puede mover ni retirar tus fondos; solo tú puedes, firmando la cancelación. Es un modelo de confianza distinto al de una operación normal.",
   },
   "draw.understand": {
     en: "I understand my funds are held in Jupiter's vault until it finishes or I cancel.",
@@ -1491,8 +1491,8 @@ export const dict = {
   "sltp.hide": { en: "Hide", es: "Ocultar" },
   "sltp.setup": { en: "Set up", es: "Configurar" },
   "sltp.disclosure": {
-    en: "Setting this up moves your ${ticker} into a Jupiter-managed vault (held by Privy, not PANDA or your own wallet) until the order fills or you cancel it. This is a different trust model than regular trading on PANDA, where your funds never leave your wallet until you sign.",
-    es: "Al configurar esto, tus ${ticker} se mueven a una bóveda gestionada por Jupiter (custodiada por Privy, no por PANDA ni por tu propia wallet) hasta que la orden se ejecute o la canceles. Es un modelo de confianza distinto al del trading normal en PANDA, donde tus fondos nunca salen de tu wallet hasta que firmas.",
+    en: "Setting this up moves your ${ticker} into a Jupiter Trigger vault: a custodial account managed by Privy on Jupiter's service. It is not PANDA's and not your own wallet's. PANDA has no keys and no access to it and cannot move or withdraw the funds; only you can take them out, by signing the cancellation in your wallet, and Jupiter's service executes the order when it triggers. This is a different trust model than regular trading on PANDA, where your funds never leave your wallet until you sign.",
+    es: "Configurar esto traslada tus ${ticker} a una bóveda de Jupiter Trigger: una cuenta custodial gestionada por Privy en el servicio de Jupiter. No es de PANDA ni de tu propia wallet. PANDA no tiene claves ni acceso a ella y no puede mover ni retirar los fondos; solo tú puedes sacarlos, firmando la cancelación en tu wallet, y el servicio de Jupiter ejecuta la orden cuando se activa. Es un modelo de confianza distinto al del trading normal en PANDA, donde tus fondos no salen de tu wallet hasta que firmas.",
   },
   "sltp.activeOrders": { en: "Active orders on ${ticker}", es: "Órdenes activas en ${ticker}" },
   "sltp.refresh": { en: "Refresh", es: "Actualizar" },
