@@ -1,6 +1,7 @@
 "use client";
 
 import RugBadge from "@/components/RugBadge";
+import CopyCa from "@/components/CopyCa";
 import { useState } from "react";
 import { Coin, Trade } from "@/lib/types";
 import { formatCompact, formatNumber, formatPct } from "@/lib/format";
@@ -52,6 +53,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
                   <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} className="rounded-full bg-paper/10 px-2.5 py-1 text-xs font-medium text-paper/70" />
                 </div>
                 <p className="text-sm text-panda-grey">{coin.name}</p>
+                <CopyCa mint={coin.mint} className="mt-1" />
                 <SocialLinks coin={coin} />
               </div>
             </div>

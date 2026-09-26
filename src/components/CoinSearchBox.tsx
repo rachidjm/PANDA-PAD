@@ -7,6 +7,7 @@ import CoinAvatar from "@/components/CoinAvatar";
 import { formatPct } from "@/lib/format";
 import { Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { addressFromInput } from "@/lib/solana/address";
 
 /**
  * Compact live-search dropdown: results appear in a small row list right
@@ -25,6 +26,7 @@ export default function CoinSearchBox() {
   const boxRef = useRef<HTMLDivElement>(null);
 
   const trimmed = query.trim();
+  const address = addressFromInput(query);
   const loading = trimmed !== "" && trimmed !== resolvedQuery;
 
   // Wait for typing to pause before firing a request — GeckoTerminal's free
@@ -69,7 +71,18 @@ export default function CoinSearchBox() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
+  // A contract address (pasted or typed) is not a search: open that token's page, whichever Solana token it is.
+  useEffect(() => {
+    if (!address) return;
+    router.push(`/coin/${address}`);
+    Promise.resolve().then(() => {
+      setQuery("");
+      setOpen(false);
+    });
+  }, [address, router]);
+
   function seeAll() {
+    if (address) return; // already on its way
     setOpen(false);
     router.push(trimmed ? `/discover?q=${encodeURIComponent(trimmed)}` : "/discover");
   }

@@ -7,6 +7,7 @@ import CoinAvatar from "@/components/CoinAvatar";
 import CoinAge from "@/components/CoinAge";
 import Sparkline from "@/components/Sparkline";
 import RugBadge from "@/components/RugBadge";
+import CopyCa from "@/components/CopyCa";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function CoinCard({ coin }: { coin: Coin }) {
@@ -14,10 +15,9 @@ export default function CoinCard({ coin }: { coin: Coin }) {
   const positive = coin.changePct >= 0;
 
   return (
-    <Link
-      href={`/coin/${coin.mint}`}
-      className="sticker-card group block overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised"
-    >
+    // The wrapper carries the card's look and hover; the link fills it, and "Copy CA" sits beside the link (a button inside a link is invalid and would navigate).
+    <div className="sticker-card group relative overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised">
+    <Link href={`/coin/${coin.mint}`} className="block">
       <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#171512] p-3 sm:aspect-[4/3] sm:p-8">
         <div className="h-full w-full overflow-hidden">
           <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} />
@@ -53,5 +53,7 @@ export default function CoinCard({ coin }: { coin: Coin }) {
         </div>
       </div>
     </Link>
+    <CopyCa mint={coin.mint} variant="icon" className="absolute right-1.5 top-8 sm:right-3 sm:top-[3.25rem]" />
+    </div>
   );
 }
