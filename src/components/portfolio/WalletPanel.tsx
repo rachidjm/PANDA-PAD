@@ -6,11 +6,12 @@ import { useRouter } from "next/navigation";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import CoinAvatar from "@/components/CoinAvatar";
-import { getWalletPortfolio, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
+import { getWalletPortfolio, portfolioChange24h, totalPortfolioValueUsd } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
-import { formatUsd, truncateAddress } from "@/lib/format";
+import { formatPct, formatUsd, truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { clipLabel, looksLikeSpam } from "@/lib/portfolio/spam";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
 
 type State = "loading" | "ready" | "error";
@@ -101,7 +102,8 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
   }, [connection, publicKey]);
 
   const total = totalPortfolioValueUsd(holdings);
-  const top = holdings.slice(0, 4);
+  const change = portfolioChange24h(holdings);
+  const top = holdings.filter((h) => !(looksLikeSpam(h) && h.valueUsd === undefined)).slice(0, 4);
 
   return (
     <div className="w-72 rounded-2xl border border-paper/15 bg-ink-raised p-3 shadow-xl">
@@ -110,6 +112,11 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
         <p className="mt-0.5 font-display text-xl font-bold">
           {state === "loading" ? "…" : total !== null ? formatUsd(total) : "—"}
         </p>
+        {state === "ready" && change && (
+          <p className={`text-xs font-medium ${change.usd >= 0 ? "text-bamboo" : "text-clay-red"}`}>
+            {formatPct(change.pct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
+          </p>
+        )}
       </div>
 
       {state === "error" && (
@@ -137,10 +144,13 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
                   <CoinAvatar image={h.image} ticker={h.symbol || "?"} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{h.symbol ? `$${h.symbol}` : truncateAddress(h.mint)}</p>
+                  <p className="truncate text-sm font-medium">{h.symbol ? `$${clipLabel(h.symbol)}` : truncateAddress(h.mint)}</p>
                   <p className="text-xs text-panda-grey">{formatAmount(h.amount)}</p>
                 </div>
-                <p className="shrink-0 text-xs text-paper/70">{h.valueUsd !== undefined ? formatUsd(h.valueUsd) : "—"}</p>
+                <div className="shrink-0 text-right">
+                  <p className="text-xs text-paper/70">{h.valueUsd !== undefined ? formatUsd(h.valueUsd) : "—"}</p>
+                  {h.valueUsd !== undefined && h.changePct !== undefined && <p className={`text-[10px] font-medium ${h.changePct >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(h.changePct)}</p>}
+                </div>
               </div>
             ))
           )}

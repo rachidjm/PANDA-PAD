@@ -147,6 +147,8 @@ export type GeckoTokenSummary = {
   image_url: string | null;
   /** GeckoTerminal's own USD price for the token (null when it has no usable pool). */
   price_usd: string | null;
+  /** 24 h price change in percent, from its top pool when the token is that pool's base (see change24hFromTopPool). */
+  change24h?: number;
 };
 
 /**
@@ -159,13 +161,31 @@ export async function fetchTokensMulti(addresses: string[]): Promise<Map<string,
   const unique = [...new Set(addresses)];
   for (let i = 0; i < unique.length; i += 30) {
     try {
-      const res = await geckoGet<{ data?: { attributes: GeckoTokenSummary }[] }>(`/networks/${NETWORK}/tokens/multi/${unique.slice(i, i + 30).join(",")}`, 60);
-      for (const t of res.data ?? []) if (t.attributes?.address) out.set(t.attributes.address, t.attributes);
+      const res = await geckoGet<{ data?: { attributes: GeckoTokenSummary; relationships?: { top_pools?: { data?: { id: string }[] } } }[]; included?: GeckoPool[] }>(
+        `/networks/${NETWORK}/tokens/multi/${unique.slice(i, i + 30).join(",")}?include=top_pools`,
+        60
+      );
+      const pools = new Map((res.included ?? []).map((p) => [p.id, p]));
+      for (const t of res.data ?? []) {
+        if (!t.attributes?.address) continue;
+        out.set(t.attributes.address, { ...t.attributes, change24h: change24hFromTopPool(t.attributes.address, t.relationships?.top_pools?.data?.[0]?.id, pools) });
+      }
     } catch {
       // rate-limited or down: those tokens keep whatever else is known about them
     }
   }
   return out;
+}
+
+/**
+ * The token's own 24 h price change, from its top pool, and ONLY when the token is that pool's BASE side (a pool's change is the base token's
+ * price change; for the quote side it would be another coin's). Anything else is undefined: no number rather than a wrong one.
+ */
+export function change24hFromTopPool(mint: string, poolId: string | undefined, pools: Map<string, GeckoPool>): number | undefined {
+  const pool = poolId ? pools.get(poolId) : undefined;
+  if (!pool || tokenIdToAddress(pool.relationships.base_token.data.id) !== mint) return undefined;
+  const n = Number(pool.attributes.price_change_percentage?.h24);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** All pools trading a given token, across every dex on the network — used to look up a coin by mint when it isn't pump-fun/pumpswap. */

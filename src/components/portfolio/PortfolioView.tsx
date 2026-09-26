@@ -10,6 +10,7 @@ import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import type { Pnl, Slice, Summary, TokenRow } from "@/lib/portfolio/view";
+import { clipLabel, looksLikeSpam } from "@/lib/portfolio/spam";
 
 export type LoadState = "loading" | "ready" | "error";
 export type RewardsInfo = { earnedLamports: number; claimedLamports: number; claimableLamports: number; coins: number; partial: boolean };
@@ -17,6 +18,8 @@ export type RewardsInfo = { earnedLamports: number; claimedLamports: number; cla
 export type PortfolioViewProps = {
   address: string;
   holdingsState: LoadState;
+  /** The whole wallet's 24 h change (USD and %), or null when no holding has both a price and a 24 h figure. */
+  change24h: { usd: number; pct: number; covered: number; of: number } | null;
   rows: TokenRow[];
   summary: Summary;
   alloc: Slice[];
@@ -86,13 +89,17 @@ export default function PortfolioView(p: PortfolioViewProps) {
   const { holderRewards } = useFeatures();
   const [tab, setTab] = useState<"holdings" | "closed">("holdings");
   const [sort, setSort] = useState<SortMode>("value");
+  const [showHidden, setShowHidden] = useState(false);
 
+  // Ads airdropped to the wallet are listed apart (like a wallet app does), one click away.
+  const spam = useMemo(() => p.rows.filter((r) => looksLikeSpam(r) && r.valueUsd === undefined), [p.rows]);
+  const visibleRows = useMemo(() => p.rows.filter((r) => !spam.includes(r)), [p.rows, spam]);
   const sortedRows = useMemo(() => {
     const pnlOf = (r: TokenRow) => (r.pnl.kind === "unavailable" ? -Infinity : r.pnl.usd);
-    return [...p.rows].sort((a, b) =>
+    return [...(showHidden ? p.rows : visibleRows)].sort((a, b) =>
       sort === "profit" ? pnlOf(b) - pnlOf(a) : sort === "recent" ? (b.lastTradeTs ?? 0) - (a.lastTradeTs ?? 0) : (b.valueUsd ?? -1) - (a.valueUsd ?? -1)
     );
-  }, [p.rows, sort]);
+  }, [p.rows, visibleRows, showHidden, sort]);
   const sortedClosed = useMemo(
     () => [...p.closed].sort((a, b) => (sort === "profit" ? b.pnlUsd - a.pnlUsd : b.lastTradeTs - a.lastTradeTs)),
     [p.closed, sort]
@@ -117,6 +124,11 @@ export default function PortfolioView(p: PortfolioViewProps) {
       <section className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-xs text-panda-grey">{t("pf.totalValue")}</p>
         <p className="mt-1 font-display text-3xl font-bold">{p.holdingsState === "loading" ? "…" : s.valueUsd !== null ? formatUsd(s.valueUsd) : "—"}</p>
+        {p.holdingsState === "ready" && p.change24h && (
+          <p className={`mt-1 text-sm font-medium ${p.change24h.usd >= 0 ? "text-bamboo" : "text-clay-red"}`} title={t("pf.change24hCovers", { n: p.change24h.covered, m: p.change24h.of })}>
+            {signedUsd(p.change24h.usd)} · {formatPct(p.change24h.pct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
+          </p>
+        )}
         {p.holdingsState === "loading" && <p className="mt-2 text-xs text-panda-grey">{t("pf.reading")}</p>}
         {p.holdingsState === "error" && <p className="mt-2 text-xs text-clay-red">{t("pf.readError")}</p>}
         {p.holdingsState === "ready" && s.valueUsd === null && <p className="mt-2 text-xs text-panda-grey">{t("pf.noPriced")}</p>}
@@ -236,6 +248,15 @@ export default function PortfolioView(p: PortfolioViewProps) {
           <p className="mt-3 text-xs text-panda-grey">{t("pf.estimatedNote")}</p>
         )}
 
+        {tab === "holdings" && p.holdingsState === "ready" && spam.length > 0 && (
+          <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-panda-grey">
+            {t("pf.hidden", { n: spam.length })}
+            <button type="button" onClick={() => setShowHidden((v) => !v)} className="font-semibold text-meme-orange hover:brightness-110">
+              {showHidden ? t("pf.hideHidden") : t("pf.showHidden")}
+            </button>
+          </p>
+        )}
+
         <div className="mt-4 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
           {tab === "holdings" && p.holdingsState === "loading" && <Skeleton />}
           {tab === "holdings" && p.holdingsState === "error" && <p className="p-6 text-center text-sm text-clay-red">{t("pf.readError")}</p>}
@@ -249,8 +270,8 @@ export default function PortfolioView(p: PortfolioViewProps) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">
-                    {r.symbol ? `$${r.symbol}` : truncateAddress(r.mint)}
-                    {r.name && <span className="ml-2 hidden text-xs font-normal text-panda-grey sm:inline">{r.name}</span>}
+                    {r.symbol ? `$${clipLabel(r.symbol)}` : truncateAddress(r.mint)}
+                    {r.name && <span className="ml-2 hidden text-xs font-normal text-panda-grey sm:inline">{clipLabel(r.name, 24)}</span>}
                   </p>
                   <p className="text-xs text-panda-grey">
                     {num(r.amount, lang, r.amount >= 1000 ? 0 : 4)}
@@ -259,6 +280,11 @@ export default function PortfolioView(p: PortfolioViewProps) {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="font-medium">{r.valueUsd !== undefined ? formatUsd(r.valueUsd) : <span className="text-sm text-panda-grey">{t("pf.noPrice")}</span>}</p>
+                  {r.valueUsd !== undefined && r.changePct !== undefined && (
+                    <p className={`text-xs font-medium ${r.changePct >= 0 ? "text-bamboo" : "text-clay-red"}`}>
+                      {formatPct(r.changePct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
+                    </p>
+                  )}
                   <PnlCell pnl={r.pnl} />
                 </div>
               </div>

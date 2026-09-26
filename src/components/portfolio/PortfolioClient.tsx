@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import Panda from "@/components/panda/Panda";
 import PortfolioView, { LoadState, RewardsInfo } from "./PortfolioView";
-import { getWalletPortfolio } from "@/lib/solana/portfolio";
+import { getWalletPortfolio, portfolioChange24h } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
 import { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
@@ -97,6 +97,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
   }, [connected, publicKey, connection, coins]);
 
   // Until the trade history has loaded, no P&L may be claimed: treat "no positions yet" as unknown, not as "no trades".
+  const change24h = useMemo(() => portfolioChange24h(holdings), [holdings]);
   const rows = useMemo(() => buildRows(holdings, positionsState === "ready" ? open : []), [holdings, open, positionsState]);
   const summary = useMemo(() => summarize(rows, positionsState === "ready" ? [...open, ...closed] : []), [rows, open, closed, positionsState]);
   const alloc = useMemo(() => allocation(rows), [rows]);
@@ -119,6 +120,7 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
     <PortfolioView
       address={address}
       holdingsState={holdingsState}
+      change24h={change24h}
       rows={rows}
       summary={summary}
       alloc={alloc}
