@@ -9,6 +9,7 @@
   --meme-orange: #ff6a1a;
   --bamboo: #c9d94c;
   --clay-red: #e8543e;
+  --sun: #f2c94c;
   --draw-buy: #ff4d6d;
   --draw-sell: #5cc8ff;
   --font-display: var(--font-bricolage);
@@ -23,6 +24,7 @@
   --color-meme-orange: var(--meme-orange);
   --color-bamboo: var(--bamboo);
   --color-clay-red: var(--clay-red);
+  --color-sun: var(--sun);
   --font-display: var(--font-display);
   --font-sans: var(--font-body);
 }

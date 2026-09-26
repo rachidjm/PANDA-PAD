@@ -1,5 +1,6 @@
 "use client";
 
+import RugBadge from "@/components/RugBadge";
 import { useState } from "react";
 import { Coin, Trade } from "@/lib/types";
 import { formatCompact, formatNumber, formatPct } from "@/lib/format";
@@ -58,6 +59,8 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           </div>
 
           <FeeLockNotice mint={coin.mint} />
+
+          <RugBadge mint={coin.mint} variant="full" className="mt-4 max-w-xl" />
 
           {coin.quality === "suspect" && (
             <div className="mt-4 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-xs leading-relaxed text-paper/90" role="alert">

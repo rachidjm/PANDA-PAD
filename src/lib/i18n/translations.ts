@@ -29,6 +29,12 @@ export const dict = {
   },
 
   // Footer
+  "rc.good": { en: "No alerts", es: "Sin alertas" },
+  "rc.warn": { en: "Caution", es: "Precaución" },
+  "rc.danger": { en: "High risk", es: "Riesgo alto" },
+  "rc.title": { en: "RugCheck risk score: {n}. A third-party automatic check — it can be wrong or incomplete.", es: "Puntuación de riesgo de RugCheck: {n}. Una comprobación automática de un tercero: puede equivocarse o estar incompleta." },
+  "rc.view": { en: "View on RugCheck", es: "Ver en RugCheck" },
+  "rc.disclaimer": { en: "Automatic check by RugCheck, a third party (higher score = riskier). It doesn't vouch for any coin and isn't advice; PANDA doesn't review coins.", es: "Comprobación automática de RugCheck, un tercero (mayor puntuación = más riesgo). No avala ninguna moneda ni es asesoramiento; PANDA no revisa monedas." },
   "footer.product": { en: "Product", es: "Producto" },
   "legal.updated": { en: "Last updated", es: "Última actualización" },
   "footer.legal": { en: "Legal", es: "Legal" },
