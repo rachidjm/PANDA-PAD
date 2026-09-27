@@ -284,9 +284,25 @@ export const referralPayouts = pgTable(
   (t) => [primaryKey({ columns: [t.signature, t.referrer] }), check("referral_payouts_positive", sql`${t.lamports} > 0`), index("referral_payouts_referrer").on(t.referrer)]
 );
 
+// ── Vanity mint keypairs (a pre-generated stock of "…panda" addresses) ────────────────────────────────────────────
+/** One row per pre-generated mint keypair whose address ends in `suffix`, secret key encrypted at rest (see
+ *  src/lib/vanity/crypto.ts). `claimedAt` set = already handed out to one coin launch — see src/lib/vanity/stock.ts. */
+export const vanityMintKeys = pgTable(
+  "vanity_mint_keys",
+  {
+    pubkey: text("pubkey").primaryKey(),
+    suffix: text("suffix").notNull(),
+    ciphertext: text("ciphertext").notNull(), // base64: AES-256-GCM(secretKey) || authTag
+    nonce: text("nonce").notNull(), // base64, 12-byte GCM IV
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: bigint("claimed_at", { mode: "number" }),
+  },
+  (t) => [index("vanity_mint_keys_available").on(t.suffix, t.claimedAt)]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
-  referrals, referralPayouts,
+  referrals, referralPayouts, vanityMintKeys,
 };

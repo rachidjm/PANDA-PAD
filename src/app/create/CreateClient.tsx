@@ -135,14 +135,12 @@ export default function CreateClient() {
       if (!uploadRes.ok) throw new Error(uploadData.error || t("cr.err.upload"));
 
       setStage("building");
-      const mint = Keypair.generate();
       const shareholders = (feeResult?.lines ?? []).map((l) => ({ address: l.address, shareBps: l.bps }));
       const summary = (feeResult?.lines ?? []).map((l) => `${kindLabel(l.kind)} ${formatBps(l.bps)}%`).join(" · ");
       const buildRes = await fetch("/api/pump/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mint: mint.publicKey.toBase58(),
           user: publicKey.toBase58(),
           name: name.trim(),
           symbol: ticker.trim(),
@@ -152,6 +150,10 @@ export default function CreateClient() {
       });
       const buildData = await buildRes.json();
       if (!buildRes.ok) throw new Error(buildData.error || t("cr.err.build"));
+      // The mint is now assigned by the server (an address ending in "panda" when the pre-generated stock has
+      // one left — see src/lib/vanity/stock.ts) rather than generated in the browser; only its secret ever
+      // needs to leave the server, and only once, right here, so this tab can sign with it below.
+      const mint = Keypair.fromSecretKey(Uint8Array.from(buildData.mintSecretKey));
 
       // `combined`: the whole launch (coin + fee split) is ONE v0 transaction; otherwise it is the coin alone and the split follows.
       const transaction = buildData.combined ? base64ToVersionedTransaction(buildData.transaction) : base64ToTransaction(buildData.transaction);

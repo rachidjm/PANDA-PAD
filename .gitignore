@@ -28,6 +28,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# raw private keys from solana-keygen grind, before scripts/vanity-import.ts encrypts and imports them
+/vanity-keys/
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)

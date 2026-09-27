@@ -83,6 +83,13 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["REFERRAL_START"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): unset or invalid, no referral is ever paid — the whole fee goes to the treasury" },
   { names: ["REFERRAL_END"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): see REFERRAL_START" },
   { names: ["REFERRAL_SHARE_BPS"], group: "referrals", required: never, valid: isBps, affects: "the referrer's share of PANDA's trade fee during the campaign (default 3000 = 30%)" },
+  {
+    names: ["VANITY_STOCK_KEY"],
+    group: "core",
+    required: never,
+    valid: (v) => { try { return Buffer.from(v, "base64").length === 32; } catch { return false; } },
+    affects: "vanity \"…panda\" mint addresses (docs/VANITY_STOCK.md): unset, every coin gets a plain random address instead — launches are never blocked either way",
+  },
 ];
 
 export type EnvItem = { name: string; group: EnvGroup; required: boolean; status: EnvStatus; affects: string };

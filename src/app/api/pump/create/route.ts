@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { coinCreationGuardResponse, moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { clientIp, moneyRateGate } from "@/lib/rate-limit";
-import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { buildCreateTransaction, buildFeeSharingTransaction, buildLaunchTransaction } from "@/lib/pump/create";
 import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
 import { registerPendingFeeLock } from "@/lib/pump/fee-lock";
@@ -12,6 +12,7 @@ import { isEnabled } from "@/lib/config/flags";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import { holderShareIssue } from "@/lib/pump/holder-rewards";
 import { recordAudit } from "@/lib/audit/log";
+import { claimMintKeypair } from "@/lib/vanity/stock";
 
 export async function POST(req: Request) {
   const moneyBlocked = await moneyFlowGuardResponse();
@@ -26,17 +27,21 @@ export async function POST(req: Request) {
     if (limited) return limited;
   }
   try {
-    const { mint, user, name, symbol, uri, shareholders, step } = await req.json();
+    const { mint: clientMint, user, name, symbol, uri, shareholders, step } = await req.json();
     // A launch is ONE transaction (create + fee split, as a v0 message using PANDA's lookup table) when the table is available;
     // otherwise two: "create" (the coin) and then "fees" (its on-chain SharingConfig).
     const forFees = step === "fees";
     if (step !== undefined && step !== "create" && step !== "fees") return NextResponse.json({ error: "Unknown step." }, { status: 400 });
-    if (!mint || !user || (!forFees && (!name || !symbol || !uri))) {
-      return NextResponse.json({ error: forFees ? "Missing mint or user." : "Missing mint, user, name, symbol or uri." }, { status: 400 });
+    // "fees" reuses the mint of a coin that already exists — that one has to come from the client. "create" is
+    // the opposite: the mint is now always ASSIGNED by the server (see mintKeypair below, "…panda" when the
+    // vanity stock has one), so a mint from the client at this step is simply ignored, never trusted.
+    if (!user || (forFees && !clientMint) || (!forFees && (!name || !symbol || !uri))) {
+      return NextResponse.json({ error: forFees ? "Missing mint or user." : "Missing user, name, symbol or uri." }, { status: 400 });
     }
 
     if (
-      [mint, user].some((v) => typeof v !== "string") ||
+      typeof user !== "string" ||
+      (forFees && typeof clientMint !== "string") ||
       (!forFees && ([name, symbol, uri].some((v) => typeof v !== "string") || name.length > 64 || symbol.length > 16 || uri.length > 400))
     ) {
       return NextResponse.json({ error: "Invalid coin details." }, { status: 400 });
@@ -56,6 +61,22 @@ export async function POST(req: Request) {
 
     const connection = new Connection(serverRpcUrl(), "confirmed");
     const userKey = new PublicKey(user);
+
+    // The "create" step's mint: a pre-generated "…panda" address from the stock when one is available, a plain
+    // random keypair otherwise — never a reason the launch is blocked (see src/lib/vanity/stock.ts). Only its
+    // PUBLIC key is used to build the transaction below; the secret goes back to the client in the response so
+    // it can sign as a co-signer of its own creation, exactly as it did when it generated the keypair itself.
+    let mintKeypair: Keypair | null = null;
+    let vanity = false;
+    let mint: string;
+    if (forFees) {
+      mint = clientMint;
+    } else {
+      const claimed = await claimMintKeypair();
+      mintKeypair = claimed.keypair;
+      vanity = claimed.vanity;
+      mint = mintKeypair.publicKey.toBase58();
+    }
     const mintKey = new PublicKey(mint);
 
     if (forFees && !(await connection.getAccountInfo(mintKey, "confirmed"))) {
@@ -110,8 +131,16 @@ export async function POST(req: Request) {
 
     const serialized = tx instanceof VersionedTransaction ? Buffer.from(tx.serialize()) : (tx as Transaction).serialize({ requireAllSignatures: false, verifySignatures: false });
     // `combined`: one v0 transaction does everything (the client signs it with the mint and skips the second step);
-    // otherwise `feeSplitStep` tells the client to send the "fees" transaction next.
-    return NextResponse.json({ transaction: serialized.toString("base64"), versioned: combined, combined, feeSplitStep: !forFees && !combined });
+    // otherwise `feeSplitStep` tells the client to send the "fees" transaction next. On "create", `mint` and
+    // `mintSecretKey` are the server-assigned keypair the client must sign with (see above) — never sent again
+    // on the "fees" step, which already has its own mint.
+    return NextResponse.json({
+      transaction: serialized.toString("base64"),
+      versioned: combined,
+      combined,
+      feeSplitStep: !forFees && !combined,
+      ...(forFees ? {} : { mint, mintSecretKey: Array.from(mintKeypair!.secretKey), vanity }),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to build transaction.";
     return NextResponse.json({ error: message }, { status: 500 });
