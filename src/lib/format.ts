@@ -44,3 +44,41 @@ export function formatPrice(n: number): string {
   const leadingZeros = Math.max(0, -Math.floor(Math.log10(n)) - 1);
   return `$${n.toFixed(Math.min(leadingZeros + 3, 10))}`;
 }
+
+export type Currency = "USD" | "EUR";
+
+/** How many decimals a real money amount reads best with — same tiers as `formatPrice`, currency-agnostic. */
+function moneyFractionDigits(n: number): number {
+  const abs = Math.abs(n);
+  if (abs === 0 || abs >= 1) return 2;
+  if (abs >= 0.01) return 4;
+  const leadingZeros = Math.max(0, -Math.floor(Math.log10(abs)) - 1);
+  return Math.min(leadingZeros + 3, 10);
+}
+
+/**
+ * A real money amount (portfolio value, P&L, a trade's cost) in the user's chosen display currency, localized to
+ * `lang` — the right symbol and position, the right decimal/thousands separators (`Intl` handles both, so this
+ * never hardcodes "$" or a "." decimal point). Compact (K/M/B-ish, via `Intl`'s own compact notation) at $1000+.
+ */
+export function formatMoney(n: number, currency: Currency, lang: string): string {
+  const compact = Math.abs(n) >= 1000;
+  return new Intl.NumberFormat(lang, {
+    style: "currency",
+    currency,
+    notation: compact ? "compact" : "standard",
+    minimumFractionDigits: compact ? 0 : 2,
+    maximumFractionDigits: compact ? 1 : 2,
+  }).format(n);
+}
+
+/** Like `formatMoney`, but for a per-token PRICE (which can be tiny) rather than a value — adaptive precision like `formatPrice`. */
+export function formatMoneyPrice(n: number, currency: Currency, lang: string): string {
+  const digits = moneyFractionDigits(n);
+  return new Intl.NumberFormat(lang, { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+}
+
+/** `usd` converted to EUR using the real EUR→USD rate (USD per 1 EUR) — `null` propagates when the rate isn't known. */
+export function usdToEur(usd: number, eurUsd: number | null): number | null {
+  return eurUsd !== null && eurUsd > 0 ? usd / eurUsd : null;
+}

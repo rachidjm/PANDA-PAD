@@ -2,6 +2,7 @@ import { readJson, updateJson, writeJson } from "@/lib/rewards/blob-store";
 import { getDb } from "@/lib/db/client";
 import { mirror, storageMode } from "@/lib/db/mode";
 import { pgAddTrades, pgGetBackfillMark, pgGetTrades, pgSetBackfillMark } from "@/lib/db/trades";
+import { invalidatePositionsCache } from "./positions-cache";
 
 export type LoggedTrade = {
   mint: string;
@@ -39,6 +40,7 @@ export async function recordTrade(wallet: string, trade: LoggedTrade): Promise<v
   const mode = storageMode("trades");
   if (mode === "postgres") {
     await pgAddTrades(getDb(), wallet, [trade]);
+    await invalidatePositionsCache(wallet);
     return;
   }
   await updateJson<LoggedTrade[], void>(tradeLogPath(wallet), [], (trades) => {
@@ -46,18 +48,24 @@ export async function recordTrade(wallet: string, trade: LoggedTrade): Promise<v
     return { next: trades, result: undefined };
   });
   if (mode === "dual") await mirror("trades", `trade ${trade.signature}`, () => pgAddTrades(getDb(), wallet, [trade]));
+  await invalidatePositionsCache(wallet);
 }
 
 /** Adds the trades a backfill scan found that aren't logged yet. Returns how many were new. */
 export async function addEstimatedTrades(wallet: string, trades: LoggedTrade[]): Promise<number> {
   const mode = storageMode("trades");
-  if (mode === "postgres") return pgAddTrades(getDb(), wallet, trades);
+  if (mode === "postgres") {
+    const added = await pgAddTrades(getDb(), wallet, trades);
+    if (added > 0) await invalidatePositionsCache(wallet);
+    return added;
+  }
   const fresh = await updateJson<LoggedTrade[], LoggedTrade[]>(tradeLogPath(wallet), [], (existing) => {
     const known = new Set(existing.map((t) => t.signature));
     const add = trades.filter((t) => !known.has(t.signature));
     return { next: [...existing, ...add], result: add };
   });
   if (mode === "dual" && fresh.length > 0) await mirror("trades", `backfill ${wallet}`, () => pgAddTrades(getDb(), wallet, fresh));
+  if (fresh.length > 0) await invalidatePositionsCache(wallet);
   return fresh.length;
 }
 

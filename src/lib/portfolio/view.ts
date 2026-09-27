@@ -118,6 +118,20 @@ export function summarize(rows: TokenRow[], positions: Position[]): Summary {
   return { valueUsd, pricedCount: priced.length, unpricedCount: rows.length - priced.length, unrealized, realized };
 }
 
+export type CombinedPnl = { usd: number; kind: "tracked" | "estimated"; unrealizedUsd: number | null; realizedUsd: number | null };
+
+/**
+ * Open (unrealized) + realized P&L as the one number the redesigned Portfolio header leads with — "how have I
+ * done, all in" — plus the two parts it's made of, for a small breakdown underneath. Null only when NEITHER
+ * half is known yet (not even "nothing realized"), so the header can tell "no data" apart from "$0".
+ */
+export function combinedPnl(s: Summary): CombinedPnl | null {
+  if (!s.unrealized && !s.realized) return null;
+  const usd = (s.unrealized?.usd ?? 0) + (s.realized?.usd ?? 0);
+  const kind = s.unrealized?.kind === "estimated" || s.realized?.kind === "estimated" ? "estimated" : "tracked";
+  return { usd, kind, unrealizedUsd: s.unrealized?.usd ?? null, realizedUsd: s.realized?.usd ?? null };
+}
+
 export type Slice = { key: string; label: string; valueUsd: number; /** Whole basis points; every allocation sums to exactly 10 000. */ bps: number; other?: boolean };
 
 /** The biggest priced holdings as shares of the priced total, the rest grouped as "other". Integer bps that always add up to 10 000. */

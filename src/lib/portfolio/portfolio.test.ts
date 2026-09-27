@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computePositions, Position } from "./positions";
-import { allocation, buildRows, NATIVE_MINT, summarize, sumRewards, TokenRow } from "./view";
+import { allocation, buildRows, combinedPnl, NATIVE_MINT, summarize, sumRewards, TokenRow } from "./view";
 import type { LoggedTrade } from "./trade-log";
 import type { PortfolioHolding } from "@/lib/types";
 
@@ -114,6 +114,33 @@ test("summary: realized P&L adds up every coin and is estimated when any of it i
   assert.deepEqual(summarize([], [closed, partial]).realized, { usd: 50, kind: "estimated" });
   assert.deepEqual(summarize([], [closed, pos({ mint: "MintD", realizedPnlUsd: 5, estimated: true })]).realized, { usd: -15, kind: "estimated" });
   assert.equal(summarize([], [pos({})]).realized, null, "an open position that never sold has nothing realized");
+});
+
+// ---- combined P&L (the redesigned header's single figure) ------------------------------------------------
+
+test("combinedPnl: open + realized as one figure, 'estimated' if either half is, null only when neither half is known", () => {
+  assert.equal(combinedPnl({ valueUsd: null, pricedCount: 0, unpricedCount: 0, unrealized: null, realized: null }), null);
+
+  const tracked = combinedPnl({
+    valueUsd: null,
+    pricedCount: 0,
+    unpricedCount: 0,
+    unrealized: { usd: 40, pct: 10, kind: "tracked", coveredCount: 1, excludedCount: 0 },
+    realized: { usd: 60, kind: "tracked" },
+  });
+  assert.deepEqual(tracked, { usd: 100, kind: "tracked", unrealizedUsd: 40, realizedUsd: 60 });
+
+  const oneEstimated = combinedPnl({
+    valueUsd: null,
+    pricedCount: 0,
+    unpricedCount: 0,
+    unrealized: { usd: 40, pct: 10, kind: "estimated", coveredCount: 1, excludedCount: 0 },
+    realized: { usd: 60, kind: "tracked" },
+  });
+  assert.equal(oneEstimated?.kind, "estimated");
+
+  const onlyRealized = combinedPnl({ valueUsd: null, pricedCount: 0, unpricedCount: 0, unrealized: null, realized: { usd: -20, kind: "tracked" } });
+  assert.deepEqual(onlyRealized, { usd: -20, kind: "tracked", unrealizedUsd: null, realizedUsd: -20 });
 });
 
 // ---- allocation ----------------------------------------------------------------------------------------

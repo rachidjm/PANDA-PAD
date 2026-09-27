@@ -141,7 +141,7 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
             top.map((h) => (
               <div key={h.mint} className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  <CoinAvatar image={h.image} ticker={h.symbol || "?"} />
+                  <CoinAvatar image={h.image} ticker={h.symbol || ""} mint={h.mint} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{h.symbol ? `$${clipLabel(h.symbol)}` : truncateAddress(h.mint)}</p>

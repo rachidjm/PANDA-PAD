@@ -1,15 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Panda from "@/components/panda/Panda";
 import CoinAvatar from "@/components/CoinAvatar";
-import { formatPct, formatPrice, formatRelativeTime, formatUsd, truncateAddress } from "@/lib/format";
+import { formatMoney, formatPct, formatRelativeTime, truncateAddress, type Currency } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { useCurrency } from "./useCurrency";
 import type { Position } from "@/lib/portfolio/positions";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
-import type { Pnl, Slice, Summary, TokenRow } from "@/lib/portfolio/view";
+import { combinedPnl, type Pnl, type Slice, type Summary, type TokenRow } from "@/lib/portfolio/view";
 import { clipLabel, looksLikeSpam } from "@/lib/portfolio/spam";
 
 export type LoadState = "loading" | "ready" | "error";
@@ -30,15 +31,71 @@ export type PortfolioViewProps = {
   rewards: RewardsInfo | "loading" | "error";
 };
 
-type SortMode = "value" | "recent" | "profit";
+type SortMode = "value" | "recent" | "gain" | "loss";
+const SORT_KEY = "panda:portfolio:sort";
 const SLICE_COLORS = ["#ff6a1a", "#c9d94c", "#f7f4ec", "#e8543e", "#8b8680"];
 const OTHER_COLOR = "rgba(247,244,236,0.25)";
 const sliceColor = (s: Slice, i: number) => (s.other ? OTHER_COLOR : SLICE_COLORS[i % SLICE_COLORS.length]);
 
 const num = (n: number, lang: string, maxFrac: number) => n.toLocaleString(lang, { maximumFractionDigits: maxFrac });
 const sol = (lamports: number, lang: string) => num(lamports / 1e9, lang, 4);
-const signedUsd = (n: number) => `${n >= 0 ? "+" : "-"}${formatUsd(Math.abs(n))}`;
 const tone = (n: number) => (n >= 0 ? "text-bamboo" : "text-clay-red");
+
+function readSort(): SortMode | null {
+  try {
+    const v = window.localStorage.getItem(SORT_KEY);
+    return v === "value" || v === "recent" || v === "gain" || v === "loss" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function sortTokenRows(rows: TokenRow[], sort: SortMode): TokenRow[] {
+  const arr = [...rows];
+  if (sort === "value") return arr.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
+  if (sort === "recent") return arr.sort((a, b) => (b.lastTradeTs ?? 0) - (a.lastTradeTs ?? 0));
+  const pnlOf = (r: TokenRow) => (r.pnl.kind === "unavailable" ? null : r.pnl.usd);
+  return arr.sort((a, b) => {
+    const [pa, pb] = [pnlOf(a), pnlOf(b)];
+    if (pa === null) return pb === null ? 0 : 1;
+    if (pb === null) return -1;
+    return sort === "gain" ? pb - pa : pa - pb;
+  });
+}
+
+function sortPositions(rows: Position[], sort: Exclude<SortMode, "value">): Position[] {
+  const arr = [...rows];
+  if (sort === "recent") return arr.sort((a, b) => b.lastTradeTs - a.lastTradeTs);
+  return arr.sort((a, b) => (sort === "gain" ? b.pnlUsd - a.pnlUsd : a.pnlUsd - b.pnlUsd));
+}
+
+/** A real money amount in the selected display currency — a pulsing placeholder (never a spinner) while EUR's rate hasn't loaded yet. */
+function Money({ usd, currency, eurUsd, signed, className, barW = "w-16" }: { usd: number; currency: Currency; eurUsd: number | null; signed?: boolean; className?: string; barW?: string }) {
+  const { lang } = useLanguage();
+  if (currency === "EUR" && eurUsd === null) return <span className={`inline-block h-[1em] ${barW} animate-pulse rounded bg-paper/10 align-middle`} aria-hidden />;
+  const value = currency === "EUR" ? usd / (eurUsd as number) : usd;
+  const text = signed ? `${value >= 0 ? "+" : "-"}${formatMoney(Math.abs(value), currency, lang)}` : formatMoney(value, currency, lang);
+  return <span className={className}>{text}</span>;
+}
+
+function CurrencyToggle({ currency, onChange }: { currency: Currency; onChange: (c: Currency) => void }) {
+  const { t } = useLanguage();
+  return (
+    <div className="flex shrink-0 gap-0.5 rounded-full bg-paper/[0.06] p-0.5" role="group" aria-label={t("pf.currencyAria")}>
+      {(["EUR", "USD"] as const).map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onChange(c)}
+          aria-pressed={currency === c}
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${currency === c ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
+        >
+          {c === "EUR" ? "€" : "$"}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function KindChip({ kind }: { kind: "tracked" | "estimated" }) {
   const { t } = useLanguage();
@@ -66,49 +123,100 @@ function Stat({ label, chip, children, foot }: { label: string; chip?: React.Rea
   );
 }
 
-function PnlCell({ pnl }: { pnl: Pnl }) {
+/** A position's gain/loss %, compactly — never its own separate P&L card, just the row's second line. */
+function PnlPct({ pnl }: { pnl: Pnl }) {
   const { t } = useLanguage();
   if (pnl.kind === "unavailable") {
     if (pnl.reason === "not_tracked") return null;
     return (
-      <p className="text-xs text-panda-grey" title={pnl.reason === "no_trades" ? t("pf.unavailNoTrades") : t("pf.unavailNoPrice")}>
+      <span className="text-panda-grey" title={pnl.reason === "no_trades" ? t("pf.unavailNoTrades") : t("pf.unavailNoPrice")}>
         {t("pf.unavailable")}
-      </p>
+      </span>
     );
   }
   return (
-    <p className={`text-xs ${tone(pnl.usd)}`}>
+    <span className={tone(pnl.pct)}>
       {pnl.kind === "estimated" && <span title={t("pf.kindEstimated")}>≈ </span>}
-      {signedUsd(pnl.usd)} · {formatPct(pnl.pct)}
-    </p>
+      {formatPct(pnl.pct)}
+    </span>
+  );
+}
+
+/** The long "Tracked = ... Estimated = ... Unavailable = ..." explanation, collapsed behind a small (i) — tapped open, not always on screen. */
+function LegendInfo() {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={t("pf.legendAria")}
+        className="flex h-5 w-5 items-center justify-center rounded-full border border-paper/20 text-[11px] font-semibold text-panda-grey transition-colors hover:border-paper/40 hover:text-paper"
+      >
+        i
+      </button>
+      {open && <p className="mt-2 text-[11px] leading-relaxed text-panda-grey">{t("pf.legend")}</p>}
+    </div>
+  );
+}
+
+function Skeleton() {
+  return (
+    <div className="space-y-1.5 p-4">
+      {[0, 1].map((i) => (
+        <div key={i} className="h-14 animate-pulse rounded-xl bg-paper/5" />
+      ))}
+    </div>
   );
 }
 
 export default function PortfolioView(p: PortfolioViewProps) {
   const { t, lang } = useLanguage();
   const { holderRewards } = useFeatures();
-  const [tab, setTab] = useState<"holdings" | "closed">("holdings");
+  const { currency, setCurrency, eurUsd } = useCurrency(lang);
+  const [tab, setTab] = useState<"holdings" | "closed" | "activity">("holdings");
   const [sort, setSort] = useState<SortMode>("value");
   const [showHidden, setShowHidden] = useState(false);
+
+  useEffect(() => {
+    // A macrotask, not a microtask — see useCurrency.ts for why a `Promise.then()` here can race React's
+    // concurrent hydration on a tree this size and cause a real server/client mismatch.
+    const timer = setTimeout(() => {
+      const stored = readSort();
+      if (stored) setSort(stored);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SORT_KEY, sort);
+    } catch {
+      // Not remembered this time — sorting still works for the rest of the visit.
+    }
+  }, [sort]);
 
   // Ads airdropped to the wallet are listed apart (like a wallet app does), one click away.
   const spam = useMemo(() => p.rows.filter((r) => looksLikeSpam(r) && r.valueUsd === undefined), [p.rows]);
   const visibleRows = useMemo(() => p.rows.filter((r) => !spam.includes(r)), [p.rows, spam]);
-  const sortedRows = useMemo(() => {
-    const pnlOf = (r: TokenRow) => (r.pnl.kind === "unavailable" ? -Infinity : r.pnl.usd);
-    return [...(showHidden ? p.rows : visibleRows)].sort((a, b) =>
-      sort === "profit" ? pnlOf(b) - pnlOf(a) : sort === "recent" ? (b.lastTradeTs ?? 0) - (a.lastTradeTs ?? 0) : (b.valueUsd ?? -1) - (a.valueUsd ?? -1)
-    );
-  }, [p.rows, visibleRows, showHidden, sort]);
-  const sortedClosed = useMemo(
-    () => [...p.closed].sort((a, b) => (sort === "profit" ? b.pnlUsd - a.pnlUsd : b.lastTradeTs - a.lastTradeTs)),
-    [p.closed, sort]
-  );
+  const sortedRows = useMemo(() => sortTokenRows(showHidden ? p.rows : visibleRows, sort), [p.rows, visibleRows, showHidden, sort]);
+  const sortedClosed = useMemo(() => sortPositions(p.closed, sort === "value" ? "recent" : sort), [p.closed, sort]);
+  // Real coin images, for the coins this wallet has ever held (open, closed, or in its activity log alike).
+  const imageByMint = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    for (const r of p.rows) if (r.image) m.set(r.mint, r.image);
+    for (const c of p.closed) if (c.coinImage) m.set(c.mint, c.coinImage);
+    return m;
+  }, [p.rows, p.closed]);
 
   const s = p.summary;
+  const combined = combinedPnl(s);
   const anyEstimatedClosed = p.closed.some((c) => c.estimated || c.partialHistory);
+  const trulyEmpty = p.holdingsState === "ready" && p.rows.length === 0;
   const chipBtn = (active: boolean) =>
     `rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${active ? "bg-paper/10 text-paper" : "text-panda-grey hover:text-paper"}`;
+  const money = (usd: number, opts?: { signed?: boolean; barW?: string }) => <Money usd={usd} currency={currency} eurUsd={eurUsd} {...opts} />;
 
   return (
     <div>
@@ -122,11 +230,22 @@ export default function PortfolioView(p: PortfolioViewProps) {
 
       {/* ---- summary ---- */}
       <section className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-        <p className="text-xs text-panda-grey">{t("pf.totalValue")}</p>
-        <p className="mt-1 font-display text-3xl font-bold">{p.holdingsState === "loading" ? "…" : s.valueUsd !== null ? formatUsd(s.valueUsd) : "—"}</p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-xs text-panda-grey">{t("pf.totalValue")}</p>
+          <CurrencyToggle currency={currency} onChange={setCurrency} />
+        </div>
+        <p className="mt-1 font-display text-3xl font-bold">
+          {p.holdingsState === "loading" ? (
+            <span className="inline-block h-[1em] w-32 animate-pulse rounded bg-paper/10 align-middle" aria-hidden />
+          ) : s.valueUsd !== null ? (
+            money(s.valueUsd, { barW: "w-32" })
+          ) : (
+            "—"
+          )}
+        </p>
         {p.holdingsState === "ready" && p.change24h && (
           <p className={`mt-1 text-sm font-medium ${p.change24h.usd >= 0 ? "text-bamboo" : "text-clay-red"}`} title={t("pf.change24hCovers", { n: p.change24h.covered, m: p.change24h.of })}>
-            {signedUsd(p.change24h.usd)} · {formatPct(p.change24h.pct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
+            {money(p.change24h.usd, { signed: true })} · {formatPct(p.change24h.pct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
           </p>
         )}
         {p.holdingsState === "loading" && <p className="mt-2 text-xs text-panda-grey">{t("pf.reading")}</p>}
@@ -136,27 +255,12 @@ export default function PortfolioView(p: PortfolioViewProps) {
           <p className="mt-2 text-xs text-panda-grey">{t("pf.pricedOnly", { n: s.unpricedCount })}</p>
         )}
 
-        <div className={`mt-5 grid gap-3 ${holderRewards ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-          <Stat
-            label={t("pf.pnlOpen")}
-            chip={s.unrealized ? <KindChip kind={s.unrealized.kind} /> : undefined}
-            foot={s.unrealized ? t("pf.pnlCovers", { n: s.unrealized.coveredCount, m: s.unrealized.coveredCount + s.unrealized.excludedCount }) : undefined}
-          >
-            {s.unrealized ? (
-              <span className={tone(s.unrealized.usd)}>
-                {signedUsd(s.unrealized.usd)}
-                {s.unrealized.pct !== null && <span className="ml-1.5 text-sm font-medium">{formatPct(s.unrealized.pct)}</span>}
-              </span>
+        <div className={`mt-5 grid gap-3 ${holderRewards ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+          <Stat label={t("pf.pnlTotal")} chip={combined ? <KindChip kind={combined.kind} /> : undefined}>
+            {combined ? (
+              money(combined.usd, { signed: true, barW: "w-20" })
             ) : (
-              <span className="text-sm font-medium text-panda-grey">{p.holdingsState === "loading" || p.positionsState === "loading" ? "…" : t("pf.unavailable")}</span>
-            )}
-          </Stat>
-
-          <Stat label={t("pf.pnlRealized")} chip={s.realized ? <KindChip kind={s.realized.kind} /> : undefined}>
-            {s.realized ? (
-              <span className={tone(s.realized.usd)}>{signedUsd(s.realized.usd)}</span>
-            ) : (
-              <span className="text-sm font-medium text-panda-grey">{p.positionsState === "loading" ? "…" : t("pf.pnlNone")}</span>
+              <span className="text-sm font-medium text-panda-grey">{p.holdingsState === "loading" || p.positionsState === "loading" ? "…" : t("pf.pnlNone")}</span>
             )}
           </Stat>
 
@@ -188,6 +292,22 @@ export default function PortfolioView(p: PortfolioViewProps) {
           )}
         </div>
 
+        {combined && (combined.unrealizedUsd !== null || combined.realizedUsd !== null) && (
+          <p className="mt-2 text-[11px] text-panda-grey" title={s.unrealized ? t("pf.pnlCovers", { n: s.unrealized.coveredCount, m: s.unrealized.coveredCount + s.unrealized.excludedCount }) : undefined}>
+            {combined.unrealizedUsd !== null && (
+              <>
+                {t("pf.pnlOpen")} {money(combined.unrealizedUsd, { signed: true, barW: "w-10" })}
+              </>
+            )}
+            {combined.unrealizedUsd !== null && combined.realizedUsd !== null && " · "}
+            {combined.realizedUsd !== null && (
+              <>
+                {t("pf.pnlRealized")} {money(combined.realizedUsd, { signed: true, barW: "w-10" })}
+              </>
+            )}
+          </p>
+        )}
+
         {holderRewards && p.rewards !== "loading" && p.rewards !== "error" && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="text-panda-grey">{p.rewards.partial ? t("pf.rewardsPartial") : ""}</span>
@@ -196,7 +316,7 @@ export default function PortfolioView(p: PortfolioViewProps) {
             </Link>
           </div>
         )}
-        <p className="mt-4 text-[11px] leading-relaxed text-panda-grey">{t("pf.legend")}</p>
+        <LegendInfo />
       </section>
 
       {/* ---- allocation ---- */}
@@ -220,27 +340,29 @@ export default function PortfolioView(p: PortfolioViewProps) {
         </section>
       )}
 
-      {/* ---- holdings / closed ---- */}
+      {/* ---- holdings / closed / activity ---- */}
       <section className="mt-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1.5 rounded-full bg-ink-raised p-1">
-            {(["holdings", "closed"] as const).map((k) => (
+            {(["holdings", "closed", "activity"] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => setTab(k)}
                 className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${tab === k ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"}`}
               >
-                {k === "holdings" ? t("pf.tabHoldings") : t("pf.tabClosed")}
+                {k === "holdings" ? t("pf.tabHoldings") : k === "closed" ? t("pf.tabClosed") : t("pf.activity")}
               </button>
             ))}
           </div>
-          <div className="flex gap-1">
-            {(tab === "holdings" ? (["value", "recent", "profit"] as const) : (["recent", "profit"] as const)).map((m) => (
-              <button key={m} onClick={() => setSort(m)} className={chipBtn(sort === m || (tab === "closed" && sort === "value" && m === "recent"))}>
-                {m === "value" ? t("pf.sortValue") : m === "recent" ? t("pf.sortRecent") : t("pf.sortProfit")}
-              </button>
-            ))}
-          </div>
+          {tab !== "activity" && (
+            <div className="flex flex-wrap gap-1">
+              {(tab === "holdings" ? (["value", "recent", "gain", "loss"] as const) : (["recent", "gain", "loss"] as const)).map((m) => (
+                <button key={m} onClick={() => setSort(m)} className={chipBtn(sort === m || (tab === "closed" && sort === "value" && m === "recent"))}>
+                  {m === "value" ? t("pf.sortValue") : m === "recent" ? t("pf.sortRecent") : m === "gain" ? t("pf.sortGain") : t("pf.sortLoss")}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {p.historyError && <p className="mt-3 text-xs text-panda-grey">{t("pf.historyError")}</p>}
@@ -248,25 +370,25 @@ export default function PortfolioView(p: PortfolioViewProps) {
           <p className="mt-3 text-xs text-panda-grey">{t("pf.estimatedNote")}</p>
         )}
 
-        {tab === "holdings" && p.holdingsState === "ready" && spam.length > 0 && (
-          <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-panda-grey">
-            {t("pf.hidden", { n: spam.length })}
-            <button type="button" onClick={() => setShowHidden((v) => !v)} className="font-semibold text-meme-orange hover:brightness-110">
-              {showHidden ? t("pf.hideHidden") : t("pf.showHidden")}
-            </button>
-          </p>
-        )}
-
         <div className="mt-4 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
           {tab === "holdings" && p.holdingsState === "loading" && <Skeleton />}
           {tab === "holdings" && p.holdingsState === "error" && <p className="p-6 text-center text-sm text-clay-red">{t("pf.readError")}</p>}
-          {tab === "holdings" && p.holdingsState === "ready" && sortedRows.length === 0 && <p className="p-6 text-center text-sm text-panda-grey">{t("pf.noBalances")}</p>}
+          {tab === "holdings" && p.holdingsState === "ready" && sortedRows.length === 0 && (
+            <div className="p-6 text-center">
+              <p className="text-sm text-panda-grey">{trulyEmpty ? t("pf.emptyHoldings") : t("pf.allHidden")}</p>
+              {trulyEmpty && (
+                <Link href="/" className="mt-3 inline-block rounded-full bg-paper px-4 py-2 text-sm font-semibold text-ink hover:brightness-90 transition">
+                  {t("pf.discoverCoins")}
+                </Link>
+              )}
+            </div>
+          )}
           {tab === "holdings" &&
             p.holdingsState === "ready" &&
             sortedRows.map((r) => (
-              <div key={r.mint} className="flex items-center gap-3 p-4">
+              <Link key={r.mint} href={`/coin/${r.mint}`} className="flex items-center gap-3 p-4 transition-colors hover:bg-paper/[0.03]">
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  <CoinAvatar image={r.image} ticker={r.symbol || "?"} />
+                  <CoinAvatar image={r.image} ticker={r.symbol || ""} mint={r.mint} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">
@@ -275,20 +397,28 @@ export default function PortfolioView(p: PortfolioViewProps) {
                   </p>
                   <p className="text-xs text-panda-grey">
                     {num(r.amount, lang, r.amount >= 1000 ? 0 : 4)}
-                    {r.avgEntryUsd !== null && <> · {t("pf.avgEntry", { avg: formatPrice(r.avgEntryUsd) })}</>}
+                    {!(r.pnl.kind === "unavailable" && r.pnl.reason === "not_tracked") && (
+                      <>
+                        {" "}
+                        · <PnlPct pnl={r.pnl} />
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="font-medium">{r.valueUsd !== undefined ? formatUsd(r.valueUsd) : <span className="text-sm text-panda-grey">{t("pf.noPrice")}</span>}</p>
-                  {r.valueUsd !== undefined && r.changePct !== undefined && (
-                    <p className={`text-xs font-medium ${r.changePct >= 0 ? "text-bamboo" : "text-clay-red"}`}>
-                      {formatPct(r.changePct)} <span className="font-normal text-panda-grey">{t("pf.change24h")}</span>
-                    </p>
-                  )}
-                  <PnlCell pnl={r.pnl} />
+                  <p className="font-medium">{r.valueUsd !== undefined ? money(r.valueUsd) : <span className="text-sm text-panda-grey">{t("pf.noPrice")}</span>}</p>
                 </div>
-              </div>
+              </Link>
             ))}
+
+          {tab === "holdings" && p.holdingsState === "ready" && spam.length > 0 && (
+            <p className="flex flex-wrap items-center gap-2 p-4 text-xs text-panda-grey">
+              {t("pf.hidden", { n: spam.length })}
+              <button type="button" onClick={() => setShowHidden((v) => !v)} className="font-semibold text-meme-orange hover:brightness-110">
+                {showHidden ? t("pf.hideHidden") : t("pf.showHidden")}
+              </button>
+            </p>
+          )}
 
           {tab === "closed" && p.positionsState === "loading" && <Skeleton />}
           {tab === "closed" && p.positionsState === "error" && <p className="p-6 text-center text-sm text-clay-red">{t("pf.tradesError")}</p>}
@@ -296,54 +426,54 @@ export default function PortfolioView(p: PortfolioViewProps) {
           {tab === "closed" &&
             p.positionsState === "ready" &&
             sortedClosed.map((c) => (
-              <div key={c.mint} className="flex items-center gap-3 p-4">
+              <Link key={c.mint} href={`/coin/${c.mint}`} className="flex items-center gap-3 p-4 transition-colors hover:bg-paper/[0.03]">
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
-                  <CoinAvatar image={c.coinImage} ticker={c.ticker} />
+                  <CoinAvatar image={c.coinImage} ticker={c.ticker} mint={c.mint} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">${c.ticker}</p>
+                  <p className="truncate font-medium">
+                    ${clipLabel(c.ticker)}
+                    {c.coinName && <span className="ml-2 hidden text-xs font-normal text-panda-grey sm:inline">{clipLabel(c.coinName, 24)}</span>}
+                  </p>
                   <p className="text-xs text-panda-grey">{t("pf.fullyClosed")}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className={`font-medium ${tone(c.pnlUsd)}`}>
-                    {c.estimated || c.partialHistory ? "≈ " : ""}
-                    {signedUsd(c.pnlUsd)}
+                  <p className={`font-medium ${tone(c.pnlUsd)}`}>{money(c.pnlUsd, { signed: true })}</p>
+                  <p className={`text-xs ${tone(c.pnlUsd)}`}>
+                    {(c.estimated || c.partialHistory) && "≈ "}
+                    {formatPct(c.pnlPct)}
                   </p>
-                  <p className={`text-xs ${tone(c.pnlUsd)}`}>{formatPct(c.pnlPct)}</p>
                 </div>
-              </div>
+              </Link>
             ))}
-        </div>
-      </section>
 
-      {/* ---- recent activity ---- */}
-      <section className="mt-8">
-        <h2 className="font-display text-lg font-bold">{t("pf.activity")}</h2>
-        <div className="mt-3 divide-y divide-paper/10 rounded-[24px] border border-paper/10 bg-ink-raised">
-          {p.positionsState === "loading" && <Skeleton />}
-          {p.positionsState === "ready" && p.recent.length === 0 && <p className="p-6 text-center text-sm text-panda-grey">{t("pf.activityEmpty")}</p>}
-          {p.positionsState === "ready" &&
+          {tab === "activity" && p.positionsState === "loading" && <Skeleton />}
+          {tab === "activity" && p.positionsState === "ready" && p.recent.length === 0 && <p className="p-6 text-center text-sm text-panda-grey">{t("pf.activityEmpty")}</p>}
+          {tab === "activity" &&
+            p.positionsState === "ready" &&
             p.recent.map((tr) => (
               <div key={tr.signature} className="flex items-center gap-3 p-4">
-                <span
-                  className={`w-16 shrink-0 rounded-full py-1 text-center text-[11px] font-medium ${
-                    tr.side === "buy" ? "bg-bamboo/15 text-bamboo" : "bg-clay-red/15 text-clay-red"
-                  }`}
-                >
-                  {tr.side === "buy" ? t("pf.bought") : t("pf.sold")}
-                </span>
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-paper/10">
+                  <CoinAvatar image={imageByMint.get(tr.mint)} ticker={tr.ticker} mint={tr.mint} />
+                </div>
                 <div className="min-w-0 flex-1">
-                  <Link href={`/coin/${tr.mint}`} className="truncate font-medium hover:underline">
-                    ${tr.ticker}
-                  </Link>
-                  <p className="text-xs text-panda-grey" title={tr.estimated ? t("pf.fromChain") : undefined}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${tr.side === "buy" ? "bg-bamboo/15 text-bamboo" : "bg-clay-red/15 text-clay-red"}`}>
+                      {tr.side === "buy" ? t("pf.bought") : t("pf.sold")}
+                    </span>
+                    <Link href={`/coin/${tr.mint}`} className="truncate font-medium hover:underline">
+                      ${clipLabel(tr.ticker)}
+                    </Link>
+                  </div>
+                  <p className="mt-0.5 text-xs text-panda-grey" title={tr.estimated ? t("pf.fromChain") : undefined}>
                     {tr.estimated ? "≈ " : ""}
-                    {num(tr.tokenAmount, lang, tr.tokenAmount >= 1000 ? 0 : 4)} · {num(tr.solAmount, lang, 4)} SOL
+                    {num(tr.tokenAmount, lang, tr.tokenAmount >= 1000 ? 0 : 4)} ${clipLabel(tr.ticker)}
                   </p>
                 </div>
-                <div className="shrink-0 text-right text-xs text-panda-grey">
-                  <p>{formatRelativeTime(tr.ts, lang)}</p>
-                  <a href={`https://solscan.io/tx/${tr.signature}`} target="_blank" rel="noopener noreferrer" className="text-meme-orange hover:underline">
+                <div className="shrink-0 text-right text-xs">
+                  <p className="text-sm font-medium text-paper">{money(tr.solAmount * tr.solPriceUsdAtTrade)}</p>
+                  <p className="text-panda-grey">{formatRelativeTime(tr.ts, lang)}</p>
+                  <a href={`https://solscan.io/tx/${tr.signature}`} target="_blank" rel="noopener noreferrer" className="font-medium text-meme-orange hover:underline">
                     {t("pf.viewTx")} ↗
                   </a>
                 </div>
@@ -351,16 +481,6 @@ export default function PortfolioView(p: PortfolioViewProps) {
             ))}
         </div>
       </section>
-    </div>
-  );
-}
-
-function Skeleton() {
-  return (
-    <div className="space-y-1.5 p-4">
-      {[0, 1].map((i) => (
-        <div key={i} className="h-14 animate-pulse rounded-xl bg-paper/5" />
-      ))}
     </div>
   );
 }

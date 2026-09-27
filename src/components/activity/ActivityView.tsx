@@ -58,7 +58,7 @@ function Row({ e }: { e: FeedEvent }) {
     <div className="flex items-center gap-3 p-4">
       <div className="relative shrink-0">
         <div className="h-10 w-10 overflow-hidden rounded-full bg-paper/10">
-          <CoinAvatar image={e.image} ticker={e.ticker || "?"} />
+          <CoinAvatar image={e.image} ticker={e.ticker || ""} mint={e.mint} />
         </div>
         <span className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none ring-2 ring-ink-raised ${badge.cls}`} aria-hidden>
           {badge.glyph}

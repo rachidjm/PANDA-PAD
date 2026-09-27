@@ -4,6 +4,8 @@ import { LoggedTrade } from "./trade-log";
 export type Position = {
   mint: string;
   ticker: string;
+  /** The coin's full name, when PANDA knows it (a coin it tracks) — undefined for a token traded outside PANDA that it can't look up. */
+  coinName?: string;
   coinImage?: string;
   coinDoodle?: DoodleKind;
   coinBg?: string;
@@ -36,7 +38,7 @@ export type Position = {
 export function computePositions(
   trades: LoggedTrade[],
   currentPriceByMint: Record<string, number | undefined>,
-  coinMeta: Record<string, { image?: string; doodle?: DoodleKind; bg?: string; priceHistory?: number[] }>
+  coinMeta: Record<string, { name?: string; image?: string; doodle?: DoodleKind; bg?: string; priceHistory?: number[] }>
 ): { open: Position[]; closed: Position[] } {
   const byMint = new Map<string, LoggedTrade[]>();
   for (const t of trades) {
@@ -88,6 +90,7 @@ export function computePositions(
       open.push({
         mint,
         ticker,
+        coinName: meta.name,
         coinImage: meta.image,
         coinDoodle: meta.doodle,
         coinBg: meta.bg,
@@ -106,6 +109,7 @@ export function computePositions(
       closed.push({
         mint,
         ticker,
+        coinName: meta.name,
         coinImage: meta.image,
         coinDoodle: meta.doodle,
         coinBg: meta.bg,

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import Panda from "@/components/panda/Panda";
+import WalletButton from "@/components/WalletButton";
 import PortfolioView, { LoadState, RewardsInfo } from "./PortfolioView";
 import { getWalletPortfolio, portfolioChange24h } from "@/lib/solana/portfolio";
 import { Coin, PortfolioHolding } from "@/lib/types";
@@ -109,6 +110,9 @@ export default function PortfolioClient({ coins }: { coins: Coin[] }) {
           <div>
             <h1 className="font-display text-xl font-bold">{t("pf.title")}</h1>
             <p className="mt-1 text-sm text-panda-grey">{t("pf.connectPrompt")}</p>
+            <div className="mt-4">
+              <WalletButton />
+            </div>
           </div>
           <Panda pose="empty" size={80} />
         </div>
