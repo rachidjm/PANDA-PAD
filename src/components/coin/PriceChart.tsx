@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Coin } from "@/lib/types";
@@ -8,6 +9,9 @@ import { CHART, clientYToChartY, domainFor, priceToY, yToPrice } from "@/lib/str
 import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
+import { TradeMarkerDots, TradeMarkerTooltip, tradePriceUsd } from "@/components/coin/TradeMarkers";
+import { useCurrency } from "@/components/portfolio/useCurrency";
+import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 
 const timeframes = ["1m", "5m", "1h", "4h", "1w", "1d"] as const;
 type Timeframe = (typeof timeframes)[number];
@@ -31,7 +35,7 @@ export default function PriceChart({
    * GeckoTerminal's OHLCV endpoint only returns price, never a market-cap history. */
   marketCap?: number;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   // Minute candles by default — the richest, most "alive" view of a coin
   // that's actually trading. `initialCloses` (server-rendered) is hourly and
   // has no real per-point timestamps, so this fires once on mount to swap in
@@ -43,6 +47,35 @@ export default function PriceChart({
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const requestId = useRef(0);
   const mounted = useRef(false);
+
+  // Your own buys/sells of this coin, marked on the chart — only with a connected wallet, only for real
+  // PANDA-recorded trades (not read back from the chain — a false marker on a chart is worse than a missing one).
+  const { connected, publicKey } = useWallet();
+  const { currency, eurUsd } = useCurrency(lang);
+  const [myTrades, setMyTrades] = useState<LoggedTrade[]>([]);
+  const [hoveredTradeKey, setHoveredTradeKey] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!connected || !publicKey || !coin) {
+      Promise.resolve().then(() => {
+        if (!cancelled) setMyTrades([]);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    fetch(`/api/portfolio/trades?wallet=${publicKey.toBase58()}&mint=${coin.mint}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("trades"))))
+      .then((d: { trades?: LoggedTrade[] }) => {
+        if (!cancelled) setMyTrades(d.trades || []);
+      })
+      .catch(() => {
+        if (!cancelled) setMyTrades([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, publicKey, coin]);
 
   function loadTimeframe(next: Timeframe) {
     if (!poolAddress) return;
@@ -149,6 +182,11 @@ export default function PriceChart({
           hoverIndex={hoverIndex}
           onHover={setHoverIndex}
           overlay={overlay}
+          myTrades={hasRealTimes ? myTrades : []}
+          hoveredTradeKey={hoveredTradeKey}
+          onHoverTrade={setHoveredTradeKey}
+          currency={currency}
+          eurUsd={eurUsd}
         />
       </div>
 
@@ -207,6 +245,11 @@ function AreaChart({
   hoverIndex,
   onHover,
   overlay,
+  myTrades,
+  hoveredTradeKey,
+  onHoverTrade,
+  currency,
+  eurUsd,
 }: {
   overlay?: ChartOverlayData;
   candles: Candle[];
@@ -216,16 +259,37 @@ function AreaChart({
   tf: Timeframe;
   hoverIndex: number | null;
   onHover: (index: number | null) => void;
+  myTrades: LoggedTrade[];
+  hoveredTradeKey: string | null;
+  onHoverTrade: (key: string | null) => void;
+  currency: import("@/lib/format").Currency;
+  eurUsd: number | null;
 }) {
   const { width, height, padding } = CHART;
   const svgRef = useRef<SVGSVGElement>(null);
+  const [svgHeight, setSvgHeight] = useState<number>(height);
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => setSvgHeight(el.clientHeight || height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [height]);
   const data = candles.map((c) => c.close);
 
   // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
   // lines that already exist stay in view, and while drawing there is headroom to place a target beyond the recent range.
+  // A trade's own price is included too, so a buy made well above or below the currently visible range still shows,
+  // rather than being clipped off the top/bottom of the chart.
   // Computed even with too little data to draw a curve (domainFor is safe with an empty/short list) so every hook below
   // can always run in the same order, whether or not there's a chart to show — React requires that either way.
-  const domain = domainFor(data, overlay ? overlay.lines.map((l) => l.price) : [], overlay?.drawing ? 0.25 : 0);
+  const domain = domainFor(
+    data,
+    [...(overlay ? overlay.lines.map((l) => l.price) : []), ...myTrades.map(tradePriceUsd)],
+    overlay?.drawing ? 0.25 : 0
+  );
   const drawing = !!overlay?.drawing;
 
   /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve). */
@@ -385,6 +449,8 @@ function AreaChart({
 
         {overlay && <StrategyLines overlay={overlay} domain={domain} />}
 
+        {myTrades.length > 0 && <TradeMarkerDots trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} onHover={onHoverTrade} />}
+
         {hoverIndex !== null && !drawing && (
           <line x1={active.x} x2={active.x} y1={padding} y2={height - padding} stroke="var(--paper)" strokeOpacity="0.25" strokeDasharray="3 3" />
         )}
@@ -406,6 +472,9 @@ function AreaChart({
       </svg>
 
       {overlay && <PriceTags overlay={overlay} domain={domain} />}
+      {myTrades.length > 0 && (
+        <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} />
+      )}
 
       {axisTicks.length > 0 && (
         <div className="relative mt-1 h-4 text-[10px] text-panda-grey">

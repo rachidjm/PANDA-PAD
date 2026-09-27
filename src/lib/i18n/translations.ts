@@ -1532,6 +1532,8 @@ export const dict = {
   "chart.noData": { en: "No chart data yet", es: "Aún no hay datos del gráfico" },
   "chart.price": { en: "Price", es: "Precio" },
   "chart.mc": { en: "Market cap", es: "Cap. de mercado" },
+  "chart.trade.bought": { en: "You bought", es: "Compraste" },
+  "chart.trade.sold": { en: "You sold", es: "Vendiste" },
 
   // Trading panel
   "trading.buy": { en: "Buy", es: "Comprar" },
