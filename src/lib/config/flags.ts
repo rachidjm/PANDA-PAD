@@ -17,6 +17,7 @@ export const FEATURES = [
   "STRATEGIES", // Draw Your Trade + Stop Loss / Take Profit — custodial (Jupiter Trigger vault, held by Privy)
   "OTC_REWARDS", // the Rewards mode of /create (OTC / Meteora launcher)
   "HOLDER_REWARDS", // the "Holders" band of a Standard coin's creator-fee split (Rewards Pool wallet, custodied by PANDA's servers)
+  "REFERRALS", // the affiliate campaign — a share of PANDA's trade fee paid straight to the referrer inside the trade's own transaction
 ] as const;
 
 export type Feature = (typeof FEATURES)[number];

@@ -8,6 +8,7 @@ import { isEnabled } from "@/lib/config/flags";
 import { awardTradePoints } from "@/lib/points/trade-award";
 import { recordActivity } from "@/lib/activity/record";
 import { findPandaFee } from "@/lib/points/trade-award";
+import { recordReferralPayoutIfAny } from "@/lib/referrals/payout";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -95,6 +96,10 @@ export async function POST(req: Request) {
       // PANDA's trade fee is only counted when the transaction really contains the transfer to the treasury.
       tradeFeeLamports: findPandaFee(tx, wallet)?.lamports ?? 0,
     });
+
+    // Affiliate campaign (feature-flagged, off by default): logs the referral share paid in THIS transaction,
+    // if any, for the Affiliates page's stats. A logging failure must never fail the trade record.
+    await recordReferralPayoutIfAny(tx, wallet, mint, signature).catch((err) => console.error("[PANDA referrals] payout logging failed", signature, err));
 
     // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.
     let points: { outcome: string; awarded: number } | undefined;

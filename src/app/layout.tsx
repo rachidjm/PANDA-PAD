@@ -9,6 +9,7 @@ import MotionProvider from "@/components/providers/MotionProvider";
 import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
 import MobileTabBar from "@/components/MobileTabBar";
 import SkipLink from "@/components/SkipLink";
+import ReferralCapture from "@/components/ReferralCapture";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
 import { connection } from "next/server";
@@ -50,9 +51,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 strategies: isEnabled("STRATEGIES"),
                 otcRewards: isEnabled("OTC_REWARDS"),
                 holderRewards: isEnabled("HOLDER_REWARDS"),
+                referrals: isEnabled("REFERRALS"),
               }}
             >
               <WalletProvider>
+                <ReferralCapture />
                 <SkipLink />
                 <Navbar />
                 <ProtocolBanner />

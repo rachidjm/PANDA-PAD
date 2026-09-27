@@ -4,7 +4,7 @@ import { PUMP_AMM_PROGRAM_ID } from "@pump-fun/pump-sdk";
 import { canonicalPumpPoolPda } from "@pump-fun/pump-swap-sdk";
 import { getPumpAmmSdk, getOnlinePumpAmmSdk } from "./amm-client";
 import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
-import { feeTransferInstruction } from "./fee-transfer";
+import { feeTransferInstructions } from "./fee-transfer";
 import { ammPoolProblem, poolOrientation, POOL_NOT_TRADABLE } from "./pool-check";
 
 /**
@@ -84,8 +84,8 @@ export async function buildAmmBuyTransaction({
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
   tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
-  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
-  if (feeIx) tx.add(feeIx);
+  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
+  tx.add(...feeIxs);
   tx.add(...instructions);
   return tx;
 }
@@ -135,7 +135,7 @@ export async function buildAmmSellTransaction({
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
   tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
   tx.add(...instructions);
-  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
-  if (feeIx) tx.add(feeIx);
+  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
+  tx.add(...feeIxs);
   return tx;
 }

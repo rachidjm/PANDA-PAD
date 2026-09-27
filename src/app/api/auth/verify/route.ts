@@ -5,6 +5,7 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { burnNonce, isNonceFormat, issueSession, readNonce, sameOrigin, sessionSecret } from "@/lib/auth/session";
 import { buildSignInMessage, verifyEd25519 } from "@/lib/auth/wallet-auth";
 import { recordAudit } from "@/lib/audit/log";
+import { tryBindReferral } from "@/lib/referrals/bind";
 
 const FAIL = { error: "Sign-in failed — please try again." };
 
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => null);
-    const { nonce, signature } = body ?? {};
+    const { nonce, signature, ref } = body ?? {};
     let walletKey: PublicKey;
     try {
       walletKey = new PublicKey(body?.wallet);
@@ -55,7 +56,20 @@ export async function POST(req: Request) {
     // Atomic single-use: a concurrent replay of the same signature loses here.
     if (!(await burnNonce(nonce, wallet))) return NextResponse.json(FAIL, { status: 401 });
 
-    const res = NextResponse.json({ wallet });
+    // The affiliate campaign's first-touch link: `ref` is untrusted client input (whatever it read back from its
+    // own `?ref=` URL) — tryBindReferral is the only thing that decides whether it actually counts, and it never
+    // blocks or slows down sign-in itself (a referral problem is never an auth problem).
+    let refBound: boolean | undefined;
+    if (typeof ref === "string" && ref) {
+      try {
+        const outcome = await tryBindReferral(wallet, ref);
+        if (outcome !== "retry_later") refBound = outcome === "bound"; // terminal either way — client stops offering `ref` again
+      } catch (err) {
+        console.error("[PANDA referrals] bind attempt failed", err instanceof Error ? err.message : err);
+      }
+    }
+
+    const res = NextResponse.json({ wallet, ...(refBound !== undefined ? { refBound } : {}) });
     const { jti } = await issueSession(res, wallet); // in postgres mode a session that can't be registered is not issued
     await recordAudit({ req, actor: wallet, action: "auth.login", object: "session", newState: { jti } });
     return res;

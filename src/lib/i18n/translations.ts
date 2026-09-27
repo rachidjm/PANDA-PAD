@@ -205,6 +205,31 @@ export const dict = {
   "pf.viewTx": { en: "View transaction", es: "Ver transacción" },
   "pf.fromChain": { en: "read from chain — approximate", es: "leída de la cadena — aproximada" },
 
+  // Affiliates (FEATURE_REFERRALS)
+  "aff.title": { en: "Affiliates", es: "Afiliados" },
+  "aff.connectPrompt": { en: "Connect your wallet to get your link.", es: "Conecta tu wallet para conseguir tu enlace." },
+  "aff.intro": {
+    en: "Share your link. When someone connects their wallet through it for the first time, they're yours — for every buy or sell they make on PANDA during the campaign, you get a share of PANDA's fee, paid straight to your wallet in that same transaction.",
+    es: "Comparte tu enlace. Cuando alguien conecta su wallet por primera vez a través de él, queda vinculado a ti — por cada compra o venta que haga en PANDA durante la campaña, recibes una parte de la comisión de PANDA, pagada directamente a tu wallet en esa misma transacción.",
+  },
+  "aff.yourLink": { en: "Your link", es: "Tu enlace" },
+  "aff.copy": { en: "Copy", es: "Copiar" },
+  "aff.copied": { en: "Copied!", es: "¡Copiado!" },
+  "aff.copyFailed": { en: "Couldn't copy", es: "No se pudo copiar" },
+  "aff.howItWorks": {
+    en: "One level only — you're never paid for who your invitees bring in. A wallet whose first SOL came from you doesn't count (checked on-chain). PANDA never holds this money: it moves straight from the trade to your wallet.",
+    es: "Un solo nivel — nunca cobras por los invitados de tus invitados. Una wallet cuyo primer SOL vino de ti no cuenta (se comprueba on-chain). PANDA nunca guarda este dinero: pasa directamente de la operación a tu wallet.",
+  },
+  "aff.readError": { en: "Couldn't read your affiliate stats right now.", es: "Ahora mismo no se pudieron leer tus datos de afiliado." },
+  "aff.referred": { en: "Referred", es: "Invitados" },
+  "aff.earned": { en: "Earned", es: "Ganado" },
+  "aff.campaign": { en: "Campaign", es: "Campaña" },
+  "aff.daysLeft": { en: "{n} day(s) left", es: "Quedan {n} día(s)" },
+  "aff.campaignClosed": { en: "Not running right now", es: "No está activa ahora mismo" },
+  "aff.shareCoin": { en: "Share your coin and earn on every trade", es: "Comparte tu moneda y gana con cada trade" },
+  "aff.shareCoinLink": { en: "Open Affiliates →", es: "Abrir Afiliados →" },
+  "nav.affiliates": { en: "Affiliates", es: "Afiliados" },
+
   // Activity
   "act.title": { en: "Activity", es: "Actividad" },
   "act.subtitle": { en: "What is happening on-chain across PANDA and Pump.fun coins.", es: "Lo que ocurre on-chain en las monedas de PANDA y Pump.fun." },

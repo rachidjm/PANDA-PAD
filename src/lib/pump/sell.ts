@@ -5,7 +5,7 @@ import { getPumpSdk, getOnlinePumpSdk } from "./client";
 import { buildAmmSellTransaction, graduatedPoolFor } from "./amm-trade";
 import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
 import { tokenProgramOf } from "./token-program";
-import { feeTransferInstruction } from "./fee-transfer";
+import { feeTransferInstructions } from "./fee-transfer";
 
 /**
  * Builds a real, unsigned Pump.fun sell transaction. `tokenAmount` is in the
@@ -77,7 +77,7 @@ export async function buildSellTransaction({
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
   tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
   tx.add(...instructions);
-  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
-  if (feeIx) tx.add(feeIx);
+  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
+  tx.add(...feeIxs);
   return tx;
 }

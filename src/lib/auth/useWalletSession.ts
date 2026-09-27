@@ -5,6 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { ADMIN_FRESH_MS } from "@/lib/auth/admin-policy";
+import { clearPendingReferrer, pendingReferrer } from "@/lib/referrals/client";
 
 /**
  * Proves the connected wallet is really the user's: asks the server for a
@@ -44,14 +45,21 @@ export function useWalletSession() {
       throw new Error(t("auth.rejected"));
     }
 
+    const ref = pendingReferrer();
     const verifyRes = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet, nonce: challenge.nonce, signature: bs58.encode(signature) }),
+      body: JSON.stringify({ wallet, nonce: challenge.nonce, signature: bs58.encode(signature), ...(ref ? { ref } : {}) }),
     });
     if (!verifyRes.ok) {
       const data = await verifyRes.json().catch(() => ({}));
       throw new Error(data.error || t("auth.failed"));
+    }
+    // `refBound` is only present when the server reached a TERMINAL answer (bound, or rejected for good) —
+    // see /api/auth/verify. Absent (still "retry_later") means keep offering it on the next sign-in.
+    if (ref) {
+      const data = await verifyRes.clone().json().catch(() => ({}));
+      if (typeof data.refBound === "boolean") clearPendingReferrer();
     }
   }, [publicKey, signMessage, t]);
 

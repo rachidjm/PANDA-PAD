@@ -11,7 +11,7 @@ import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
 
 export type Env = Record<string, string | undefined>;
 export type EnvStatus = "present" | "absent" | "invalid";
-export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits";
+export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits" | "referrals";
 
 export type EnvSpec = {
   /** Accepted names, first is canonical (Vercel's Blob integration names its token in more than one way). */
@@ -44,6 +44,9 @@ const isHttpUrl = (v: string) => {
 /** A base58 secret key or a JSON byte array — shape only; the value is never inspected further or printed. */
 const looksLikeSecretKey = (v: string) => /^\[\s*\d+(\s*,\s*\d+){31,}\s*\]$/.test(v.trim()) || /^[1-9A-HJ-NP-Za-km-z]{60,100}$/.test(v.trim());
 const isPositiveNumber = (v: string) => Number.isFinite(Number(v)) && Number(v) > 0;
+/** An ISO-8601 timestamp that round-trips exactly (rejects "2026-10-26" alone — a bare date is ambiguous about UTC midnight vs local). */
+const isIsoUtcInstant = (v: string) => !Number.isNaN(Date.parse(v)) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/.test(v.trim());
+const isBps = (v: string) => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 10_000;
 
 const always = () => true;
 const never = () => false;
@@ -77,6 +80,9 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["ALERT_WEBHOOK_URL"], group: "alerts", required: never, valid: isHttpUrl, affects: "operator alerts (failed payouts, low pool, cron failures); alerts still go to the logs" },
   { names: ["REWARDS_MAX_CLAIM_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the per-claim payout cap (default applies)" },
   { names: ["REWARDS_DAILY_CAP_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the daily payout cap (default applies)" },
+  { names: ["REFERRAL_START"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): unset or invalid, no referral is ever paid — the whole fee goes to the treasury" },
+  { names: ["REFERRAL_END"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): see REFERRAL_START" },
+  { names: ["REFERRAL_SHARE_BPS"], group: "referrals", required: never, valid: isBps, affects: "the referrer's share of PANDA's trade fee during the campaign (default 3000 = 30%)" },
 ];
 
 export type EnvItem = { name: string; group: EnvGroup; required: boolean; status: EnvStatus; affects: string };

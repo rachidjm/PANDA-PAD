@@ -23,6 +23,7 @@ export default async function LegalSlugPage({ params }: { params: Promise<{ slug
     market: isEnabled("NFT_THEMES") && isEnabled("NFT_MARKET"),
     points: isEnabled("PANDA_POINTS"),
     airdrops: isEnabled("PANDA_AIRDROPS"),
+    referrals: isEnabled("REFERRALS"),
     pandaToken: !!process.env.NEXT_PUBLIC_PANDA_TOKEN_MINT?.trim(),
   });
   return <LegalPageLayout page={page} />;

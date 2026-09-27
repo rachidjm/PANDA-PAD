@@ -13,7 +13,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 export default function Navbar() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const { themes, holderRewards } = useFeatures();
+  const { themes, holderRewards, referrals } = useFeatures();
 
   // Things that stick under the header (the PANDA ecosystem strip) need to know how tall it is: 68px on a desktop, more on a phone with its second row.
   const headerRef = useRef<HTMLElement>(null);
@@ -35,11 +35,17 @@ export default function Navbar() {
     { href: "/create", label: t("nav.create") },
     ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
     ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
+    ...(referrals ? [{ href: "/affiliates", label: t("nav.affiliates") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
   ];
 
   // Phone: Home / Discover / Create / Rewards / Portfolio live in the bottom bar; the rest is here, short enough not to scroll.
-  const more = [...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []), { href: "/analytics", label: t("nav.analytics") }, { href: "/activity", label: t("act.title") }];
+  const more = [
+    ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
+    ...(referrals ? [{ href: "/affiliates", label: t("nav.affiliates") }] : []),
+    { href: "/analytics", label: t("nav.analytics") },
+    { href: "/activity", label: t("act.title") },
+  ];
 
   return (
     <header ref={headerRef} className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">

@@ -13,6 +13,7 @@ import TradingPanel from "@/components/coin/TradingPanel";
 import StopLossTakeProfit from "@/components/coin/StopLossTakeProfit";
 import PriceChart from "@/components/coin/PriceChart";
 import FeeLockNotice from "@/components/coin/FeeLockNotice";
+import ShareCoinPrompt from "@/components/coin/ShareCoinPrompt";
 import { dexLabel } from "@/lib/dex-labels";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
@@ -61,6 +62,7 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           </div>
 
           <FeeLockNotice mint={coin.mint} />
+          <ShareCoinPrompt creator={coin.creator} />
 
           <RugBadge mint={coin.mint} variant="full" className="mt-4 max-w-xl" />
 

@@ -255,8 +255,38 @@ export const pendingFeeLocks = pgTable("pending_fee_locks", {
   auditedAt: bigint("audited_at", { mode: "number" }),
 });
 
+// ── Affiliate campaign (referrals) ──────────────────────────────────────────────────────────────────────────────
+/** First-touch, permanent: the wallet credited with having brought `wallet` in. One row per referred wallet, ever
+ *  (never overwritten — see src/lib/db/referrals.ts). */
+export const referrals = pgTable(
+  "referrals",
+  {
+    wallet: text("wallet").primaryKey(), // the REFERRED wallet
+    referrer: text("referrer").notNull(),
+    boundAt: bigint("bound_at", { mode: "number" }).notNull(),
+  },
+  (t) => [check("referrals_no_self", sql`${t.wallet} <> ${t.referrer}`), index("referrals_referrer").on(t.referrer)]
+);
+
+/** One row per referral fee payment PANDA verified on-chain — informational only (a record for the Affiliates
+ *  page's stats). PANDA never holds this money: it goes straight from the trader to the referrer inside the
+ *  trade's own transaction, and this row is written only AFTER that transaction is confirmed. */
+export const referralPayouts = pgTable(
+  "referral_payouts",
+  {
+    signature: text("signature").notNull(),
+    referrer: text("referrer").notNull(),
+    referred: text("referred").notNull(),
+    mint: text("mint").notNull(),
+    lamports: lamports("lamports").notNull(),
+    ts: bigint("ts", { mode: "number" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.signature, t.referrer] }), check("referral_payouts_positive", sql`${t.lamports} > 0`), index("referral_payouts_referrer").on(t.referrer)]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
+  referrals, referralPayouts,
 };

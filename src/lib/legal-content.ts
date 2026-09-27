@@ -3,6 +3,7 @@ import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { MARKET_CONFIG } from "@/lib/market/config";
 import { STRATEGY_FEE_BPS } from "@/lib/strategy/plan";
+import { referralShareBps } from "@/lib/referrals/constants";
 
 export type LegalSlug = "legal-notice" | "terms-of-service" | "privacy-policy" | "risk-disclosure" | "cookie-policy" | "disclaimer";
 
@@ -12,7 +13,7 @@ export type LegalPage = { slug: LegalSlug; title: Record<Lang, string>; body: Re
  * The date these texts were last changed. Bump it whenever anything in this file (or a fee, a flag or a data practice the texts describe)
  * changes: src/lib/legal-content.test.ts fails if it is in the future or malformed.
  */
-export const LEGAL_LAST_UPDATED = "2026-09-26";
+export const LEGAL_LAST_UPDATED = "2026-09-27";
 
 /**
  * Every percentage below comes from the constant the code charges with, so a text can't drift from what is really collected
@@ -28,6 +29,8 @@ const SHARE = both(PANDA_SHARE_BPS); // PANDA's fixed share of a coin's creator 
 const REST = both(10_000 - PANDA_SHARE_BPS);
 const STRATEGY = both(STRATEGY_FEE_BPS); // Draw Your Trade: the buy's and the sell's fee together
 const MARKET = both(MARKET_CONFIG.feeBps); // NFT marketplace
+const REFERRAL_SHARE = both(referralShareBps()); // the referrer's share OF PANDA'S FEE (e.g. 30%)
+const REFERRAL_OF_TRADE = both(Math.round((PANDA_FEE_BPS * referralShareBps()) / 10_000)); // that same share expressed as a % of the trade itself (e.g. 0.15%)
 
 /**
  * A short, honest caveat kept at the top of every page (styled as a warning in LegalPageLayout): this was drafted by PANDA's own team, not
@@ -361,6 +364,26 @@ export const AIRDROP_ADDENDA: Addenda = {
   },
 };
 
+/** Only while the affiliate campaign is on (FEATURE_REFERRALS) — and only for the campaign window it's currently configured with. */
+export const REFERRAL_ADDENDA: Addenda = {
+  "terms-of-service": {
+    en: [
+      `Affiliate campaign. For a limited time, every wallet has its own link. The wallet that connects through that link for the first time is permanently credited to whoever shared it — first link wins, it cannot be changed later, and a wallet cannot refer itself. For every buy or sell the referred wallet makes through PANDA during the campaign, ${REFERRAL_SHARE.en} of PANDA's own ${TRADE.en} trading fee (${REFERRAL_OF_TRADE.en} of the trade) is paid to the referrer, as a separate transfer inside that same transaction, alongside PANDA's own trade fee. PANDA never holds this money, not even briefly: it goes straight from the trader's wallet to the referrer's. Only one level counts — you are never paid for who your own invitees bring in. A wallet whose very first SOL came from the wallet inviting it does not count as a referral (checked against its on-chain history when the link is created); if the referrer's own wallet can't receive the payment, that share goes to PANDA's treasury instead and the trade is never affected. Referring someone is never a reason a trade could fail, cost more, or behave any differently for the person trading. The campaign runs only for the dates PANDA publishes for it; outside those dates no referral link can be created and no referral fee is paid — PANDA's trading fee is unaffected either way.`,
+    ],
+    es: [
+      `Campaña de afiliados. Durante un tiempo limitado, cada wallet tiene su propio enlace. La wallet que se conecta a través de ese enlace por primera vez queda vinculada de forma permanente a quien lo compartió — el primer enlace gana, no se puede cambiar después, y una wallet no puede autorreferirse. Por cada compra o venta que la wallet invitada haga a través de PANDA durante la campaña, se paga al invitador el ${REFERRAL_SHARE.es} de la propia comisión de trading de PANDA del ${TRADE.es} (el ${REFERRAL_OF_TRADE.es} de la operación), como una transferencia aparte dentro de esa misma transacción, junto a la comisión de PANDA. PANDA nunca retiene ese dinero, ni siquiera un instante: pasa directamente de la wallet de quien opera a la del invitador. Solo cuenta un nivel — nunca se cobra por los invitados de tus propios invitados. Una wallet cuyo primer SOL vino de la wallet que la invita no cuenta como referido (se comprueba su historial on-chain al crear el vínculo); si la wallet del invitador no puede recibir el pago, esa parte va a la tesorería de PANDA y la operación nunca se ve afectada. Ser referido nunca es motivo de que una operación falle, cueste más, ni se comporte de forma distinta para quien opera. La campaña solo funciona en las fechas que PANDA publica para ella; fuera de esas fechas no se puede crear ningún vínculo de referido ni se paga ninguna comisión de afiliado — la comisión de trading de PANDA no cambia por esto.`,
+    ],
+  },
+  "privacy-policy": {
+    en: ["Affiliate campaign. PANDA keeps, in its database, which wallet referred which (permanent, never changed) and a record of each referral fee payment it verified on-chain (amount, coin and transaction), so the Affiliates page can show your own link's stats."],
+    es: ["Campaña de afiliados. PANDA guarda en su base de datos qué wallet refirió a cuál (permanente, no se cambia) y un registro de cada pago de comisión de afiliado que verifica on-chain (importe, moneda y transacción), para que la página de Afiliados pueda mostrar las estadísticas de tu propio enlace."],
+  },
+  "risk-disclosure": {
+    en: ["The affiliate campaign is temporary and its dates and share can change for future campaigns. Past referral earnings are never a guarantee of future ones, and the anti-abuse check (a wallet's first SOL) is automated and can be wrong in edge cases."],
+    es: ["La campaña de afiliados es temporal, y sus fechas y el porcentaje pueden cambiar en campañas futuras. Las ganancias pasadas por afiliados nunca garantizan ganancias futuras, y la comprobación antiabuso (el primer SOL de una wallet) es automática y puede equivocarse en casos límite."],
+  },
+};
+
 export type LegalOptions = {
   /** FEATURE_STRATEGIES */ custody: boolean;
   /** FEATURE_HOLDER_REWARDS */ holders?: boolean;
@@ -369,6 +392,7 @@ export type LegalOptions = {
   /** FEATURE_NFT_THEMES and FEATURE_NFT_MARKET */ market?: boolean;
   /** FEATURE_PANDA_POINTS */ points?: boolean;
   /** FEATURE_PANDA_AIRDROPS */ airdrops?: boolean;
+  /** FEATURE_REFERRALS */ referrals?: boolean;
   /** NEXT_PUBLIC_PANDA_TOKEN_MINT is set: $PANDA exists */ pandaToken?: boolean;
 };
 
@@ -383,6 +407,7 @@ export function getLegalPage(slug: LegalSlug, opts: LegalOptions): LegalPage {
     opts.market ? MARKET_ADDENDA[slug] : undefined,
     opts.points ? POINTS_ADDENDA[slug] : undefined,
     opts.airdrops ? AIRDROP_ADDENDA[slug] : undefined,
+    opts.referrals ? REFERRAL_ADDENDA[slug] : undefined,
   ].filter((e): e is Record<Lang, string[]> => !!e);
   const withToken = opts.pandaToken && slug === "disclaimer";
   if (extras.length === 0 && !withToken) return base;

@@ -7,7 +7,7 @@ import {
 } from "@solana/web3.js";
 import BN from "bn.js";
 import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS } from "@/lib/pump/constants";
-import { feeTransferInstruction } from "@/lib/pump/fee-transfer";
+import { feeTransferInstructions } from "@/lib/pump/fee-transfer";
 import { getJupiterQuote, getJupiterSwapTransaction, SOL_MINT } from "./client";
 
 const COMPUTE_BUDGET_PROGRAM_ID = new PublicKey("ComputeBudget111111111111111111111111111111");
@@ -88,8 +88,8 @@ export async function buildJupiterSwapTransaction({
     feeLamports = new BN(inSol).muln(PANDA_FEE_BPS).divn(10_000);
   }
 
-  const feeIx = await feeTransferInstruction(connection, user, BigInt(feeLamports.toString()));
-  if (feeIx) {
+  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
+  if (feeIxs.length) {
     if (side === "buy") {
       // Deducted up front, alongside the swap — insert right after any
       // leading compute-budget instructions, before the swap itself.
@@ -97,11 +97,11 @@ export async function buildJupiterSwapTransaction({
       while (insertAt < message.instructions.length && message.instructions[insertAt].programId.equals(COMPUTE_BUDGET_PROGRAM_ID)) {
         insertAt++;
       }
-      message.instructions.splice(insertAt, 0, feeIx);
+      message.instructions.splice(insertAt, 0, ...feeIxs);
     } else {
       // Taken out of the proceeds, after the swap (and any WSOL-unwrap)
       // has already landed SOL in the user's wallet.
-      message.instructions.push(feeIx);
+      message.instructions.push(...feeIxs);
     }
   }
 
