@@ -230,6 +230,36 @@ export const dict = {
   "aff.shareCoinLink": { en: "Open Affiliates →", es: "Abrir Afiliados →" },
   "nav.affiliates": { en: "Affiliates", es: "Afiliados" },
 
+  // My Coins (creator dashboard)
+  "mine.navLabel": { en: "My Coins", es: "Mis monedas" },
+  "mine.title": { en: "My Coins", es: "Mis monedas" },
+  "mine.connectPrompt": { en: "Connect your wallet to see the coins you've created.", es: "Conecta tu wallet para ver las monedas que has creado." },
+  "mine.intro": {
+    en: "Every coin created by this wallet, and its real creator fees — pending on-chain right now, collectible by anyone paying the tiny network fee, straight to every shareholder including you.",
+    es: "Cada moneda creada por esta wallet, y sus comisiones de creador reales — pendientes on-chain ahora mismo, cobrables pagando solo la pequeña comisión de red, directas a cada beneficiario, tú incluido.",
+  },
+  "mine.pendingTotal": { en: "Pending to collect", es: "Pendiente de cobrar" },
+  "mine.pendingNote": {
+    en: "PANDA doesn't keep a ledger of what you've earned as a creator — fees sit in each coin's own on-chain vault until collected, then land in your wallet as plain SOL. This is what's really there right now, read live from the chain.",
+    es: "PANDA no lleva un registro de lo que has ganado como creador — las comisiones están en la bóveda on-chain de cada moneda hasta que se cobran, y entonces llegan a tu wallet como SOL normal. Esto es lo que hay de verdad ahora mismo, leído en vivo de la cadena.",
+  },
+  "mine.coins": { en: "Coins", es: "Monedas" },
+  "mine.err.read": { en: "Couldn't read your coins right now.", es: "Ahora mismo no se pudieron leer tus monedas." },
+  "mine.err.build": { en: "Couldn't build the collect transaction.", es: "No se pudo construir la transacción de cobro." },
+  "mine.empty": { en: "You haven't created a coin yet.", es: "Aún no has creado ninguna moneda." },
+  "mine.createOne": { en: "Create a coin", es: "Crear una moneda" },
+  "mine.mcap": { en: "MC", es: "MC" },
+  "mine.pending": { en: "pending", es: "pendiente" },
+  "mine.holders": { en: "Holders", es: "Holders" },
+  "mine.vol24h": { en: "24h vol", es: "vol 24h" },
+  "mine.noFeeSplit": { en: "no Fee Distribution set up", es: "sin Fee Distribution configurado" },
+  "mine.collect": { en: "Collect", es: "Cobrar" },
+  "mine.collect.building": { en: "Building…", es: "Construyendo…" },
+  "mine.collect.signing": { en: "Sign in your wallet…", es: "Firma en tu wallet…" },
+  "mine.collect.confirming": { en: "Confirming…", es: "Confirmando…" },
+  "mine.collect.done": { en: "Collected ✓", es: "Cobrado ✓" },
+  "mine.truncated": { en: "Showing your most recent coins only.", es: "Mostrando solo tus monedas más recientes." },
+
   // Activity
   "act.title": { en: "Activity", es: "Actividad" },
   "act.subtitle": { en: "What is happening on-chain across PANDA and Pump.fun coins.", es: "Lo que ocurre on-chain en las monedas de PANDA y Pump.fun." },

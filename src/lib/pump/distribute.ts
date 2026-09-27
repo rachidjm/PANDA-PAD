@@ -81,3 +81,48 @@ export async function collectFeesForMint(
 
   return { lamports: Math.max(0, after - before + feePaid), signature, blockTimeMs: txInfo?.blockTime ? txInfo.blockTime * 1000 : null, shares };
 }
+
+/**
+ * How much of a coin's creator fees are real and ready to collect RIGHT NOW — a read-only simulation, nothing
+ * is sent. `null` when the coin has no fee-sharing config at all (never opted into Fee Distribution).
+ * SOL-quoted coins only (see collectFeesForMint's own scope note): `distributableFees` for a token-quoted coin
+ * describes SOL fees, not the token's own, per the SDK's own doc comment.
+ */
+export async function pendingCreatorFeesForMint(connection: Connection, mint: string, simulationSigner: PublicKey): Promise<number | null> {
+  const mintKey = new PublicKey(mint);
+  const raw = await getRawSharingConfig(connection, mintKey);
+  if (!raw) return null;
+  const online = getOnlinePumpSdk(connection);
+  const minFee = await online.getMinimumDistributableFee(mintKey, simulationSigner, { payer: simulationSigner });
+  return minFee.canDistribute ? minFee.distributableFees.toNumber() : 0;
+}
+
+/**
+ * The SAME real, permissionless `distributeCreatorFees` instruction collectFeesForMint uses (verified against
+ * the SDK's own account constraints — no admin/authority signature required, only a fee payer), built for
+ * `payer` to sign and send themselves instead of PANDA's Rewards Pool signer — this is how a coin's CREATOR
+ * collects their own share from Create's "Mis monedas" page. Pays every configured shareholder atomically
+ * (creator, PANDA, Holders pool, ...), not just the caller: whoever pays the (tiny) network fee, everyone gets
+ * paid. Unsigned — the caller reviews and signs it in their own wallet, exactly like every other PANDA trade.
+ * `null` when the coin has no fee-sharing config, or there is genuinely nothing real to distribute yet.
+ */
+export async function buildCollectCreatorFeesTransaction(connection: Connection, mint: string, payer: PublicKey): Promise<Transaction | null> {
+  const mintKey = new PublicKey(mint);
+  const raw = await getRawSharingConfig(connection, mintKey);
+  if (!raw) return null;
+
+  const online = getOnlinePumpSdk(connection);
+  const minFee = await online.getMinimumDistributableFee(mintKey, payer, { payer });
+  if (!minFee.canDistribute) return null;
+
+  const offline = getPumpSdk();
+  const ix = await offline.distributeCreatorFees({ mint: mintKey, sharingConfig: raw.config, sharingConfigAddress: raw.address });
+
+  const tx = new Transaction();
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+  tx.add(ix);
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
+  tx.feePayer = payer;
+  tx.recentBlockhash = blockhash;
+  return tx;
+}
