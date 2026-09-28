@@ -17,6 +17,8 @@ import { buyShortfall, maxBuyAmount, NETWORK_BUFFER_SOL, SELL_MIN_SOL } from "@/
 import { assetFromUnit, maxInViewUnit, toBaseUnits, unitFromAsset, type ViewUnit } from "@/lib/trading/amount";
 import type { PayToken } from "@/lib/trading/pay-tokens";
 import { useRates } from "@/components/coin/useRates";
+import { usePriceImpact } from "@/components/coin/usePriceImpact";
+import { PRICE_IMPACT_HIGH_PCT, PRICE_IMPACT_WARN_PCT } from "@/lib/strategy/plan";
 import PayWithSelect, { type PayOption } from "@/components/coin/PayWithSelect";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -56,6 +58,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [signature, setSignature] = useState("");
+  const [impactAck, setImpactAck] = useState(false);
 
   const graduated = coin.source === "pumpswap";
   const externalDex = coin.source === "other";
@@ -140,7 +143,28 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const feeShort = side === "buy" && connected && !paidInSol && amt > 0 && displaySol !== null && displaySol < needSolForFee ? { need: needSolForFee, have: displaySol } : null;
   const sellNoTokens = side === "sell" && connected && displayTokens !== null && amt > displayTokens;
   const sellNoSol = side === "sell" && connected && displaySol !== null && amt > 0 && displaySol < SELL_MIN_SOL;
-  const blocked = !!buyShort || !!tokenShort || !!feeShort || sellNoTokens || sellNoSol || noRate;
+
+  // How much this trade would move the price — on-curve (still on Pump.fun's own bonding curve) is computed
+  // straight from the curve's real reserves; graduated/external uses Jupiter's own public quote instead.
+  const onCurve = onlySol;
+  const sellTokenRaw = side === "sell" && typed > 0 ? Math.round(typed * 10 ** tokenDecimals).toString() : undefined;
+  const impact = usePriceImpact({
+    mint: coin.mint,
+    onCurve,
+    side,
+    solAmount: onCurve && side === "buy" ? amt : undefined,
+    tokenAmountRaw: onCurve && side === "sell" ? sellTokenRaw : undefined,
+    inputMint: side === "buy" ? pay.mint : coin.mint,
+    outputMint: side === "buy" ? coin.mint : SOL_MINT,
+    inputAmountRaw: !onCurve ? (side === "buy" ? toBaseUnits(amt, pay.decimals) : sellTokenRaw) : undefined,
+  });
+  const impactHigh = impact.pct !== null && impact.pct >= PRICE_IMPACT_HIGH_PCT;
+  const impactWarn = impact.pct !== null && impact.pct >= PRICE_IMPACT_WARN_PCT;
+  useEffect(() => {
+    Promise.resolve().then(() => setImpactAck(false));
+  }, [amount, side, payMint]);
+
+  const blocked = !!buyShort || !!tokenShort || !!feeShort || sellNoTokens || sellNoSol || noRate || (impactHigh && !impactAck);
   const fmtSol = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
   const fmtAsset = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: Math.min(pay.decimals, 6) });
 
@@ -432,6 +456,22 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       {sellNoSol && (
         <p className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
           {t("trading.notEnoughSolFee")}
+        </p>
+      )}
+      {impactWarn && (
+        <div className={`mt-3 rounded-xl px-3.5 py-3 text-xs ${impactHigh ? "bg-clay-red/10 text-clay-red" : "bg-sun/10 text-sun"}`} role="alert">
+          <p>{t(impactHigh ? "trading.priceImpactHigh" : "trading.priceImpact", { pct: impact.pct!.toFixed(1) })}</p>
+          {impactHigh && (
+            <label className="mt-2 flex cursor-pointer items-start gap-2">
+              <input type="checkbox" checked={impactAck} onChange={(e) => setImpactAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--clay-red)]" />
+              <span>{t("trading.priceImpactAck")}</span>
+            </label>
+          )}
+        </div>
+      )}
+      {impact.exceedsCurve && (
+        <p className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
+          {t("trading.exceedsCurve")}
         </p>
       )}
 

@@ -815,6 +815,49 @@ export const dict = {
     en: "You can also type a price by hand in any box (USD per token) instead of drawing it.",
     es: "También puedes escribir un precio a mano en cualquier casilla (USD por token) en vez de dibujarlo.",
   },
+  "draw.sellN": { en: "Sell #{n}", es: "Venta #{n}" },
+  "draw.addSell": { en: "+ sell", es: "+ venta" },
+  "draw.removeSell": { en: "Remove this tranche", es: "Quitar este tramo" },
+  "draw.sellPctOfPosition": { en: "% of position", es: "% de la posición" },
+  "draw.sellPctSum": {
+    en: "Total: {pct}% — must add up to exactly 100%.",
+    es: "Total: {pct}% · debe sumar 100%.",
+  },
+  "draw.sellPctSumOk": {
+    en: "Total: {pct}%",
+    es: "Total: {pct}%",
+  },
+  "draw.multiSellNote": {
+    en: "Each tranche becomes its own real order, on its own share of the position — one fills, the stop covers only what's left of the others.",
+    es: "Cada tramo se convierte en una orden real independiente, sobre su propia parte de la posición — si uno se ejecuta, el stop solo cubre lo que queda de los demás.",
+  },
+  "draw.legProgress": { en: "Tranche {n} of {m}", es: "Tramo {n} de {m}" },
+  "draw.tranches": { en: "{n} tranches", es: "{n} tramos" },
+  "draw.legPartial": {
+    en: "{done} of {total} tranches were placed as real orders before this happened. {rolledBack} were cancelled and refunded automatically; {stillOpen} are still live and shown below — cancel them by hand if you don't want them.",
+    es: "{done} de {total} tramos se llegaron a colocar como órdenes reales antes de esto. {rolledBack} se cancelaron y devolvieron automáticamente; {stillOpen} siguen activos y se muestran abajo — cancélalos a mano si no los quieres.",
+  },
+  "draw.staggered.label": { en: "Staggered sell", es: "Venta escalonada" },
+  "draw.staggered.hint": {
+    en: "Off: one sell and one stop, minimum $10. On: split the position into several sell points, each its own %.",
+    es: "Apagado: una sola venta y un stop, mínimo 10 $. Encendido: reparte la posición en varios puntos de venta, cada uno con su %.",
+  },
+  "draw.tranche.tooSmall": {
+    en: "This tranche is only {usd} — each one needs at least {min}.",
+    es: "Este tramo es solo {usd} — cada uno necesita al menos {min}.",
+  },
+  "draw.tranche.maxReached": {
+    en: "This amount supports up to {n} tranches (at least {min} each).",
+    es: "Este importe permite hasta {n} tramos (mínimo {min} cada uno).",
+  },
+  "draw.execution.notice": {
+    en: "Orders execute when the price reaches your level, but due to slippage and volatility we cannot guarantee that the buy or sell will fill exactly at the price you set. The final price may be better or worse.",
+    es: "Las órdenes se ejecutan cuando el precio alcanza tu nivel, pero debido al deslizamiento y a la volatilidad no podemos garantizar que la compra o la venta se hagan exactamente al precio marcado. El precio final puede ser mejor o peor.",
+  },
+  "draw.execution.volatile": {
+    en: "Very volatile or low-liquidity coin: the gap between your price and the execution price can be large.",
+    es: "Moneda muy volátil o con poca liquidez: la diferencia entre tu precio y el de ejecución puede ser grande.",
+  },
   "draw.fee": { en: "PANDA fee (0.5% buy + 0.5% sell)", es: "Comisión PANDA (0,5% compra + 0,5% venta)" },
   "draw.total": { en: "You pay in total", es: "Pagas en total" },
   "draw.feeNote": { en: "The fee is paid when you confirm and isn't returned if you cancel.", es: "La comisión se paga al confirmar y no se devuelve si cancelas." },
@@ -1023,8 +1066,20 @@ export const dict = {
     es: "Uno de los precios está absurdamente lejos del actual.",
   },
   "draw.issue.below_minimum": {
-    en: "The minimum is 10 USD per strategy (a Jupiter rule).",
-    es: "El mínimo es 10 USD por estrategia (norma de Jupiter).",
+    en: "The minimum is 10 USD per order (a Jupiter rule).",
+    es: "El mínimo es 10 USD por orden (norma de Jupiter).",
+  },
+  "draw.issue.too_many_sells": {
+    en: "Between 1 and 10 sell tranches.",
+    es: "Entre 1 y 10 tramos de venta.",
+  },
+  "draw.issue.sells_pct_invalid": {
+    en: "The sell tranches must add up to exactly 100% of the position.",
+    es: "Los tramos de venta deben sumar exactamente el 100% de la posición.",
+  },
+  "draw.issue.tranche_below_minimum": {
+    en: "One or more tranches are under $11, the minimum per tranche with staggered selling on — see which one below.",
+    es: "Uno o más tramos son menores de 11 $, el mínimo por tramo con la venta escalonada activada — mira cuál abajo.",
   },
   "draw.issue.price_unavailable": {
     en: "Live prices aren't available right now — try again in a moment.",
@@ -1568,6 +1623,22 @@ export const dict = {
   "trading.disclaimerBondingCurve": {
     en: "Real on-chain trade via Pump.fun. PANDA never holds your funds.",
     es: "Operación real on-chain vía Pump.fun. PANDA nunca retiene tus fondos.",
+  },
+  "trading.priceImpact": {
+    en: "Your trade will move the price by about {pct}%.",
+    es: "Tu operación moverá el precio en torno a un {pct}%.",
+  },
+  "trading.priceImpactHigh": {
+    en: "Large price impact: about {pct}%. You could get a much worse price than shown.",
+    es: "Impacto de precio grande: en torno a un {pct}%. Podrías recibir un precio bastante peor del mostrado.",
+  },
+  "trading.priceImpactAck": {
+    en: "I understand this trade moves the price a lot and I may get a worse price than shown.",
+    es: "Entiendo que esta operación mueve mucho el precio y que puedo recibir un precio peor del mostrado.",
+  },
+  "trading.exceedsCurve": {
+    en: "This amount is more than what's left on Pump.fun's bonding curve — it can't fill as drawn.",
+    es: "Este importe supera lo que queda en la curva de Pump.fun — no se puede ejecutar tal cual.",
   },
 
   // Stop loss / take profit

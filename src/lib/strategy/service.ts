@@ -83,6 +83,12 @@ export type PrepareInput = {
   stopUsd: unknown;
   amount: { unit: unknown; value: unknown };
   fundingAsset: unknown;
+  /** Grouping metadata for a multi-tranche strategy — display-only, never used for a money check (each
+   *  leg's own `amount` above is what's actually deposited and is validated on its own, same as always). */
+  groupId?: unknown;
+  legIndex?: unknown;
+  legCount?: unknown;
+  legPct?: unknown;
 };
 
 export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string; feeTransaction: string | null }> {
@@ -97,6 +103,13 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   if (!["USD", "EUR", "SOL", "USDC"].includes(unit)) return fail(400, "invalid", "Invalid amount unit.");
   const preferred = i.fundingAsset === "SOL" || i.fundingAsset === "USDC" ? (i.fundingAsset as FundingAsset) : null;
   const ticker = typeof i.ticker === "string" && /^[\w.$-]{1,16}$/.test(i.ticker) ? i.ticker : "?";
+
+  // Grouping metadata (a multi-tranche strategy's siblings) — malformed input is simply dropped, never a
+  // reason this leg's own order can't be prepared: it just displays as an ungrouped, single-leg strategy.
+  const groupId = typeof i.groupId === "string" && ID_RE.test(i.groupId) ? i.groupId : undefined;
+  const legIndex = Number.isInteger(i.legIndex) && (i.legIndex as number) >= 0 && (i.legIndex as number) < 10 ? (i.legIndex as number) : undefined;
+  const legCount = Number.isInteger(i.legCount) && (i.legCount as number) >= 1 && (i.legCount as number) <= 10 ? (i.legCount as number) : undefined;
+  const legPct = typeof i.legPct === "number" && Number.isFinite(i.legPct) && i.legPct > 0 && i.legPct <= 100 ? i.legPct : undefined;
 
   // Every number that matters is re-read here; nothing the browser computed is trusted.
   const quote = await deps.quote(mint as string);
@@ -152,6 +165,10 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
     sellUsd: sellUsd as number,
     stopUsd: stopUsd as number,
     triggerCondition: condition,
+    ...(groupId ? { groupId } : {}),
+    ...(legIndex !== undefined ? { legIndex } : {}),
+    ...(legCount !== undefined ? { legCount } : {}),
+    ...(legPct !== undefined ? { legPct } : {}),
     fundingAsset: funding.funding.asset,
     fundingMint: funding.funding.mint,
     inputAmountRaw: funding.funding.raw,

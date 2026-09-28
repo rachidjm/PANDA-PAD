@@ -18,6 +18,18 @@ export type StrategyRecord = {
   buyUsd: number;
   sellUsd: number;
   stopUsd: number;
+  /**
+   * With "Venta escalonada" on, up to MAX_TRANCHES sell tranches (plan.ts) share one drawn position and are
+   * shown as ONE strategy — but each is its own real Jupiter order (its own deposit, its own OCO pair on its
+   * own slice of the tokens), so each is its own StrategyRecord. `groupId` (= the first leg's `id`) ties them
+   * back together; `legIndex` is 0-based, `legCount` how many siblings it has, `legPct` its share of the
+   * position (all legs' `legPct` sum to 100). Absent (undefined) on a strategy from before this existed, or a
+   * plain non-staggered one — meaning exactly one leg, 100%.
+   */
+  groupId?: string;
+  legIndex?: number;
+  legCount?: number;
+  legPct?: number;
   triggerCondition: "above" | "below";
   fundingAsset: FundingAsset;
   fundingMint: string;

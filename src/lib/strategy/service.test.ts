@@ -20,7 +20,7 @@ function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () =>
   const deps: Deps = {
     now: () => clock.t,
     engineConfigured: () => true,
-    quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000 }),
+    quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000, priceChangeH1Pct: null }),
     jupiter: {
       craftDeposit: async () => {
         calls.craft++;
@@ -146,16 +146,16 @@ test("prepare: refuses what is unsafe or invalid, and never calls Jupiter for it
 });
 
 test("prepare: unknown or thin liquidity, no price and a missing EUR rate are refused (fail closed)", async () => {
-  const thin = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 800 }) });
+  const thin = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 800, priceChangeH1Pct: null }) });
   const r1 = await prepareStrategy(thin.deps, input(wallet()));
   assert.ok(!r1.ok && r1.issues?.includes("liquidity_low"));
-  const unknown = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: null }) });
+  const unknown = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: null, priceChangeH1Pct: null }) });
   const r2 = await prepareStrategy(unknown.deps, input(wallet()));
   assert.ok(!r2.ok && r2.issues?.includes("liquidity_unknown"));
-  const noPrice = fakeDeps({ quote: async () => ({ tokenUsd: null, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 100_000 }) });
+  const noPrice = fakeDeps({ quote: async () => ({ tokenUsd: null, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 100_000, priceChangeH1Pct: null }) });
   const r3 = await prepareStrategy(noPrice.deps, input(wallet()));
   assert.ok(!r3.ok && r3.code === "price_unavailable");
-  const noEur = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: null, liquidityUsd: 100_000 }) });
+  const noEur = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: null, liquidityUsd: 100_000, priceChangeH1Pct: null }) });
   const r4 = await prepareStrategy(noEur.deps, input(wallet(), { amount: { unit: "EUR", value: 100 } }));
   assert.ok(!r4.ok && r4.code === "price_unavailable");
 });
@@ -496,7 +496,7 @@ test("fee: if the fee transfer itself fails after the order exists, the strategy
 });
 
 test("fee: without a SOL rate the fee can't be worked out, so nothing is prepared", async () => {
-  const { deps, calls } = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: null, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000 }) });
+  const { deps, calls } = fakeDeps({ quote: async () => ({ tokenUsd: 1, solUsd: null, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000, priceChangeH1Pct: null }) });
   const r = await prepareStrategy(deps, input(wallet(), { amount: { unit: "USDC", value: 100 } }));
   assert.ok(!r.ok && r.code === "price_unavailable");
   assert.equal(calls.craft, 0);

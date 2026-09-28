@@ -28,6 +28,10 @@ export async function POST(req: Request) {
     stopUsd: body.stopUsd,
     amount: { unit: amount.unit, value: amount.value },
     fundingAsset: body.fundingAsset,
+    groupId: body.groupId,
+    legIndex: body.legIndex,
+    legCount: body.legCount,
+    legPct: body.legPct,
   });
   if (!result.ok) return failureResponse(result);
   return NextResponse.json({ strategy: result.record, transaction: result.transaction, feeTransaction: result.feeTransaction });

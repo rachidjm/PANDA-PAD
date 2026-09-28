@@ -13,6 +13,12 @@ import {
   strategyMetrics,
   triggerConditionFor,
   validateStrategy,
+  validateSellPcts,
+  trancheDollarIssues,
+  maxTranchesFor,
+  pctVsBuy,
+  MAX_TRANCHES,
+  MIN_TRANCHE_USD,
   type Rates,
 } from "./plan";
 
@@ -184,4 +190,48 @@ test("the result shown to the user is after PANDA's fee", () => {
   assert.equal(Math.round(m.netProfitUsd * 100) / 100, 49);
   assert.equal(Math.round(m.netStopLossUsd * 100) / 100, -21);
   assert.equal(strategyMetrics({ buy: 1, sell: 1.5, stop: 0.8, amountUsd: 100 }).netProfitUsd, 50); // no fee asked: unchanged
+});
+
+test("validateSellPcts: 1 to 10 tranches, summing to exactly 100", () => {
+  assert.deepEqual(validateSellPcts([{ pct: 100 }]), []);
+  assert.deepEqual(validateSellPcts([{ pct: 50 }, { pct: 30 }, { pct: 20 }]), []);
+  assert.equal(MAX_TRANCHES, 10);
+  assert.deepEqual(validateSellPcts([]), ["too_many_sells", "sells_pct_invalid"]); // 0 tranches: too few, and they sum to 0
+  assert.deepEqual(
+    validateSellPcts(Array.from({ length: 11 }, () => ({ pct: 100 / 11 }))),
+    ["too_many_sells"]
+  ); // 11 tranches
+  assert.deepEqual(
+    validateSellPcts(Array.from({ length: 10 }, () => ({ pct: 10 }))),
+    []
+  ); // exactly 10 is fine
+  assert.deepEqual(validateSellPcts([{ pct: 50 }, { pct: 30 }]), ["sells_pct_invalid"]); // sums to 80
+  assert.deepEqual(validateSellPcts([{ pct: 60 }, { pct: 50 }]), ["sells_pct_invalid"]); // sums to 110
+  // Rounding: 33.33 + 33.33 + 33.34 is "close enough" to 100 once rounded.
+  assert.deepEqual(validateSellPcts([{ pct: 33.33 }, { pct: 33.33 }, { pct: 33.34 }]), []);
+});
+
+test("maxTranchesFor: one tranche per MIN_TRANCHE_USD of the amount, capped at MAX_TRANCHES", () => {
+  assert.equal(MIN_TRANCHE_USD, 11);
+  assert.equal(maxTranchesFor(null), 1);
+  assert.equal(maxTranchesFor(10), 1); // below one tranche's own minimum
+  assert.equal(maxTranchesFor(11), 1);
+  assert.equal(maxTranchesFor(33), 3);
+  assert.equal(maxTranchesFor(66), 6);
+  assert.equal(maxTranchesFor(110), 10);
+  assert.equal(maxTranchesFor(1_000_000), 10); // capped
+});
+
+test("trancheDollarIssues: flags a tranche whose own share is under MIN_TRANCHE_USD, only with more than one tranche", () => {
+  assert.deepEqual(trancheDollarIssues([{ pct: 100 }], 5), [false]); // a single tranche uses the plain below_minimum check instead
+  assert.deepEqual(trancheDollarIssues([{ pct: 50 }, { pct: 50 }], 100), [false, false]); // 50 & 50, both clear 11
+  assert.deepEqual(trancheDollarIssues([{ pct: 90 }, { pct: 10 }], 100), [false, true]); // 90 & 10 -> $10 fails
+  assert.deepEqual(trancheDollarIssues([{ pct: 50 }, { pct: 50 }], null), [false, false]); // can't tell yet
+});
+
+test("pctVsBuy: the live % a price sits from the buy target", () => {
+  assert.ok(Math.abs(pctVsBuy(1.21, 1)! - 21) < 1e-9);
+  assert.ok(Math.abs(pctVsBuy(0.84, 1)! - -16) < 1e-9);
+  assert.equal(pctVsBuy(1, undefined), null);
+  assert.equal(pctVsBuy(1, 0), null);
 });

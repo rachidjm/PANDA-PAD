@@ -124,8 +124,9 @@ export default function PriceChart({
         drawing: draw.machine.target,
         preview: draw.machine.preview,
         onPointer: draw.onPointer,
-        labels: { buy: t("draw.line.buy"), sell: t("draw.line.sell"), stop: t("draw.line.stop") },
-        previewLabels: { buy: t("draw.line.buyTarget"), sell: t("draw.line.sellTarget"), stop: t("draw.line.stopTarget") },
+        // Every sell tranche shares the one "Sell" label — the tag itself (e.g. "#1.2") is what tells them apart.
+        labels: (k) => (k === "buy" ? t("draw.line.buy") : k === "stop" ? t("draw.line.stop") : t("draw.line.sell")),
+        previewLabels: (k) => (k === "buy" ? t("draw.line.buyTarget") : k === "stop" ? t("draw.line.stopTarget") : t("draw.line.sellTarget")),
       }
     : undefined;
 
@@ -197,7 +198,7 @@ export default function PriceChart({
         </div>
       )}
 
-      {coin && <DrawTradePanel draw={draw} />}
+      {coin && <DrawTradePanel draw={draw} coin={coin} />}
     </div>
   );
 }

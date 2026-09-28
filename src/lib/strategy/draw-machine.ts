@@ -9,7 +9,10 @@
  * Nothing here places an order. Setting a price only records a number in a draft.
  */
 
-export type DrawTarget = "buy" | "sell" | "stop";
+/** "sellN" is the Nth sell tranche (up to MAX_TRANCHES in plan.ts, only reachable with "Venta escalonada" on)
+ *  — the machine itself treats every target the same, opaquely. */
+export type SellSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type DrawTarget = "buy" | "stop" | `sell${SellSlot}`;
 export type DrawState = { target: DrawTarget | null; preview: number | null; armed: boolean };
 export type PointerInfo = { type: string; button?: number };
 

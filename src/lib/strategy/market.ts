@@ -11,6 +11,8 @@ export type StrategyQuote = Rates & {
   tokenUsd: number | null;
   /** USD liquidity of the deepest pool for this token. */
   liquidityUsd: number | null;
+  /** How much the price moved in the last hour, in percent (can be negative). Null when unknown. */
+  priceChangeH1Pct: number | null;
 };
 
 /** EUR→USD from the European Central Bank's daily reference rate (via frankfurter.dev). Null when it can't be read. */
@@ -25,28 +27,33 @@ export async function eurUsdRate(): Promise<number | null> {
   }
 }
 
-async function tokenLiquidityUsd(mint: string): Promise<number | null> {
+/** The deepest pool's liquidity and its own 1-hour price change, from the same lookup (one Dexscreener call). */
+async function tokenLiquidityAndChange(mint: string): Promise<{ liquidityUsd: number | null; priceChangeH1Pct: number | null }> {
   try {
     const best = (await fetchDexTokensBatch([mint])).filter((p) => p.baseToken.address === mint).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
     const liq = best?.liquidity?.usd;
-    return typeof liq === "number" && liq >= 0 ? liq : null;
+    const change = best?.priceChange?.h1;
+    return {
+      liquidityUsd: typeof liq === "number" && liq >= 0 ? liq : null,
+      priceChangeH1Pct: typeof change === "number" && Number.isFinite(change) ? change : null,
+    };
   } catch {
-    return null;
+    return { liquidityUsd: null, priceChangeH1Pct: null };
   }
 }
 
 export async function strategyQuote(mint: string): Promise<StrategyQuote> {
-  const [prices, solUsd, eurUsd, liquidityUsd] = await Promise.all([
+  const [prices, solUsd, eurUsd, liquidity] = await Promise.all([
     usdPrices([mint, USDC_MINT]).catch(() => new Map<string, number>()),
     solPriceUsd().catch(() => 0),
     eurUsdRate(),
-    tokenLiquidityUsd(mint),
+    tokenLiquidityAndChange(mint),
   ]);
   return {
     tokenUsd: prices.get(mint) ?? null,
     solUsd: solUsd > 0 ? solUsd : null,
     usdcUsd: prices.get(USDC_MINT) ?? null,
     eurUsd,
-    liquidityUsd,
+    ...liquidity,
   };
 }

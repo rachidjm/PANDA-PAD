@@ -20,12 +20,12 @@ test("mouse: hovering moves the line, click sets the price and leaves the mode",
 });
 
 test("touch: a finger can't hover, so moving without pressing does nothing", () => {
-  const s = move(start("sell"), 1.5, { ...touch, pressed: false });
+  const s = move(start("sell1"), 1.5, { ...touch, pressed: false });
   assert.equal(s.preview, null);
 });
 
 test("touch: a tap (down then up) sets the price where the finger landed", () => {
-  let s = start("sell");
+  let s = start("sell1");
   s = down(s, 1.8, touch);
   assert.equal(s.preview, 1.8);
   const r = up(s, 1.8, touch);

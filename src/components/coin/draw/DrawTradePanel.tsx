@@ -1,15 +1,29 @@
 "use client";
 
 import { sanitizeDecimalInput } from "@/lib/trading/input";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import { convertAmount, type FundingAsset, type StrategyIssue } from "@/lib/strategy/plan";
+import type { Coin } from "@/lib/types";
+import {
+  convertAmount,
+  MAX_TRANCHES,
+  MIN_TRANCHE_USD,
+  pctVsBuy,
+  PRICE_IMPACT_HIGH_PCT,
+  PRICE_IMPACT_WARN_PCT,
+  VOLATILE_LIQUIDITY_USD,
+  VOLATILE_PRICE_CHANGE_1H_PCT,
+  type FundingAsset,
+  type StrategyIssue,
+} from "@/lib/strategy/plan";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
+import type { RecordGroup } from "./useDrawTrade";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
-import { LINE_COLOR } from "./ChartOverlay";
-import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
+import { lineColor } from "./ChartOverlay";
+import { usePriceImpact } from "@/components/coin/usePriceImpact";
+import { rememberUnit, sellTargetAt, type BuyUnit, type Draft, type DrawApi, type DraftView } from "./useDrawTrade";
 
 const PAY_WITH: FundingAsset[] = ["SOL", "USDC"];
 const STEP_KEYS: Record<string, DictKey> = {
@@ -20,8 +34,17 @@ const STEP_KEYS: Record<string, DictKey> = {
   create: "draw.step.create",
   done: "draw.step.done",
 };
-const MODE_KEYS: Record<DrawTarget, DictKey> = { buy: "draw.mode.buy", sell: "draw.mode.sell", stop: "draw.mode.stop" };
-const SET_KEYS: Record<DrawTarget, DictKey> = { buy: "draw.set.buy", sell: "draw.set.sell", stop: "draw.set.stop" };
+// Every sell tranche shares the one "sell" mode/set copy — the tag (e.g. "#1.2") and its own % are what tell them apart.
+const MODE_KEYS: Record<DrawTarget, DictKey> = {
+  buy: "draw.mode.buy",
+  stop: "draw.mode.stop",
+  ...Object.fromEntries(Array.from({ length: MAX_TRANCHES }, (_, i) => [`sell${i + 1}`, "draw.mode.sell"])),
+} as Record<DrawTarget, DictKey>;
+const SET_KEYS: Record<DrawTarget, DictKey> = {
+  buy: "draw.set.buy",
+  stop: "draw.set.stop",
+  ...Object.fromEntries(Array.from({ length: MAX_TRANCHES }, (_, i) => [`sell${i + 1}`, "draw.set.sell"])),
+} as Record<DrawTarget, DictKey>;
 const STATUS_TONE: Record<StrategyStatus, string> = {
   waiting: "bg-paper/10 text-paper/80",
   buy_triggered: "bg-meme-orange/20 text-meme-orange",
@@ -48,18 +71,22 @@ function useIsDesktop(): boolean {
   );
 }
 
-export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
+export default function DrawTradePanel({ draw, coin }: { draw: DrawApi; coin: Coin }) {
   const { t } = useLanguage();
   const target = draw.machine.target;
   const canSell = !!draw.active?.buy;
   const canStop = !!draw.active?.buy;
   const busy = draw.step !== "idle" && draw.step !== "done";
+  // The quick "Sell" button in the top bar draws whichever tranche still needs a price (the first one without
+  // one), or the first tranche if every one of them already has a price — per-tranche add/remove/% lives on
+  // the draft card itself, below.
+  const nextSellTarget = draw.active ? sellTargetAt(Math.max(0, draw.active.sells.findIndex((s) => s.price === undefined))) : "sell1";
 
   // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
   const isDesktop = useIsDesktop();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = !!target || (userOpen ?? isDesktop);
-  const count = draw.views.length + draw.records.length;
+  const count = draw.views.length + draw.recordGroups.length;
 
   return (
     <section className="mt-4 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5" aria-labelledby="draw-title">
@@ -85,7 +112,7 @@ export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
           <TargetButton kind="buy" active={target === "buy"} disabled={busy} onClick={() => draw.startTarget("buy")}>
             {t("draw.setBuy")}
           </TargetButton>
-          <TargetButton kind="sell" active={target === "sell"} disabled={busy || !canSell} onClick={() => draw.startTarget("sell")} title={!canSell ? t("draw.sellNeedsBuy") : undefined}>
+          <TargetButton kind={nextSellTarget} active={target?.startsWith("sell") ?? false} disabled={busy || !canSell} onClick={() => draw.startTarget(nextSellTarget)} title={!canSell ? t("draw.sellNeedsBuy") : undefined}>
             {t("draw.setSell")}
           </TargetButton>
           <TargetButton kind="stop" active={target === "stop"} disabled={busy || !canStop} onClick={() => draw.startTarget("stop")} title={!canStop ? t("draw.sellNeedsBuy") : undefined}>
@@ -126,7 +153,7 @@ export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
       {draw.views.length > 0 && (
         <div className="mt-4 space-y-3">
           {draw.views.map((v) => (
-            <DraftCard key={v.draft.id} view={v} draw={draw} expanded={v.draft.id === draw.activeId} />
+            <DraftCard key={v.draft.id} view={v} draw={draw} coin={coin} expanded={v.draft.id === draw.activeId} />
           ))}
         </div>
       )}
@@ -140,7 +167,7 @@ export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
         </p>
       )}
 
-      {draw.records.length > 0 && <SavedStrategies draw={draw} />}
+      {draw.recordGroups.length > 0 && <SavedStrategies draw={draw} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
       </>
@@ -150,14 +177,14 @@ export default function DrawTradePanel({ draw }: { draw: DrawApi }) {
 }
 
 function Dot({ kind }: { kind: DrawTarget }) {
-  return <span className="mt-[3px] inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: LINE_COLOR[kind] }} aria-hidden />;
+  return <span className="mt-[3px] inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: lineColor(kind) }} aria-hidden />;
 }
 
 /** Each mode gets its own little bamboo stalk (same colors as its chart line) instead of a plain dot —
  * a small nod to PANDA's bamboo theme on the button that matters most for "drawing your trade". When
  * active, the button itself takes on that color instead of turning plain white. */
 function TargetButton({ kind, active, disabled, onClick, title, children }: { kind: DrawTarget; active: boolean; disabled?: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
-  const color = LINE_COLOR[kind];
+  const color = lineColor(kind);
   return (
     <button
       type="button"
@@ -188,12 +215,37 @@ function BambooStalk({ color }: { color: string }) {
   );
 }
 
+/** A small ON/OFF switch — used for "Venta escalonada". */
+function Toggle({ checked, onChange, disabled, label, hint }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string; hint?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-ink-raised px-3.5 py-2.5">
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold text-paper">{label}</span>
+        {hint && <span className="mt-0.5 block text-[11px] text-panda-grey">{hint}</span>}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-meme-orange" : "bg-paper/15"}`}
+      >
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
+      </button>
+    </div>
+  );
+}
+
 function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
   const { t } = useLanguage();
   const issues = error.issues ?? [];
   return (
     <div className="mt-4 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
-      {issues.length > 0 ? (
+      {error.partial ? (
+        <p>{t("draw.legPartial", { done: error.partial.done, total: error.partial.total, rolledBack: error.partial.rolledBack ?? 0, stillOpen: error.partial.stillOpen ?? 0 })}</p>
+      ) : issues.length > 0 ? (
         <ul className="space-y-1">
           {issues.map((i) => (
             <li key={i}>{t(`draw.issue.${i}` as DictKey)}</li>
@@ -213,12 +265,31 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
   );
 }
 
-function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; expanded: boolean }) {
+function DraftCard({ view, draw, coin, expanded }: { view: DraftView; draw: DrawApi; coin: Coin; expanded: boolean }) {
   const { t, lang } = useLanguage();
   const { draft } = view;
   const [ack, setAck] = useState(false);
+  const [impactAck, setImpactAck] = useState(false);
   const confirming = draw.step !== "idle" && draw.step !== "done";
-  const complete = draft.buy !== undefined && draft.sell !== undefined;
+  const complete = draft.buy !== undefined && draft.sells.some((s) => s.price !== undefined);
+
+  // A trade this big moves the price — estimated from the coin's own real liquidity, same as a normal buy
+  // (TradingPanel.tsx); on-curve = still on Pump.fun's own bonding curve, off-curve = graduated/external, via
+  // Jupiter's public quote. Only computed once an amount + funding asset are known.
+  const onCurve = coin.source !== "pumpswap" && coin.source !== "other";
+  const funding = view.funding?.ok ? view.funding.funding : null;
+  const impact = usePriceImpact({
+    mint: coin.mint,
+    onCurve,
+    side: "buy",
+    solAmount: onCurve && funding?.asset === "SOL" ? funding.ui : undefined,
+    inputMint: !onCurve && funding ? funding.mint : undefined,
+    outputMint: !onCurve ? coin.mint : undefined,
+    inputAmountRaw: !onCurve && funding ? funding.raw : undefined,
+  });
+  useEffect(() => {
+    Promise.resolve().then(() => setImpactAck(false));
+  }, [draft.amount, draft.unit]);
 
   if (!expanded) {
     return (
@@ -227,7 +298,7 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
           <p className="font-semibold">
             {t("draw.strategy", { n: draft.n })} <span className="ml-1 rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-medium text-panda-grey">{t("draw.draft")}</span>
           </p>
-          <PriceSummary buy={draft.buy} sell={draft.sell} stop={draft.stop} />
+          <PriceSummary buy={draft.buy} sells={draft.sells} stop={draft.stop} />
         </div>
         <div className="flex shrink-0 gap-3">
           <button type="button" onClick={() => draw.setActiveId(draft.id)} className="font-semibold text-meme-orange hover:brightness-110">
@@ -241,13 +312,16 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
     );
   }
 
+  const pctSum = draft.sells.reduce((s, x) => s + (Number.isFinite(x.pct) ? x.pct : 0), 0);
+  const pctOk = Math.round(pctSum) === 100;
   const f = view.funding;
-  const funding = f && f.ok ? f.funding : null;
   const rateMissing = f && !f.ok && f.reason === "price_unavailable";
   const short = f && !f.ok && f.reason === "insufficient" ? f.shortfallUsd : undefined;
-  const m = view.metrics;
   const q = draw.quote;
   const rates = { solUsd: q?.solUsd ?? null, usdcUsd: q?.usdcUsd ?? null, eurUsd: q?.eurUsd ?? null };
+  const volatile = !!q && ((q.liquidityUsd !== null && q.liquidityUsd < VOLATILE_LIQUIDITY_USD) || (q.priceChangeH1Pct !== null && Math.abs(q.priceChangeH1Pct) > VOLATILE_PRICE_CHANGE_1H_PCT));
+  const impactHigh = impact.pct !== null && impact.pct >= PRICE_IMPACT_HIGH_PCT;
+  const impactWarn = impact.pct !== null && impact.pct >= PRICE_IMPACT_WARN_PCT;
 
   // The same amount in the other two currencies, so "10" always means something.
   const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
@@ -278,18 +352,33 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {(["buy", "sell", "stop"] as const).map((kind) => (
-          <div key={kind} className="rounded-xl bg-ink-raised px-3 py-2.5">
-            <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
-              <Dot kind={kind} />
-              {t(`draw.label.${kind}` as DictKey)}
-            </span>
-            <PriceInput value={draft[kind]} label={t(`draw.label.${kind}` as DictKey)} onCommit={(v) => draw.setPrice(draft.id, kind, v)} />
-          </div>
-        ))}
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="rounded-xl bg-ink-raised px-3 py-2.5">
+          <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
+            <Dot kind="buy" />
+            {t("draw.label.buy")}
+          </span>
+          <PriceInput value={draft.buy} label={t("draw.label.buy")} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} />
+        </div>
+        <div className="rounded-xl bg-ink-raised px-3 py-2.5">
+          <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
+            <Dot kind="stop" />
+            {t("draw.label.stop")}
+          </span>
+          <PriceInput value={draft.stop} label={t("draw.label.stop")} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} />
+        </div>
       </div>
       {draft.stop === undefined && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
+
+      <div className="mt-3">
+        <Toggle checked={draft.staggered} onChange={(on) => draw.setStaggered(draft.id, on)} disabled={confirming} label={t("draw.staggered.label")} hint={t("draw.staggered.hint")} />
+      </div>
+
+      <SellTranches draft={draft} view={view} draw={draw} />
+      {draft.staggered && (
+        <p className={`mt-2 text-[11px] font-semibold ${pctOk ? "text-bamboo" : "text-clay-red"}`}>{t(pctOk ? "draw.sellPctSumOk" : "draw.sellPctSum", { pct: Math.round(pctSum * 10) / 10 })}</p>
+      )}
+      {draft.staggered && draft.sells.length > 1 && <p className="mt-1 text-[11px] text-panda-grey">{t("draw.multiSellNote")}</p>}
 
       {complete && (
         <>
@@ -339,14 +428,45 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
           {rateMissing && <p className="mt-2 text-xs text-clay-red">{t("draw.noRate")}</p>}
           {short !== undefined && <p className="mt-2 text-xs text-clay-red">{t("draw.notEnough", { short: money(short) })}</p>}
 
-          {m && view.amountUsd && (
+          {impactWarn && (
+            <div className={`mt-3 rounded-xl px-3.5 py-2.5 text-xs ${impactHigh ? "bg-clay-red/10 text-clay-red" : "bg-sun/10 text-sun"}`} role="alert">
+              <p>{t(impactHigh ? "trading.priceImpactHigh" : "trading.priceImpact", { pct: impact.pct!.toFixed(1) })}</p>
+              {impactHigh && (
+                <label className="mt-2 flex cursor-pointer items-start gap-2">
+                  <input type="checkbox" checked={impactAck} onChange={(e) => setImpactAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--clay-red)]" />
+                  <span>{t("trading.priceImpactAck")}</span>
+                </label>
+              )}
+            </div>
+          )}
+          {impact.exceedsCurve && (
+            <p className="mt-3 rounded-xl bg-clay-red/10 px-3.5 py-2.5 text-xs text-clay-red" role="alert">
+              {t("trading.exceedsCurve")}
+            </p>
+          )}
+
+          {view.totalFeeUsd !== null && view.totalNetProfitUsd !== null && view.amountUsd && (
             <>
               <dl className="mt-3 space-y-1.5 rounded-xl bg-ink-raised px-3.5 py-3 text-xs">
-                <Row label={t("draw.fee")} value={`+ ${money(m.feeUsd)}`} muted />
-                <Row label={t("draw.total")} value={money(view.amountUsd + m.feeUsd)} strong />
+                <Row label={t("draw.fee")} value={`+ ${money(view.totalFeeUsd)}`} muted />
+                <Row label={t("draw.total")} value={money(view.amountUsd + view.totalFeeUsd)} strong />
                 <div className="border-t border-paper/10 pt-1.5" />
-                <Row label={t("draw.ifSell")} value={`${signedMoney(m.netProfitUsd)} (${formatPct((m.netProfitUsd / view.amountUsd) * 100)})`} tone={m.netProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} strong />
-                <Row label={t("draw.stopResult")} value={`${signedMoney(m.netStopLossUsd)} (${formatPct((m.netStopLossUsd / view.amountUsd) * 100)})`} tone="text-clay-red" />
+                <Row
+                  label={t("draw.ifSell")}
+                  value={`${signedMoney(view.totalNetProfitUsd)} (${formatPct((view.totalNetProfitUsd / view.amountUsd) * 100)})`}
+                  tone={view.totalNetProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"}
+                  strong
+                />
+                {view.legMetrics.length > 1 && (
+                  <div className="space-y-1 pl-2 text-[11px] text-panda-grey">
+                    {view.legMetrics.map((lm, i) => lm && <Row key={i} label={t("draw.sellN", { n: i + 1 })} value={`${signedMoney(lm.netProfitUsd)} (${formatPct(lm.pct)})`} tone={lm.netProfitUsd >= 0 ? "text-bamboo" : "text-clay-red"} />)}
+                  </div>
+                )}
+                <Row
+                  label={t("draw.stopResult")}
+                  value={signedMoney(view.legMetrics.reduce((s, lm) => s + (lm?.netStopLossUsd ?? 0), 0))}
+                  tone="text-clay-red"
+                />
               </dl>
               <p className="mt-1.5 text-[11px] text-panda-grey">{t("draw.estimateShort")} {t("draw.feeNote")}</p>
             </>
@@ -370,14 +490,94 @@ function DraftCard({ view, draw, expanded }: { view: DraftView; draw: DrawApi; e
           {!draw.engine && <p className="mt-3 text-xs text-panda-grey">{t("draw.engineOffShort")}</p>}
           {!draw.connected && <p className="mt-3 text-xs text-panda-grey">{t("draw.connect")}</p>}
 
+          {/* Fixed, always visible right above the confirm button — never conditional. */}
+          <p className="mt-3 text-[11px] text-panda-grey">{t("draw.execution.notice")}</p>
+          {volatile && (
+            <p className="mt-1.5 rounded-xl bg-clay-red/10 px-3 py-2 text-[11px] font-semibold text-clay-red" role="alert">
+              {t("draw.execution.volatile")}
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => draw.confirm(view)}
-            disabled={!view.ready || !draw.engine || !draw.connected || !ack || confirming}
+            disabled={!view.ready || !draw.engine || !draw.connected || !ack || confirming || (impactHigh && !impactAck)}
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {confirming || draw.step === "done" ? t(STEP_KEYS[draw.step]) : t("draw.confirm")}
           </button>
+          {confirming && draw.legProgress && draw.legProgress.total > 1 && (
+            <p className="mt-1.5 text-center text-[11px] text-panda-grey">{t("draw.legProgress", { n: draw.legProgress.index + 1, m: draw.legProgress.total })}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** With "Venta escalonada" off: the plain single Sell + Stop box, exactly as before. On: every tranche gets
+ *  its own price + % of the position, "+ venta" capped by MIN_TRANCHE_USD ($11) worth of headroom. */
+function SellTranches({ draft, view, draw }: { draft: Draft; view: DraftView; draw: DrawApi }) {
+  const { t } = useLanguage();
+  const atCap = draft.sells.length >= view.maxTranchesAllowed || draft.sells.length >= MAX_TRANCHES;
+  return (
+    <div className="mt-2 space-y-2">
+      {draft.sells.map((s, i) => {
+        const target = sellTargetAt(i);
+        const pct = pctVsBuy(s.price ?? 0, draft.buy);
+        const tooSmall = view.trancheTooSmall[i];
+        return (
+          <div key={i}>
+            <div className="flex items-center gap-2 rounded-xl bg-ink-raised px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
+                  <Dot kind={target} />
+                  {draft.staggered ? t("draw.sellN", { n: i + 1 }) : t("draw.label.sell")}
+                  {s.price !== undefined && pct !== null && <span className={pct >= 0 ? "text-bamboo" : "text-clay-red"}>{formatPct(pct)}</span>}
+                </span>
+                <PriceInput value={s.price} label={t("draw.sellN", { n: i + 1 })} onCommit={(v) => draw.setPrice(draft.id, target, v)} />
+              </div>
+              {draft.staggered && (
+                <div className="shrink-0 text-right">
+                  <label className="sr-only" htmlFor={`sell-pct-${draft.id}-${i}`}>
+                    {t("draw.sellPctOfPosition")}
+                  </label>
+                  <input
+                    id={`sell-pct-${draft.id}-${i}`}
+                    value={s.pct}
+                    onChange={(e) => {
+                      const n = Math.round(Number(e.target.value));
+                      if (Number.isFinite(n)) draw.setSellPct(draft.id, i, Math.max(0, Math.min(100, n)));
+                    }}
+                    inputMode="numeric"
+                    className={`w-12 rounded-lg bg-ink px-1.5 py-1 text-right text-xs font-semibold outline-none ${tooSmall ? "text-clay-red" : ""}`}
+                  />
+                  <span className="ml-0.5 text-xs text-panda-grey">%</span>
+                </div>
+              )}
+              {draft.staggered && draft.sells.length > 1 && (
+                <button type="button" onClick={() => draw.removeSellTranche(draft.id, i)} aria-label={t("draw.removeSell")} className="shrink-0 text-panda-grey hover:text-clay-red">
+                  ×
+                </button>
+              )}
+            </div>
+            {tooSmall && view.amountUsd !== null && (
+              <p className="mt-1 pl-1 text-[11px] text-clay-red">{t("draw.tranche.tooSmall", { usd: money((view.amountUsd * s.pct) / 100), min: money(MIN_TRANCHE_USD) })}</p>
+            )}
+          </div>
+        );
+      })}
+      {draft.staggered && (
+        <>
+          <button
+            type="button"
+            onClick={() => draw.addSellTranche(draft.id, view.maxTranchesAllowed)}
+            disabled={atCap}
+            className="text-xs font-semibold text-meme-orange hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("draw.addSell")}
+          </button>
+          {atCap && view.maxTranchesAllowed < MAX_TRANCHES && <p className="text-[11px] text-panda-grey">{t("draw.tranche.maxReached", { n: view.maxTranchesAllowed, min: money(MIN_TRANCHE_USD) })}</p>}
         </>
       )}
     </div>
@@ -393,15 +593,18 @@ function Row({ label, value, tone, muted, strong }: { label: string; value: stri
   );
 }
 
-function PriceSummary({ buy, sell, stop }: { buy?: number; sell?: number; stop?: number }) {
+function PriceSummary({ buy, sells, stop }: { buy?: number; sells: { price?: number; pct: number }[]; stop?: number }) {
   const { t } = useLanguage();
+  const sellText = sells
+    .map((s, i) => (s.price ? `${sells.length > 1 ? `#${i + 1} ` : ""}${formatPrice(s.price)}` : "—"))
+    .join(" / ");
   return (
     <p className="mt-0.5 text-panda-grey">
-      <span style={{ color: LINE_COLOR.buy }}>{t("draw.line.buy")}</span> {buy ? formatPrice(buy) : "—"} → <span style={{ color: LINE_COLOR.sell }}>{t("draw.line.sell")}</span> {sell ? formatPrice(sell) : "—"}
+      <span style={{ color: lineColor("buy") }}>{t("draw.line.buy")}</span> {buy ? formatPrice(buy) : "—"} → <span style={{ color: lineColor("sell1") }}>{t("draw.line.sell")}</span> {sellText}
       {stop ? (
         <>
           {" · "}
-          <span style={{ color: LINE_COLOR.stop }}>{t("draw.line.stop")}</span> {formatPrice(stop)}
+          <span style={{ color: lineColor("stop") }}>{t("draw.line.stop")}</span> {formatPrice(stop)}
         </>
       ) : null}
     </p>
@@ -455,39 +658,62 @@ function SavedStrategies({ draw }: { draw: DrawApi }) {
         </p>
       )}
       <div className="mt-2 space-y-2.5">
-        {draw.records.map((r) => (
-          <RecordCard key={r.id} r={r} draw={draw} />
+        {draw.recordGroups.map((g) => (
+          <RecordGroupCard key={g.groupId} group={g} draw={draw} />
         ))}
       </div>
     </div>
   );
 }
 
-function RecordCard({ r, draw }: { r: StrategyRecord; draw: DrawApi }) {
+/** One card per drawn position, even when it's several real tranches underneath (see useDrawTrade.ts's
+ *  `recordGroups`) — the header shows it as ONE operation; each tranche still gets its own status/tx/cancel,
+ *  since each really is its own independent order on Jupiter. */
+function RecordGroupCard({ group, draw }: { group: RecordGroup; draw: DrawApi }) {
+  const { t } = useLanguage();
+  const legs = group.legs;
+  const first = legs[0];
+  const totalAmountUsd = legs.reduce((s, l) => s + l.amountUsd, 0);
+  return (
+    <div className="rounded-2xl border border-paper/10 bg-ink px-3.5 py-3 text-xs">
+      <div className="min-w-0">
+        <p className="font-semibold">
+          {t("draw.strategy", { n: group.n })}
+          {legs.length > 1 && <span className="ml-1.5 rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-medium text-panda-grey">{t("draw.tranches", { n: legs.length })}</span>}
+        </p>
+        <PriceSummary buy={first.buyUsd} sells={legs.map((l) => ({ price: l.sellUsd, pct: l.legPct ?? 100 }))} stop={first.stopUsd} />
+        <p className="mt-0.5 text-panda-grey">
+          {money(totalAmountUsd)} · {first.fundingAsset} → ${first.ticker}
+        </p>
+      </div>
+      <div className="mt-2 space-y-2">
+        {legs.map((r, i) => (
+          <LegRow key={r.id} r={r} showIndex={legs.length > 1} index={i} draw={draw} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One tranche's own status/tx-links/cancel, inside its group's card. */
+function LegRow({ r, showIndex, index, draw }: { r: StrategyRecord; showIndex: boolean; index: number; draw: DrawApi }) {
   const { t } = useLanguage();
   const status = r.state as StrategyStatus;
   const live = !["completed", "failed", "cancelled"].includes(r.state);
   const helpKey = `draw.help.${status}` as DictKey;
   const hasHelp = ["waiting", "buy_triggered", "position_open", "sell_triggered", "cancelled"].includes(status);
   return (
-    <div className="rounded-2xl border border-paper/10 bg-ink px-3.5 py-3 text-xs">
+    <div className={showIndex ? "border-t border-paper/10 pt-2 first:border-t-0 first:pt-0" : undefined}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-semibold">{t("draw.strategy", { n: r.n })}</p>
-          <PriceSummary buy={r.buyUsd} sell={r.sellUsd} stop={r.stopUsd} />
-          <p className="mt-0.5 text-panda-grey">
-            {money(r.amountUsd)} · {r.fundingAsset} → ${r.ticker}
-          </p>
-        </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${STATUS_TONE[status]}`}>{t(`draw.status.${status}` as DictKey)}</span>
+        {showIndex && <span className="shrink-0 text-panda-grey">{t("draw.sellN", { n: index + 1 })}</span>}
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${STATUS_TONE[status]} ${showIndex ? "" : "ml-auto"}`}>{t(`draw.status.${status}` as DictKey)}</span>
       </div>
+      {hasHelp && <p className="mt-1 text-panda-grey">{t(helpKey, { price: formatPrice(r.buyUsd) })}</p>}
+      {status === "completed" && <p className="mt-1 text-panda-grey">{r.sellKind === "stop_loss" ? t("draw.closedStop") : t("draw.closedTarget")}</p>}
+      {status === "failed" && r.error && <p className="mt-1 break-words text-clay-red">{r.error}</p>}
+      {r.holdsTokens && <p className="mt-1 text-meme-orange">{t("draw.holds")}</p>}
 
-      {hasHelp && <p className="mt-2 text-panda-grey">{t(helpKey, { price: formatPrice(r.buyUsd) })}</p>}
-      {status === "completed" && <p className="mt-2 text-panda-grey">{r.sellKind === "stop_loss" ? t("draw.closedStop") : t("draw.closedTarget")}</p>}
-      {status === "failed" && r.error && <p className="mt-2 break-words text-clay-red">{r.error}</p>}
-      {r.holdsTokens && <p className="mt-2 text-meme-orange">{t("draw.holds")}</p>}
-
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-3">
           {r.buySignature && (
             <a href={`https://solscan.io/tx/${r.buySignature}`} target="_blank" rel="noreferrer" className="text-bamboo hover:underline">
@@ -501,14 +727,9 @@ function RecordCard({ r, draw }: { r: StrategyRecord; draw: DrawApi }) {
           )}
         </div>
         {live && (
-          <div className="flex items-center gap-3">
-            <span className="cursor-not-allowed text-panda-grey/60" title={t("draw.editLive")}>
-              {t("draw.edit")}
-            </span>
-            <button type="button" onClick={() => draw.cancelLive(r)} disabled={draw.cancelling === r.id} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
-              {draw.cancelling === r.id ? t("draw.cancelling") : t("draw.cancelStrategy")}
-            </button>
-          </div>
+          <button type="button" onClick={() => draw.cancelLive(r)} disabled={draw.cancelling === r.id} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
+            {draw.cancelling === r.id ? t("draw.cancelling") : t("draw.cancelStrategy")}
+          </button>
         )}
       </div>
     </div>
