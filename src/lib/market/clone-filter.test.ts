@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Coin } from "@/lib/types";
-import { filterCreatorSeriesSpam, filterExactDuplicateImages, filterByImageHash, looksLikeCloneSeries } from "./clone-filter";
+import { filterCreatorSeriesSpam, filterTemplateSpam, filterExactDuplicateImages, filterByImageHash, looksLikeCloneSeries, looksLikeTemplateSpam } from "./clone-filter";
 
 const coin = (over: Partial<Coin> & { ticker: string }): Coin => ({
   mint: `mint-${over.ticker}`,
@@ -42,6 +42,39 @@ test("a prolific creator's genuinely different coins (different % change) are ne
   const b = coin({ ticker: "B", name: "Moon Dog", creator: "creatorC", changePct: 900, marketCap: 200_000, volume24h: 40_000 });
   const out = filterCreatorSeriesSpam([a, b]);
   assert.deepEqual(out.map((c) => c.ticker).sort(), ["A", "B"]);
+});
+
+// ── real production data (panda-pad.vercel.app/api/coins, 2026-09-30): a scripted spam ring, five
+// coins named "Super <word>", each from a DIFFERENT creator wallet, but reporting the exact same
+// 24h change and market caps/volumes within ~1% of each other — the pattern filterTemplateSpam
+// exists for (looksLikeCloneSeries alone would miss this: it requires a matching creator). ──────
+const REAL_TEMPLATE_SPAM = [
+  coin({ ticker: "SI", name: "Super Idiot", creator: "41H61KHoC6qZ8ZrW5NBbVj7qEjFjTBebR6w99PTT9BQv", changePct: 1322, marketCap: 657_637, volume24h: 1_624_203 }),
+  coin({ ticker: "SUPERWIF", name: "Super Wif", creator: "7d3HnbppBXT5iqT1MSUZX11AeqSHn8RbYX7HSjuksVoY", changePct: 1360, marketCap: 49_043, volume24h: 10_146 }),
+  coin({ ticker: "SA", name: "SUPER ARTHUR", creator: "BnQyt1i5F1W6Z5kJS73KoG9c7LRLCsqkVi4Prm175uvX", changePct: 1360, marketCap: 48_948, volume24h: 10_127 }),
+  coin({ ticker: "SW", name: "Super Wojak", creator: "75qTWKuPt5kdgBjRxFFjPo3fon6NnR94EVgMttdRQV9E", changePct: 1360, marketCap: 48_862, volume24h: 10_109 }),
+  coin({ ticker: "SUPERVRAX", name: "Super VRAX", creator: "Drq8VskUCBRHeUntAyCD9eiuEbbmHjtsemoNs3i1bEmk", changePct: 1360, marketCap: 48_854, volume24h: 10_107 }),
+  coin({ ticker: "ST", name: "Super Troll", creator: "2VN9YiWVDXXJbYx2PSD6x35NiTBrc3aYJKP253kCXs2X", changePct: 1360, marketCap: 48_730, volume24h: 10_082 }),
+];
+
+test("real data: filterCreatorSeriesSpam alone does NOT catch a cross-wallet template-spam ring (different creator per coin)", () => {
+  const out = filterCreatorSeriesSpam(REAL_TEMPLATE_SPAM);
+  assert.equal(out.length, REAL_TEMPLATE_SPAM.length, "no same-creator pair exists, so nothing should be dropped by this pass alone");
+});
+
+test("real data: filterTemplateSpam collapses the 'Super X' ring to the single highest-volume coin, keeping the unrelated 'Super Idiot' (too far off on stats) separate", () => {
+  const out = filterTemplateSpam(REAL_TEMPLATE_SPAM);
+  // Super Idiot's own change% (1322) is already outside the default 5-point tolerance of the
+  // ring's 1360, and its market cap/volume are an order of magnitude apart — a real, unrelated coin.
+  assert.deepEqual(out.map((c) => c.ticker).sort(), ["SI", "SUPERWIF"]);
+});
+
+test("looksLikeTemplateSpam requires no creator match, but does require a close change%, market cap and volume all at once", () => {
+  const a = coin({ ticker: "A", name: "Super Foo", creator: "x", changePct: 1360, marketCap: 50_000, volume24h: 10_000 });
+  const b = coin({ ticker: "B", name: "Super Bar", creator: "y", changePct: 1360, marketCap: 50_500, volume24h: 10_200 });
+  assert.equal(looksLikeTemplateSpam(a, b), true, "different creators, but name template + all three stats close");
+  assert.equal(looksLikeTemplateSpam(a, { ...b, mint: "m2", marketCap: 500_000 }), false, "market cap 10x apart");
+  assert.equal(looksLikeTemplateSpam(a, { ...b, mint: "m2", name: "Totally Different" }), false, "no shared name token");
 });
 
 test("filterExactDuplicateImages keeps only the highest-volume coin per exact image URL, and never touches coins without an image", () => {

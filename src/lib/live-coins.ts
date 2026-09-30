@@ -15,7 +15,7 @@ import { withoutPendingFeeLock } from "./pump/fee-lock";
 import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
-import { filterCreatorSeriesSpam, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
+import { filterCreatorSeriesSpam, filterTemplateSpam, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
 import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
@@ -220,9 +220,11 @@ async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: C
   coins = coins.filter((c) => c.marketCap >= MIN_LISTED_MARKET_CAP);
   coins = await enrichWithPump(coins);
   coins = dedupeByIdentity(coins);
-  // Spam/clone pass: a series of near-identical relaunches by the same creator, or coins
-  // reusing (exactly, or via a perceptual match) the same logo — keep only the most-traded one.
+  // Spam/clone pass: a series of near-identical relaunches by the same creator, a scripted
+  // cross-wallet "same template, same numbers" ring, or coins reusing (exactly, or via a
+  // perceptual match) the same logo — keep only the most-traded one of each group.
   coins = filterCreatorSeriesSpam(coins);
+  coins = filterTemplateSpam(coins);
   coins = filterExactDuplicateImages(coins);
   coins = await filterImageClones(coins).catch(() => coins);
 

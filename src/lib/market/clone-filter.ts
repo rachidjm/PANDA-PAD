@@ -59,12 +59,10 @@ export function looksLikeCloneSeries(a: Coin, b: Coin, opts: CloneSeriesOptions 
   return true;
 }
 
-/**
- * Drops every coin in a same-creator "series" spam cluster except the one with the most
- * volume. A coin never joins more than one cluster (the highest-volume coin in the list is
- * always tried as a cluster leader first, so clusters form around the most-traded coin).
- */
-export function filterCreatorSeriesSpam(coins: Coin[], opts: CloneSeriesOptions = DEFAULT_CLONE_SERIES_OPTIONS): Coin[] {
+/** Drops every coin in a cluster of mutually-matching coins (per `isMatch`) except the one with
+ *  the most volume. A coin never joins more than one cluster — the highest-volume coin in the
+ *  list is always tried as a cluster leader first, so clusters form around the most-traded coin. */
+function clusterAndKeepTopVolume(coins: Coin[], isMatch: (a: Coin, b: Coin) => boolean): Coin[] {
   const ordered = [...coins].sort((a, b) => b.volume24h - a.volume24h);
   const dropped = new Set<string>();
   for (let i = 0; i < ordered.length; i++) {
@@ -73,10 +71,57 @@ export function filterCreatorSeriesSpam(coins: Coin[], opts: CloneSeriesOptions 
     for (let j = i + 1; j < ordered.length; j++) {
       const candidate = ordered[j];
       if (dropped.has(candidate.mint)) continue;
-      if (looksLikeCloneSeries(leader, candidate, opts)) dropped.add(candidate.mint);
+      if (isMatch(leader, candidate)) dropped.add(candidate.mint);
     }
   }
   return coins.filter((c) => !dropped.has(c.mint));
+}
+
+/**
+ * Drops every coin in a same-creator "series" spam cluster except the one with the most
+ * volume — see looksLikeCloneSeries.
+ */
+export function filterCreatorSeriesSpam(coins: Coin[], opts: CloneSeriesOptions = DEFAULT_CLONE_SERIES_OPTIONS): Coin[] {
+  return clusterAndKeepTopVolume(coins, (a, b) => looksLikeCloneSeries(a, b, opts));
+}
+
+/** Thresholds for the cross-creator template-spam check — tighter than CloneSeriesOptions since,
+ *  without the same-creator signal, only near-exact matches are safe to treat as one coin. */
+export type TemplateSpamOptions = {
+  changePctToleranceAbs: number;
+  marketCapMaxRatio: number;
+  volumeMaxRatio: number;
+  minSharedNameTokens: number;
+};
+
+export const DEFAULT_TEMPLATE_SPAM_OPTIONS: TemplateSpamOptions = {
+  changePctToleranceAbs: 5,
+  marketCapMaxRatio: 1.15,
+  volumeMaxRatio: 1.15,
+  minSharedNameTokens: 1,
+};
+
+/**
+ * A scripted "launch the same template from a fresh wallet every time" spam ring: real production
+ * data showed five coins named "Super <word>" from five DIFFERENT creator wallets, all reporting
+ * the exact same 24h change (+1360%) and market caps/volumes within ~1% of each other — numbers
+ * that close, on a shared name template, are astronomically unlikely between genuinely independent
+ * coins, so this doesn't require looksLikeCloneSeries' same-creator gate (a coincidence this tight
+ * across independent launches essentially never happens; a real copycat-by-design scheme does).
+ */
+export function looksLikeTemplateSpam(a: Coin, b: Coin, opts: TemplateSpamOptions = DEFAULT_TEMPLATE_SPAM_OPTIONS): boolean {
+  if (a.mint === b.mint) return false;
+  const nameMatch = sharesTokens(nameTokens(a.name), nameTokens(b.name), opts.minSharedNameTokens) || sharesTokens(nameTokens(a.ticker), nameTokens(b.ticker), opts.minSharedNameTokens);
+  if (!nameMatch) return false;
+  if (Math.abs(a.changePct - b.changePct) > opts.changePctToleranceAbs) return false;
+  if (ratio(a.marketCap, b.marketCap) > opts.marketCapMaxRatio) return false;
+  if (ratio(a.volume24h, b.volume24h) > opts.volumeMaxRatio) return false;
+  return true;
+}
+
+/** Drops every coin in a cross-creator template-spam cluster except the one with the most volume — see looksLikeTemplateSpam. */
+export function filterTemplateSpam(coins: Coin[], opts: TemplateSpamOptions = DEFAULT_TEMPLATE_SPAM_OPTIONS): Coin[] {
+  return clusterAndKeepTopVolume(coins, (a, b) => looksLikeTemplateSpam(a, b, opts));
 }
 
 /** Coins that reuse the exact same image URL — free (no network), catches the common lazy-clone case. */
