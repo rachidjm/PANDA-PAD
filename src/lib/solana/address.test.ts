@@ -35,10 +35,14 @@ test("copyText: true only when the clipboard really took it; false (not a crash,
   assert.equal(await copyText(MINT), false);
 });
 
-test("wiring: 'Copy CA' on cards (beside the link, not inside it) and on the page; a pasted CA opens the coin; any valid token address gets a page", () => {
+test("wiring: 'Copy CA' on cards (variant=\"inline\", beside the ticker inside the card's own link — as a span, never a real <button>) and on the page; a pasted CA opens the coin; any valid token address gets a page", () => {
   const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
   const card = read("src/components/CoinCard.tsx");
-  assert.ok(card.indexOf("<CopyCa") > card.indexOf("</Link>"), "the copy button must not be nested inside the card's link");
+  assert.match(card, /<CopyCa mint=\{coin\.mint\} variant="inline"/, "the card's copy control must use the span-based inline variant");
+  const copyCaSrc = read("src/components/CopyCa.tsx");
+  const inlineBlock = copyCaSrc.slice(copyCaSrc.indexOf('variant === "inline"'), copyCaSrc.indexOf('variant === "action"'));
+  assert.match(inlineBlock, /role="button"/, "the inline variant must be a span with role=\"button\", not a real <button> — a real button can't nest inside the card's <a>");
+  assert.doesNotMatch(inlineBlock, /<button/, "no real <button> inside the inline variant");
   assert.match(read("src/components/coin/CoinClient.tsx"), /<CopyCa mint=\{coin\.mint\}/);
   const search = read("src/components/CoinSearchBox.tsx");
   assert.match(search, /addressFromInput\(query\)/);

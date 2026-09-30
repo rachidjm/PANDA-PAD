@@ -19,27 +19,78 @@ const CheckIcon = () => (
 
 /**
  * "Copy CA" (contract address). The button shows a check (and says "Copied!") for a moment so you can see it worked.
- *   icon  a small round button for a coin card (the parent positions it; it must NOT sit inside a link).
- *   pill  the coin page: the shortened address and "Copy CA".
+ *   icon    a small round button for a coin card (the parent positions it; it must NOT sit inside a link).
+ *   inline  a tiny icon next to the ticker on a coin card, INSIDE the card's own link — rendered as a
+ *           span with role="button" (not a real <button>) since a real button can't nest inside an <a>;
+ *           its own click/keydown handlers stop the click from also navigating the link.
+ *   action  a coin page header action icon, the same fixed size as its neighboring website/X/Telegram links.
+ *   pill    the coin page: the shortened address and "Copy CA".
  */
-export default function CopyCa({ mint, variant = "pill", className = "" }: { mint: string; variant?: "icon" | "pill"; className?: string }) {
+export default function CopyCa({ mint, variant = "pill", className = "" }: { mint: string; variant?: "icon" | "inline" | "action" | "pill"; className?: string }) {
   const { t } = useLanguage();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
-  async function onCopy(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function doCopy() {
     const ok = await copyText(mint);
     setState(ok ? "copied" : "failed");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setState("idle"), 1600);
   }
 
+  async function onCopy(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    await doCopy();
+  }
+
   const copied = state === "copied";
   const label = copied ? t("ca.copied") : state === "failed" ? t("ca.failed") : t("ca.copy");
   const aria = t("ca.aria", { addr: mint });
+
+  if (variant === "inline") {
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void doCopy();
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          e.stopPropagation();
+          void doCopy();
+        }}
+        title={`${t("ca.copy")} · ${truncateAddress(mint)}`}
+        aria-label={aria}
+        className={`inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full align-middle ${
+          copied ? "text-bamboo" : state === "failed" ? "text-clay-red" : "text-panda-grey hover:text-paper"
+        } ${className}`}
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </span>
+    );
+  }
+
+  if (variant === "action") {
+    return (
+      <button
+        type="button"
+        onClick={onCopy}
+        title={`${t("ca.copy")} · ${truncateAddress(mint)}`}
+        aria-label={aria}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
+          copied ? "border-bamboo text-bamboo" : state === "failed" ? "border-clay-red text-clay-red" : "border-paper/15 text-paper/70 hover:border-paper/35 hover:text-paper"
+        } ${className}`}
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </button>
+    );
+  }
 
   if (variant === "icon") {
     return (

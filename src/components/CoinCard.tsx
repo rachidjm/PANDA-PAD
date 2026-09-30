@@ -15,7 +15,6 @@ export default function CoinCard({ coin }: { coin: Coin }) {
   const positive = coin.changePct >= 0;
 
   return (
-    // The wrapper carries the card's look and hover; the link fills it, and "Copy CA" sits beside the link (a button inside a link is invalid and would navigate).
     <div className="sticker-card group relative overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised">
     <Link href={`/coin/${coin.mint}`} className="block">
       {/* Edge-to-edge, cropped and centered (object-cover in CoinAvatar) — never letterboxed with the
@@ -29,7 +28,11 @@ export default function CoinCard({ coin }: { coin: Coin }) {
       </div>
       <div className="p-2.5 sm:p-4">
         <div className="flex items-baseline justify-between gap-1.5 sm:gap-2">
-          <span className="truncate font-display text-sm font-bold sm:text-lg">${coin.ticker}</span>
+          <span className="flex min-w-0 items-baseline gap-1">
+            <span className="truncate font-display text-sm font-bold sm:text-lg">${coin.ticker}</span>
+            {/* Desktop: hidden until the card is hovered. Mobile: always there, just dim — no hover to reveal it. */}
+            <CopyCa mint={coin.mint} variant="inline" className="opacity-40 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
+          </span>
           <span className={`shrink-0 text-[11px] font-semibold sm:text-sm ${positive ? "text-bamboo" : "text-clay-red"}`}>
             {formatPct(coin.changePct)}
           </span>
@@ -53,7 +56,6 @@ export default function CoinCard({ coin }: { coin: Coin }) {
         </div>
       </div>
     </Link>
-    <CopyCa mint={coin.mint} variant="icon" className="absolute right-1.5 top-8 sm:right-3 sm:top-[3.25rem]" />
     </div>
   );
 }
