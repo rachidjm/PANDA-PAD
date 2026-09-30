@@ -18,11 +18,14 @@ function activityCount(coin: Coin): number {
 
 /**
  * Splits the real, already-fetched coin list into distinct sections — no
- * synthetic padding. Coins are claimed in priority order so the same coin
- * doesn't dominate every section; a coin only repeats across sections if a
- * section would otherwise come up empty. A section with zero real
- * qualifying coins is simply left empty (see HomeSection, which renders
- * nothing for an empty list) rather than backfilled with anything fake.
+ * synthetic padding. Coins are claimed in priority order so a coin already
+ * shown never repeats in another section, full stop — with a small live
+ * pool that can leave a later section with fewer than perSection coins, or
+ * none at all (see HomeSection, which renders nothing for an empty list),
+ * rather than ever reusing a coin just to fill the row.
+ * Claim order matches the sections' on-page order (see HomeFeed's SECTION_ORDER):
+ * a coin that's already shown in Tendencia never also shows in Mayores subidas,
+ * Activas, Nuevas or Graduadas.
  */
 export function buildHomeSections(coins: Coin[], perSection = 6): Record<SectionId, Coin[]> {
   const graduated = [...coins].filter((c) => c.source === "pumpswap");
@@ -40,17 +43,14 @@ export function buildHomeSections(coins: Coin[], perSection = 6): Record<Section
       picked.push(coin);
       claimed.add(coin.mint);
     }
-    // Only fall back to allowing repeats if this section would otherwise be
-    // completely empty — never just to pad out the count.
-    if (picked.length === 0) return list.slice(0, perSection);
     return picked;
   };
 
   return {
-    graduated: claim(graduated),
-    recentlyActive: claim(recentlyActive),
-    topGainers: claim(topGainers),
     trending: claim(trending),
+    topGainers: claim(topGainers),
+    recentlyActive: claim(recentlyActive),
     new: claim(fresh),
+    graduated: claim(graduated),
   };
 }

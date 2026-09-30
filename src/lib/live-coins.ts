@@ -15,6 +15,8 @@ import { withoutPendingFeeLock } from "./pump/fee-lock";
 import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
+import { filterCreatorSeriesSpam, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
+import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -218,6 +220,11 @@ async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: C
   coins = coins.filter((c) => c.marketCap >= MIN_LISTED_MARKET_CAP);
   coins = await enrichWithPump(coins);
   coins = dedupeByIdentity(coins);
+  // Spam/clone pass: a series of near-identical relaunches by the same creator, or coins
+  // reusing (exactly, or via a perceptual match) the same logo — keep only the most-traded one.
+  coins = filterCreatorSeriesSpam(coins);
+  coins = filterExactDuplicateImages(coins);
+  coins = await filterImageClones(coins).catch(() => coins);
 
   if (coins.length > 0) {
     coins = (await fillMissingImages(coins)).map(withBestImage);
@@ -314,6 +321,23 @@ function dedupeByIdentity(coins: Coin[]): Coin[] {
     kept.push(coin);
   }
   return kept.sort((a, b) => b.volume24h - a.volume24h);
+}
+
+/**
+ * Perceptual-hashes every coin's logo (cached per URL — see image-hash.ts, so a steady-state
+ * refresh only ever hashes the handful of genuinely new images) and drops any coin whose logo
+ * looks like a near-duplicate of a higher-volume coin's. Best-effort: a coin whose image can't
+ * be fetched/decoded just never gets dropped by this step, never blocks the others.
+ */
+const IMAGE_HASH_MAX_DISTANCE = 6; // out of 64 bits — tight enough to survive a resize/recompress, not a genuinely different logo
+const IMAGE_HASH_CONCURRENCY = 8;
+
+async function filterImageClones(coins: Coin[]): Promise<Coin[]> {
+  const withImage = coins.filter((c) => !!c.image);
+  if (withImage.length < 2) return coins;
+  const hashed = await mapWithConcurrency(withImage, IMAGE_HASH_CONCURRENCY, async (c) => [c.mint, await perceptualHashUrl(c.image as string)] as const);
+  const hashes = new Map(hashed.filter((h): h is [string, string] => h[1] !== null));
+  return filterByImageHash(coins, hashes, IMAGE_HASH_MAX_DISTANCE, hammingDistance);
 }
 
 /**
