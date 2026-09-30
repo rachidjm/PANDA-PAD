@@ -345,6 +345,19 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     return d;
   }, [nextNumber]);
 
+  /** Fills a brand-new draft straight from the AI assistant's structured output (src/app/api/ai/draw-trade) —
+   *  exactly like one drawn by hand or typed into the price boxes, so it goes through the SAME validation
+   *  (views, below) and still needs the user's own review and "Confirmar estrategia" tap; nothing here ever
+   *  signs or submits anything. Returns the new draft's id. */
+  const applyAiDraft = useCallback(
+    (patch: { buy: number; stop: number; sells: SellTranche[]; staggered: boolean }): string => {
+      const d = newDraft();
+      setDrafts((ds) => ds.map((x) => (x.id === d.id ? { ...x, buy: patch.buy, stop: patch.stop, sells: patch.sells, staggered: patch.staggered } : x)));
+      return d.id;
+    },
+    [newDraft]
+  );
+
   const active = drafts.find((d) => d.id === activeId) ?? null;
 
   const startTarget = useCallback(
@@ -720,6 +733,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     setSellPct,
     startTarget,
     addStrategy,
+    applyAiDraft,
     cancelDrawing,
     removeDraft,
     onPointer,

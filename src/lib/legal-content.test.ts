@@ -18,7 +18,7 @@ import { SESSION_TTL_MS } from "@/lib/auth/wallet-auth";
 
 const LANGS = ["en", "es"] as const;
 const OFF: LegalOptions = { custody: false };
-const ALL_ON: LegalOptions = { custody: true, holders: true, otc: true, nft: true, market: true, points: true, airdrops: true, pandaToken: true };
+const ALL_ON: LegalOptions = { custody: true, holders: true, otc: true, nft: true, market: true, points: true, airdrops: true, referrals: true, aiAssistant: true, pandaToken: true };
 const text = (slug: LegalSlug, lang: "en" | "es", opts: LegalOptions) => getLegalPage(slug, opts).body[lang].join("\n");
 const everything = (opts: LegalOptions, lang: "en" | "es") => LEGAL_SLUGS.map((s) => text(s, lang, opts)).join("\n\n");
 
@@ -142,7 +142,7 @@ test("the cookie policy matches what the site really sets: one cookie (name, 2 h
   }
   assert.ok(keys.has("panda-lang") && keys.has("panda.buy.unit"), `found ${[...keys].join(", ")}`);
   for (const lang of LANGS) {
-    const withDraw = text("cookie-policy", lang, { custody: true });
+    const withDraw = text("cookie-policy", lang, { custody: true, aiAssistant: true });
     for (const key of keys) assert.ok(withDraw.includes(key), `${lang}: localStorage key ${key} isn't in the cookie policy`);
     // The draw-drafts key belongs only to a feature that is off by default.
     assert.doesNotMatch(text("cookie-policy", lang, OFF), /panda\.draw/);

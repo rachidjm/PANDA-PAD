@@ -9,6 +9,14 @@ import Panda from "@/components/panda/Panda";
 import { Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
+import { applyAiCoinFilter, isActiveAiFilter, type AiCoinFilter } from "@/lib/ai/coin-filter";
+import type { RugLevel } from "@/lib/rugcheck/summary";
+
+/** Handed off from the AI Assistant's "Buscar monedas" (src/components/ai/SearchPanel.tsx) via localStorage
+ *  — a same-browser handoff between two client components, not a URL param (the filter is a small structured
+ *  object, not something worth round-tripping through query-string escaping); cleared by "Quitar filtro de
+ *  IA" below, and documented in the Cookie Policy (see legal-content.ts's AI_ADDENDA). */
+const AI_FILTER_KEY = "panda.ai.filter";
 
 const sorts = [
   { id: "new", key: "discover.sort.new" },
@@ -39,6 +47,49 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
   const searching = trimmedQuery !== "" && trimmedQuery !== resolvedQuery;
   const navDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefreshAttempt = useRef(0);
+
+  // The AI Assistant's own filter, if it just handed one off — read once, a moment after mount (never in a
+  // useState initializer: the server render always assumes none, so this can't cause a hydration mismatch).
+  const [aiFilter, setAiFilter] = useState<AiCoinFilter | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(AI_FILTER_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as AiCoinFilter;
+          setAiFilter(parsed);
+          if (parsed.sort) setSort(parsed.sort);
+        }
+      } catch {}
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  function clearAiFilter() {
+    setAiFilter(null);
+    try {
+      localStorage.removeItem(AI_FILTER_KEY);
+    } catch {}
+  }
+
+  // Only fetched when the filter actually needs it (rugSafe) — RugCheck's own batch endpoint, same one
+  // RugBadge.tsx uses per-card, just called once here for whichever coins are on screen right now.
+  const [rugLevels, setRugLevels] = useState<Record<string, RugLevel>>({});
+  useEffect(() => {
+    if (!aiFilter?.rugSafe) return;
+    let cancelled = false;
+    const mints = coins.slice(0, 30).map((c) => c.mint);
+    if (mints.length === 0) return;
+    fetch(`/api/rugcheck?mints=${mints.join(",")}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { results?: Record<string, { level: RugLevel }> } | null) => {
+        if (cancelled || !data?.results) return;
+        setRugLevels(Object.fromEntries(Object.entries(data.results).map(([m, s]) => [m, s.level])));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [aiFilter?.rugSafe, coins]);
 
   function typeQuery(value: string) {
     setInputValue(value);
@@ -119,8 +170,8 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
       default:
         sorted.sort((a, b) => b.changePct - a.changePct);
     }
-    return sorted;
-  }, [coins, searchResults, sort, urlQuery]);
+    return aiFilter && isActiveAiFilter(aiFilter) ? applyAiCoinFilter(sorted, aiFilter, rugLevels) : sorted;
+  }, [coins, searchResults, sort, urlQuery, aiFilter, rugLevels]);
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-10">
@@ -152,6 +203,15 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
           </button>
         ))}
       </div>
+
+      {aiFilter && isActiveAiFilter(aiFilter) && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-full border border-meme-orange/40 bg-meme-orange/10 px-4 py-2 text-xs">
+          <span className="font-medium text-paper">{t("ai.search.applied", { n: list.length })}</span>
+          <button type="button" onClick={clearAiFilter} className="shrink-0 font-semibold text-meme-orange hover:brightness-110">
+            {t("ai.search.clear")}
+          </button>
+        </div>
+      )}
 
       {refreshError && <p className="mt-4 text-xs text-clay-red">{t("home.refreshError")}</p>}
 

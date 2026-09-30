@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { useAIAssistant } from "@/components/ai/AIAssistantProvider";
 
 /**
  * The phone's main navigation: the five places people go most, at thumb height (spec §28). Everything else
@@ -31,12 +32,14 @@ const ITEMS: Item[] = [
 export default function MobileTabBar() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const { holderRewards } = useFeatures();
+  const { holderRewards, aiAssistant } = useFeatures();
+  const { show: showAI } = useAIAssistant();
   const items = ITEMS.filter((i) => i.href !== "/rewards" || holderRewards); // Rewards only while holder rewards are on
+  const cols = items.length + (aiAssistant ? 1 : 0);
 
   return (
     <nav aria-label={t("nav.mobile")} className="fixed inset-x-0 bottom-0 z-40 border-t border-paper/10 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-      <ul className={`mx-auto grid max-w-md ${items.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+      <ul className={`mx-auto grid max-w-md ${cols === 6 ? "grid-cols-6" : cols === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map((i) => {
           const active = i.href === "/" ? pathname === "/" : pathname === i.href || pathname.startsWith(i.href + "/");
           return (
@@ -52,6 +55,20 @@ export default function MobileTabBar() {
             </li>
           );
         })}
+        {aiAssistant && (
+          <li>
+            <button
+              type="button"
+              onClick={() => showAI()}
+              className="flex min-h-14 w-full flex-col items-center justify-center gap-0.5 px-0 text-[11px] font-medium tracking-tight text-paper/60 transition-colors hover:text-paper"
+            >
+              <span className="flex h-7 w-12 items-center justify-center rounded-full text-base" aria-hidden>
+                ✨
+              </span>
+              <span className="whitespace-nowrap">{t("ai.modeButton")}</span>
+            </button>
+          </li>
+        )}
       </ul>
     </nav>
   );

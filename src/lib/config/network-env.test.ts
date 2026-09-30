@@ -84,6 +84,8 @@ test("feature-dependent variables are required only when their flag is on", () =
   assert.deepEqual(envProblems({ ...GOOD, NEXT_PUBLIC_PANDA_REWARDS_POOL: key() }), ["PANDA_REWARDS_POOL_SECRET_KEY"]);
   assert.deepEqual(envProblems({ ...GOOD, FEATURE_PANDA_AIRDROPS: "true" }).sort(), ["NEXT_PUBLIC_PANDA_TOKEN_MINT", "PANDA_AIRDROP_POOL_SECRET_KEY"]);
   assert.deepEqual(envProblems({ ...GOOD, FEATURE_NFT_MARKET: "true" }), ["PANDA_MARKET_AUTHORITY_SECRET_KEY"]);
+  assert.deepEqual(envProblems({ ...GOOD, FEATURE_AI_ASSISTANT: "true" }), ["OPENAI_API_KEY"]);
+  assert.deepEqual(envProblems({ ...GOOD, FEATURE_AI_ASSISTANT: "true", OPENAI_API_KEY: "k" }), []);
 });
 
 test("ADMIN_WALLETS must be a list of real wallet addresses; the Blob token accepts Vercel's alternative names", () => {

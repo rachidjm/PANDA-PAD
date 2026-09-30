@@ -10,6 +10,10 @@ import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
 import MobileTabBar from "@/components/MobileTabBar";
 import SkipLink from "@/components/SkipLink";
 import ReferralCapture from "@/components/ReferralCapture";
+import { AIAssistantProvider } from "@/components/ai/AIAssistantProvider";
+import { DrawTradeAIBridgeProvider } from "@/components/ai/DrawTradeAIBridge";
+import AIAssistantModal from "@/components/ai/AIAssistantModal";
+import AIAssistantFab from "@/components/ai/AIAssistantFab";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
 import { connection } from "next/server";
@@ -52,18 +56,25 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 otcRewards: isEnabled("OTC_REWARDS"),
                 holderRewards: isEnabled("HOLDER_REWARDS"),
                 referrals: isEnabled("REFERRALS"),
+                aiAssistant: isEnabled("AI_ASSISTANT"),
               }}
             >
               <WalletProvider>
-                <ReferralCapture />
-                <SkipLink />
-                <Navbar />
-                <ProtocolBanner />
-                <main id="main" tabIndex={-1} className="flex-1 outline-none">
-                  {children}
-                </main>
-                <Footer />
-                <MobileTabBar />
+                <DrawTradeAIBridgeProvider>
+                  <AIAssistantProvider>
+                    <ReferralCapture />
+                    <SkipLink />
+                    <Navbar />
+                    <ProtocolBanner />
+                    <main id="main" tabIndex={-1} className="flex-1 outline-none">
+                      {children}
+                    </main>
+                    <Footer />
+                    <MobileTabBar />
+                    <AIAssistantFab />
+                    <AIAssistantModal />
+                  </AIAssistantProvider>
+                </DrawTradeAIBridgeProvider>
               </WalletProvider>
             </FeaturesProvider>
           </MotionProvider>

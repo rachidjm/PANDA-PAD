@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { confirmSignature } from "@/lib/solana/confirm";
 import Link from "next/link";
 import { Keypair } from "@solana/web3.js";
@@ -53,6 +54,22 @@ export default function CreateClient() {
   const firstBuy = firstBuyFromInput(firstBuyUnit, firstBuyAmount, rates);
   const [buyError, setBuyError] = useState("");
   const [feeResult, setFeeResult] = useState<FeeDistributionResult | null>(null);
+  const searchParams = useSearchParams();
+  // From the AI Assistant's "Crear moneda con IA" (src/components/ai/CreatePanel.tsx): the user already
+  // picked one of 3 proposals there, this just fills the same form fields they'd otherwise type by hand — the
+  // image is still theirs to upload below, nothing here skips that.
+  useEffect(() => {
+    const aiName = searchParams.get("aiName");
+    const aiTicker = searchParams.get("aiTicker");
+    const aiDescription = searchParams.get("aiDescription");
+    if (!aiName && !aiTicker && !aiDescription) return;
+    Promise.resolve().then(() => {
+      if (aiName) setName(aiName.slice(0, 32));
+      if (aiTicker) setTicker(aiTicker.slice(0, 10));
+      if (aiDescription) setDescription(aiDescription.slice(0, 500));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [feeSummary, setFeeSummary] = useState("");
   const [confirming, setConfirming] = useState(false);
   // A launch with a fee split is two transactions (see src/lib/pump/create.ts). If the second is not confirmed the coin exists

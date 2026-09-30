@@ -1895,6 +1895,53 @@ export const dict = {
   "admin.csp.load": { en: "Load reports", es: "Cargar informes" },
   "admin.csp.none": { en: "No violations reported yet. Keep browsing PANDA with your wallet (Phantom, mobile) for a week or two before enforcing.", es: "Aún no hay violaciones. Sigue usando PANDA con tu wallet (Phantom, móvil) una o dos semanas antes de activar el bloqueo." },
   "admin.csp.count": { en: "times", es: "veces" },
+
+  // AI Assistant (GPT-6 Luna)
+  "ai.fab": { en: "AI Assistant", es: "Asistente IA" },
+  "ai.modeButton": { en: "AI Mode", es: "Modo IA" },
+  "ai.menu.title": { en: "AI Assistant · with GPT-6", es: "Asistente IA · con GPT-6" },
+  "ai.menu.close": { en: "Close", es: "Cerrar" },
+  "ai.menu.back": { en: "Back", es: "Atrás" },
+  "ai.menu.create.title": { en: "Create a coin with AI", es: "Crear moneda con IA" },
+  "ai.menu.create.desc": { en: "Describe your idea, get 3 name/ticker/description proposals.", es: "Describe tu idea y recibe 3 propuestas de nombre, ticker y descripción." },
+  "ai.menu.analyze.title": { en: "Analyze a coin", es: "Analizar moneda" },
+  "ai.menu.analyze.desc": { en: "A plain-language summary from real data — never a buy/sell recommendation.", es: "Un resumen en lenguaje sencillo con datos reales — nunca una recomendación de compra o venta." },
+  "ai.menu.draw.title": { en: "Help with Draw Your Trade", es: "Ayuda con Draw Your Trade" },
+  "ai.menu.draw.desc": { en: "Describe your strategy in plain words — you still review and confirm it yourself.", es: "Describe tu estrategia con tus palabras — tú la revisas y la confirmas." },
+  "ai.menu.search.title": { en: "Search coins", es: "Buscar monedas" },
+  "ai.menu.search.desc": { en: "Natural-language filters, applied to Discover.", es: "Filtros en lenguaje natural, aplicados en Descubrir." },
+
+  "ai.disabled": { en: "The AI Assistant isn't enabled on this deployment yet.", es: "El Asistente IA aún no está activado en este despliegue." },
+  "ai.quotaWallet": { en: "You've used today's 20 AI questions for this wallet — try again tomorrow.", es: "Has usado las 20 consultas de IA de hoy para esta wallet — inténtalo mañana." },
+  "ai.quotaIp": { en: "You've used today's 3 free AI questions — connect a wallet for 20/day, or try again tomorrow.", es: "Has usado las 3 consultas de IA gratis de hoy — conecta una wallet para 20 al día, o inténtalo mañana." },
+  "ai.budgetExceeded": { en: "The AI Assistant has reached today's budget — come back tomorrow.", es: "El Asistente IA ha llegado al presupuesto de hoy — vuelve mañana." },
+  "ai.genericError": { en: "Couldn't do that right now — try again in a moment.", es: "No se pudo hacer eso ahora — inténtalo de nuevo en un momento." },
+  "ai.unavailable": { en: "The AI Assistant is briefly unavailable — try again in a minute.", es: "El Asistente IA no está disponible un momento — inténtalo en un minuto." },
+
+  "ai.create.placeholder": { en: "Describe your coin idea…", es: "Describe tu idea de moneda…" },
+  "ai.create.submit": { en: "Get proposals", es: "Ver propuestas" },
+  "ai.create.loading": { en: "Thinking of names…", es: "Pensando nombres…" },
+  "ai.create.use": { en: "Use this one", es: "Usar esta" },
+  "ai.create.hint": { en: "You'll still upload the image yourself on the next screen.", es: "La imagen la subes tú en la siguiente pantalla." },
+
+  "ai.analyze.placeholder": { en: "Paste a token address (CA)…", es: "Pega la dirección del token (CA)…" },
+  "ai.analyze.submit": { en: "Analyze", es: "Analizar" },
+  "ai.analyze.loading": { en: "Reading real data…", es: "Leyendo datos reales…" },
+  "ai.analyze.useCurrent": { en: "Analyze {ticker} (this page)", es: "Analizar {ticker} (esta página)" },
+  "ai.analyze.invalidMint": { en: "That doesn't look like a real token address.", es: "Eso no parece una dirección de token real." },
+
+  "ai.draw.placeholder": { en: "e.g. \"sell half if it's up 50% and set a stop at −20%\"", es: "p. ej. \"vende la mitad si sube un 50% y pon stop a −20%\"" },
+  "ai.draw.submit": { en: "Draw it", es: "Dibujarla" },
+  "ai.draw.loading": { en: "Working out the prices…", es: "Calculando los precios…" },
+  "ai.draw.needCoin": { en: "Open this from a coin's page first — that's where the strategy gets drawn.", es: "Abre esto desde la página de una moneda — ahí es donde se dibuja la estrategia." },
+  "ai.draw.applied": { en: "Added to the chart as a draft — review it and tap \"Confirm Strategy\" yourself when you're happy with it.", es: "Añadido al gráfico como borrador — revísalo y pulsa tú \"Confirmar estrategia\" cuando estés conforme." },
+
+  "ai.search.placeholder": { en: "e.g. \"new coins with over 50k liquidity and green RugCheck\"", es: "p. ej. \"nuevas con más de 50k de liquidez y RugCheck verde\"" },
+  "ai.search.submit": { en: "Search", es: "Buscar" },
+  "ai.search.loading": { en: "Working out the filters…", es: "Calculando los filtros…" },
+  "ai.search.applied": { en: "Filter applied on Discover — {n} coins match.", es: "Filtro aplicado en Descubrir — coinciden {n} monedas." },
+  "ai.search.clear": { en: "Clear AI filter", es: "Quitar filtro de IA" },
+  "ai.search.goToDiscover": { en: "See results in Discover", es: "Ver resultados en Descubrir" },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type DictKey = keyof typeof dict;

@@ -18,6 +18,7 @@ export const FEATURES = [
   "OTC_REWARDS", // the Rewards mode of /create (OTC / Meteora launcher)
   "HOLDER_REWARDS", // the "Holders" band of a Standard coin's creator-fee split (Rewards Pool wallet, custodied by PANDA's servers)
   "REFERRALS", // the affiliate campaign — a share of PANDA's trade fee paid straight to the referrer inside the trade's own transaction
+  "AI_ASSISTANT", // GPT-6 Luna assistant (create-with-AI, analyze a coin, Draw Your Trade help, search) — needs OPENAI_API_KEY
 ] as const;
 
 export type Feature = (typeof FEATURES)[number];

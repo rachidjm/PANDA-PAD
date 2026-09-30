@@ -9,11 +9,13 @@ import CoinSearchBox from "@/components/CoinSearchBox";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { useAIAssistant } from "@/components/ai/AIAssistantProvider";
 
 export default function Navbar() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const { themes, holderRewards, referrals } = useFeatures();
+  const { themes, holderRewards, referrals, aiAssistant } = useFeatures();
+  const { show: showAI } = useAIAssistant();
 
   // Things that stick under the header (the PANDA ecosystem strip) need to know how tall it is: 68px on a desktop, more on a phone with its second row.
   const headerRef = useRef<HTMLElement>(null);
@@ -75,6 +77,16 @@ export default function Navbar() {
           <div className="hidden md:block">
             <CoinSearchBox />
           </div>
+          {aiAssistant && (
+            <button
+              type="button"
+              onClick={() => showAI()}
+              className="hidden shrink-0 items-center gap-1.5 rounded-full border border-meme-orange/40 px-3.5 py-1.5 text-sm font-semibold text-paper transition-colors hover:border-meme-orange sm:flex"
+            >
+              <span aria-hidden>✨</span>
+              {t("ai.modeButton")}
+            </button>
+          )}
           <LanguageSwitcher />
           <WalletButton />
         </div>

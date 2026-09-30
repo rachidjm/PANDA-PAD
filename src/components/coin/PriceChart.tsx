@@ -12,6 +12,7 @@ import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/co
 import { TradeMarkerDots, TradeMarkerTooltip } from "@/components/coin/TradeMarkers";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
+import { useRegisterDrawTradeForAI } from "@/components/ai/DrawTradeAIBridge";
 
 // Shortest to longest, each requesting its own genuinely correctly-sized range from /api/chart — see that
 // route's own comment for the bug this replaced (a "1 day" tab that silently pulled 30 days of daily candles).
@@ -190,6 +191,10 @@ export default function PriceChart({
         formatValue,
       }
     : undefined;
+
+  // Lets the AI Assistant's "Ayuda con Draw Your Trade" panel (opened from anywhere) reach THIS coin's own
+  // live draw controller — see src/components/ai/DrawTradeAIBridge.tsx.
+  useRegisterDrawTradeForAI(draw, coin?.mint ?? "", coin?.ticker ?? "", draw.currentUsd);
 
   const shown = hoverIndex !== null ? hoverIndex : closes.length - 1;
   const shownPrice = closes[shown] ?? 0;

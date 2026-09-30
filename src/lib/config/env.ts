@@ -11,7 +11,7 @@ import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
 
 export type Env = Record<string, string | undefined>;
 export type EnvStatus = "present" | "absent" | "invalid";
-export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits" | "referrals";
+export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits" | "referrals" | "ai";
 
 export type EnvSpec = {
   /** Accepted names, first is canonical (Vercel's Blob integration names its token in more than one way). */
@@ -90,6 +90,8 @@ export const ENV_SPECS: EnvSpec[] = [
     valid: (v) => { try { return Buffer.from(v, "base64").length === 32; } catch { return false; } },
     affects: "vanity \"…panda\" mint addresses (docs/VANITY_STOCK.md): unset, every coin gets a plain random address instead — launches are never blocked either way",
   },
+  { names: ["OPENAI_API_KEY"], group: "ai", required: (e) => isEnabled("AI_ASSISTANT", e), valid: nonEmpty, affects: "the AI Assistant (FEATURE_AI_ASSISTANT) — create-with-AI, analyze a coin, Draw Your Trade help, search" },
+  { names: ["AI_DAILY_BUDGET_USD"], group: "ai", required: never, valid: isPositiveNumber, affects: "the AI Assistant's daily spend cap across every wallet — unset, it has no cap (only the per-wallet/IP query limits apply)" },
 ];
 
 export type EnvItem = { name: string; group: EnvGroup; required: boolean; status: EnvStatus; affects: string };
