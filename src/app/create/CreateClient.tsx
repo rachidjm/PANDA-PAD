@@ -99,6 +99,16 @@ export default function CreateClient() {
 
     await confirmSignature(connection, signature);
 
+    // Best-effort, same as every other real buy in the app (TradingPanel.tsx) — without this, a creator's own
+    // first buy never enters their trade history, so Portfolio's cost-basis/P&L math has nothing to work from
+    // for that coin (it either doesn't show at all, or shows degenerate numbers once the on-chain backfill
+    // eventually — and only partially — catches up to it).
+    fetch("/api/portfolio/record-trade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet: publicKey.toBase58(), mint, ticker: ticker.trim().toUpperCase() || mint.slice(0, 4), side: "buy", signature }),
+    }).catch(() => {});
+
     return signature;
   }
 
