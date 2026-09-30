@@ -214,41 +214,49 @@ export default function PriceChart({
 
   return (
     <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-4 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      {/* flex-col on mobile (two clean stacked rows, never fighting for width) / flex-row on desktop with the
+          timeframe pill pinned to shrink-0 — so neither box ever resizes or reflows when the price info's own
+          width changes on hover (see the fixed-height stat block below). */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           {marketCap !== undefined && (
-            <div className="mb-1.5 flex gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={`${t("chart.price")} / ${t("chart.mc")}`}>
+            <div className="mb-1.5 flex w-max gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={`${t("chart.price")} / ${t("chart.mc")}`}>
               {(["price", "mcap"] as const).map((u) => (
                 <button
                   key={u}
                   type="button"
                   onClick={() => pickUnit(u)}
                   aria-pressed={unit === u}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"}`}
+                  className={`min-w-[64px] rounded-full px-2.5 py-1 text-center text-[11px] font-semibold transition-colors ${unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"}`}
                 >
                   {u === "price" ? t("chart.price") : t("chart.mc")}
                 </button>
               ))}
             </div>
           )}
-          <p className="font-display text-2xl font-bold sm:text-3xl">{bigValue}</p>
-          <p className={`text-sm font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
+          <p className="font-display text-2xl font-bold tabular-nums sm:text-3xl">{bigValue}</p>
+          <p className={`text-sm font-semibold tabular-nums ${positive ? "text-bamboo" : "text-clay-red"}`}>
             {formatPct(windowChangePct)} <span className="text-panda-grey font-normal">· {tfLabel(tf, t("chart.tf.week"))}</span>
           </p>
+          {/* Always one line, always present when there's a second unit to show — only the trailing date
+              (added on hover) is allowed to change, and it never wraps or grows the row: it truncates
+              instead, so the header's height and the timeframe pill's box never move. */}
           {otherValue !== null && (
-            <p className="mt-0.5 text-xs text-panda-grey">
-              {otherLabel}: <span className="font-medium text-paper/80">{otherValue}</span>
-              {hoverIndex !== null && shownTime ? <span> · {formatAxisTime(shownTime, tf, true)}</span> : null}
+            <p className="mt-0.5 flex items-baseline gap-1 whitespace-nowrap text-xs text-panda-grey">
+              <span className="tabular-nums">
+                {otherLabel}: <span className="font-medium text-paper/80">{otherValue}</span>
+              </span>
+              <span className="overflow-hidden text-ellipsis tabular-nums">{hoverIndex !== null && shownTime ? `· ${formatAxisTime(shownTime, tickIncludesDate(tf, candles), true)}` : ""}</span>
             </p>
           )}
         </div>
-        <div className="flex flex-wrap justify-end gap-1 rounded-full bg-ink p-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-1 rounded-full bg-ink p-1">
           {timeframes.map((tfOption) => (
             <button
               key={tfOption}
               onClick={() => selectTimeframe(tfOption)}
               disabled={!poolAddress}
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase transition-colors disabled:opacity-40 sm:px-3 sm:py-1.5 ${
+              className={`min-w-[34px] rounded-full px-2.5 py-1 text-center text-xs font-semibold transition-colors disabled:opacity-40 sm:min-w-[38px] sm:px-3 sm:py-1.5 ${
                 tf === tfOption ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"
               }`}
             >
@@ -288,7 +296,7 @@ export default function PriceChart({
       </div>
 
       {!failed && closes.length > 1 && (
-        <div className="mt-3 flex items-center justify-between text-xs text-panda-grey">
+        <div className="mt-3 flex items-center justify-between text-xs tabular-nums text-panda-grey">
           <span>{t("chart.low", { value: fmtDisplay(low) })}</span>
           <span>{t("chart.high", { value: fmtDisplay(high) })}</span>
         </div>
@@ -321,14 +329,29 @@ function smoothPath(points: { x: number; y: number }[]): string {
   return d;
 }
 
-/** `real` picks a fuller "day, HH:MM" format for the small inline caption; the x-axis ticks stay short. */
-function formatAxisTime(epochSeconds: number, tf: Timeframe, real = false): string {
+/** Whether the axis/hover labels for this tab should carry a date, not just a time. The 1w/30d tabs
+ *  always do; any other tab does too when its real candles happen to span more than a day (see
+ *  formatAxisTime below for why that can happen even on the "1 minute" tab). */
+function tickIncludesDate(tf: Timeframe, candles: Candle[]): boolean {
+  if (tf === "1w" || tf === "30d") return true;
+  if (candles.length < 2) return false;
+  const spanSeconds = candles[candles.length - 1].time - candles[0].time;
+  return spanSeconds >= 20 * 3600;
+}
+
+/** `includeDate`: the 1w/30d tabs always show a date, and so does ANY timeframe when its real candles
+ *  happen to span more than a day — a thinly-traded coin can get "1-minute" candles that are actually
+ *  hours or days apart (GeckoTerminal only has a candle where a real trade happened), and hour:minute
+ *  alone would look out of order across midnight. `real` additionally picks the fuller "day, HH:MM"
+ *  format for the small inline hover caption; the x-axis ticks themselves stay short. */
+function formatAxisTime(epochSeconds: number, includeDate: boolean, real = false): string {
   const d = new Date(epochSeconds * 1000);
-  if (tf === "1w" || tf === "30d") {
+  if (includeDate && !real) {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   if (!real) return time;
+  if (!includeDate) return time;
   const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return `${day}, ${time}`;
 }
@@ -474,11 +497,12 @@ function AreaChart({
 
   // Up to 5 evenly-spaced real timestamps along the bottom, so the timeline
   // itself is visible, not just implied by the curve's shape.
+  const axisIncludesDate = tickIncludesDate(tf, candles);
   const axisTicks =
     hasRealTimes && candles.length > 1
       ? [0, 0.25, 0.5, 0.75, 1].map((f) => {
           const idx = Math.round(f * (candles.length - 1));
-          return { x: points[idx].x, label: formatAxisTime(candles[idx].time, tf) };
+          return { x: points[idx].x, label: formatAxisTime(candles[idx].time, axisIncludesDate) };
         })
       : [];
 
