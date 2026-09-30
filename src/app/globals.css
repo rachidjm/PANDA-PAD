@@ -17,6 +17,10 @@
 }
 
 @theme inline {
+  /* One custom breakpoint beyond Tailwind's own 2xl (1536px), for the widest desktop screens (see HomeSection.tsx's
+     6-column tier) — set above 1920px on purpose, so a common 1920 monitor still gets the roomier 5-column tier
+     and only genuinely ultra-wide screens (2560px+) go to 6. */
+  --breakpoint-3xl: 2000px;
   --color-ink: var(--ink);
   --color-ink-raised: var(--ink-raised);
   --color-paper: var(--paper);
@@ -200,10 +204,12 @@ main:focus {
 
 /* Sticker-style coin cards */
 .sticker-card {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease, box-shadow 0.25s ease;
 }
 .sticker-card:hover {
   transform: rotate(-1deg) translateY(-4px);
+  border-color: color-mix(in srgb, var(--meme-orange) 55%, transparent);
+  box-shadow: 0 14px 28px -10px rgba(0, 0, 0, 0.5);
 }
 .sticker-card:nth-child(even):hover {
   transform: rotate(1deg) translateY(-4px);

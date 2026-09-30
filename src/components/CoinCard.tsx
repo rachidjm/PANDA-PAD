@@ -18,10 +18,10 @@ export default function CoinCard({ coin }: { coin: Coin }) {
     // The wrapper carries the card's look and hover; the link fills it, and "Copy CA" sits beside the link (a button inside a link is invalid and would navigate).
     <div className="sticker-card group relative overflow-hidden rounded-[22px] border border-paper/10 bg-ink-raised">
     <Link href={`/coin/${coin.mint}`} className="block">
-      <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#171512] p-3 sm:aspect-[4/3] sm:p-8">
-        <div className="h-full w-full overflow-hidden">
-          <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} />
-        </div>
+      {/* Edge-to-edge, cropped and centered (object-cover in CoinAvatar) — never letterboxed with the
+          background showing as bars down the sides, whatever the logo's own aspect ratio is. */}
+      <div className="relative aspect-square overflow-hidden bg-[#171512] sm:aspect-[4/3]">
+        <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} />
         <RugBadge mint={coin.mint} className="absolute left-1.5 top-1.5 sm:left-3 sm:top-3" />
         <span className="absolute right-1.5 top-1.5 rounded-full bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper/80 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />

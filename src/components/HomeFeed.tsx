@@ -78,7 +78,9 @@ export default function HomeFeed({
   }
 
   // A coin with no picture at all isn't shown here (a missing logo looks broken); Discover and search still list everything.
-  const sections = buildHomeSections(coins.filter((c) => !!c.image));
+  // 12 per section (not the default 6): desktop has room for up to 2 full rows at the widest column count — see
+  // HomeSection.tsx, which still only ever SHOWS 6 below the `xl` breakpoint, so mobile looks exactly as before.
+  const sections = buildHomeSections(coins.filter((c) => !!c.image), 12);
 
   return (
     <section className="pb-24">
