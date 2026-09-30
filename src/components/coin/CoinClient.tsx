@@ -6,9 +6,8 @@ import { useState } from "react";
 import { Coin, Trade } from "@/lib/types";
 import { formatCompact, formatNumber, formatPct } from "@/lib/format";
 import CoinAvatar from "@/components/CoinAvatar";
-import CoinAge from "@/components/CoinAge";
 import Panda from "@/components/panda/Panda";
-import LiveBadge from "@/components/LiveBadge";
+import Tooltip from "@/components/Tooltip";
 import TradingPanel from "@/components/coin/TradingPanel";
 import StopLossTakeProfit from "@/components/coin/StopLossTakeProfit";
 import PriceChart from "@/components/coin/PriceChart";
@@ -28,13 +27,22 @@ type Props = {
   trades: Trade[];
   live: boolean;
   tradesLive: boolean;
+  /** Real holder count from Helius (src/lib/pump/holders-count.ts) — null when it couldn't be read (never shown as a fake 0). */
+  holderCount: number | null;
 };
 
-export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
+export default function CoinClient({ coin, trades, live, tradesLive, holderCount }: Props) {
   const [tab, setTab] = useState<Tab>("Trades");
   const { t } = useLanguage();
   const { strategies, holderRewards } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
   const positive = coin.changePct >= 0;
+
+  const stats: { label: string; value: string }[] = [
+    { label: t("coin.marketCap"), value: formatCompact(coin.marketCap) },
+    { label: t("coin.volume24h"), value: formatCompact(coin.volume24h) },
+    ...(coin.liquidityUsd ? [{ label: t("coin.liquidity"), value: formatCompact(coin.liquidityUsd) }] : []),
+    ...(holderCount !== null ? [{ label: t("coin.holders"), value: formatNumber(holderCount) }] : []),
+  ];
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-4 sm:py-8">
@@ -42,29 +50,33 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
           buy/sell box is one of the first things to see. On a desktop it is the same two columns as always (the right column sticks). */}
       <div className="grid grid-cols-1 gap-x-8 gap-y-5 lg:grid-cols-[1.5fr_1fr]">
         <div className="order-1 lg:order-none lg:col-start-1 lg:row-start-1">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-paper/10 bg-[#171512]">
+          {/* One main line: logo, $TICKER, name in grey, a small status dot with its own tooltip — not a big pill. */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-paper/10 bg-[#171512]">
                 <CoinAvatar image={coin.image} ticker={coin.ticker} mint={coin.mint} />
               </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="font-display text-2xl font-bold">${coin.ticker}</h1>
-                  <LiveBadge live={live} />
-                  <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} className="rounded-full bg-paper/10 px-2.5 py-1 text-xs font-medium text-paper/70" />
-                </div>
-                <p className="text-sm text-panda-grey">{coin.name}</p>
-                <CopyCa mint={coin.mint} className="mt-1" />
-                <SocialLinks coin={coin} />
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                <h1 className="font-display text-xl font-bold sm:text-2xl">${coin.ticker}</h1>
+                <span className="truncate text-sm text-panda-grey">{coin.name}</span>
+                <CoinStatusDot coin={coin} />
               </div>
             </div>
-            <Panda pose={positive ? "tradeUp" : "tradeDown"} size={56} />
+            <Panda pose={positive ? "tradeUp" : "tradeDown"} size={48} />
+          </div>
+
+          {/* One row of same-size action icons: copy CA, website, X, Telegram — then the compact RugCheck pill. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <CopyCa mint={coin.mint} variant="action" />
+            {coin.website && <IconLink href={coin.website} label={t("coin.website")} icon="globe" />}
+            {coin.twitter && <IconLink href={`https://x.com/${coin.twitter}`} label="X" icon="x" />}
+            {coin.telegram && <IconLink href={`https://t.me/${coin.telegram}`} label="Telegram" icon="telegram" />}
+            <RugBadge mint={coin.mint} variant="pill" className="ml-1" />
+            {!live && <span className="text-xs text-panda-grey">{t("live.demo")}</span>}
           </div>
 
           <FeeLockNotice mint={coin.mint} />
           <ShareCoinPrompt creator={coin.creator} />
-
-          <RugBadge mint={coin.mint} variant="full" className="mt-4 max-w-xl" />
 
           {coin.quality === "suspect" && (
             <div className="mt-4 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-xs leading-relaxed text-paper/90" role="alert">
@@ -73,16 +85,19 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
             </div>
           )}
 
-          {coin.description && <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-relaxed text-paper/75 sm:mt-4 sm:line-clamp-none">{coin.description}</p>}
+          {coin.description && <ClampedDescription text={coin.description} />}
 
-          <p className="mt-2 text-xs text-panda-grey sm:hidden">
-            {t("coin.marketCap")} <span className="font-semibold text-paper/90">{formatCompact(coin.marketCap)}</span> · {t("coin.volume24h")} <span className="font-semibold text-paper/90">{formatCompact(coin.volume24h)}</span>
-          </p>
-
-          <div className="mt-5 hidden grid-cols-2 gap-3 sm:grid sm:max-w-sm">
-            <Stat label={t("coin.marketCap")} value={formatCompact(coin.marketCap)} />
-            <Stat label={t("coin.volume24h")} value={formatCompact(coin.volume24h)} />
-          </div>
+          {/* Stats in one row, no boxes — thin dividing lines, small grey label over the value. */}
+          {stats.length > 0 && (
+            <div className="mt-4 flex flex-wrap divide-x divide-paper/10 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5">
+              {stats.map((s, i) => (
+                <div key={s.label} className={`pr-5 ${i === 0 ? "" : "pl-5"}`}>
+                  <p className="text-[11px] text-panda-grey">{s.label}</p>
+                  <p className="mt-0.5 font-display text-sm font-bold tabular-nums sm:text-base">{s.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="mt-3 sm:mt-6">
             <PriceChart
@@ -134,36 +149,68 @@ export default function CoinClient({ coin, trades, live, tradesLive }: Props) {
   );
 }
 
-function SocialLinks({ coin }: { coin: Coin }) {
+/** A small colored dot with a tooltip — replaces the old big "Live"/"Graduated" pill. Only pump-fun
+ *  (still on the bonding curve) and pumpswap (graduated) coins have a meaningful status; a coin from
+ *  any other dex has neither, so nothing renders. */
+function CoinStatusDot({ coin }: { coin: Coin }) {
   const { t } = useLanguage();
-  if (!coin.website && !coin.twitter && !coin.telegram) return null;
+  if (coin.source !== "pump-fun" && coin.source !== "pumpswap") return null;
+  const graduated = coin.source === "pumpswap";
+  const label = graduated ? t("coin.status.graduated") : t("coin.status.live");
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {coin.website && <SocialLink href={coin.website} label={t("coin.website")} />}
-      {coin.twitter && <SocialLink href={`https://x.com/${coin.twitter}`} label="X" />}
-      {coin.telegram && <SocialLink href={`https://t.me/${coin.telegram}`} label="Telegram" />}
-    </div>
+    <Tooltip label={label}>
+      <span className={`h-2 w-2 rounded-full ${graduated ? "bg-meme-orange" : "bg-bamboo"}`} aria-label={label} />
+    </Tooltip>
   );
 }
 
-function SocialLink({ href, label }: { href: string; label: string }) {
+const ICONS: Record<"globe" | "x" | "telegram", React.ReactNode> = {
+  globe: (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.5 3.75 5.5 3.75 9S14.5 18.5 12 21c-2.5-2.5-3.75-5.5-3.75-9S9.5 5.5 12 3Z" />
+    </svg>
+  ),
+  x: (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden>
+      <path d="M18.3 2H21l-6.6 7.5L22.2 22h-6.8l-5.3-6.9L3.9 22H1.2l7.1-8.1L1 2h6.9l4.8 6.3L18.3 2Zm-1.2 18h1.5L7 3.9H5.4L17.1 20Z" />
+    </svg>
+  ),
+  telegram: (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden>
+      <path d="M21.5 3.5 2.7 11c-1 .4-1 1.9.1 2.2l4.6 1.4 1.8 5.5c.3.9 1.5 1.1 2.1.3l2.6-3.2 4.7 3.5c.9.6 2.1.1 2.3-.9l3-14.7c.2-1.1-.9-2-2-1.6ZM8.6 14.1l9.1-6.9c.3-.2.6.1.3.4l-7.5 7.7-.3 3.4-1.6-4.6Z" />
+    </svg>
+  ),
+};
+
+function IconLink({ href, label, icon }: { href: string; label: string; icon: keyof typeof ICONS }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="rounded-full border border-paper/15 px-2.5 py-0.5 text-xs font-medium text-paper/70 hover:border-paper/35 hover:text-paper transition-colors"
+      title={label}
+      aria-label={label}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-paper/15 text-paper/70 transition-colors hover:border-paper/35 hover:text-paper"
     >
-      {label}
+      {ICONS[icon]}
     </a>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+/** Clamped to 2 lines with a "Read more" button that removes the clamp — never toggles back, so the
+ *  layout doesn't jump once someone's actually reading it. */
+function ClampedDescription({ text }: { text: string }) {
+  const { t } = useLanguage();
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="rounded-2xl border border-paper/10 bg-ink-raised px-3.5 py-3">
-      <p className="text-xs text-panda-grey">{label}</p>
-      <p className="mt-0.5 font-display text-base font-bold">{value}</p>
+    <div className="mt-3 max-w-xl sm:mt-4">
+      <p className={`text-sm leading-relaxed text-paper/75 ${expanded ? "" : "line-clamp-2"}`}>{text}</p>
+      {!expanded && (
+        <button type="button" onClick={() => setExpanded(true)} className="mt-1 text-xs font-semibold text-meme-orange hover:brightness-110">
+          {t("coin.readMore")}
+        </button>
+      )}
     </div>
   );
 }

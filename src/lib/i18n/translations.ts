@@ -1534,10 +1534,15 @@ export const dict = {
   // Coin page — header/tabs
   "coin.marketCap": { en: "Market cap", es: "Cap. de mercado" },
   "coin.volume24h": { en: "Volume (24h)", es: "Volumen (24h)" },
+  "coin.liquidity": { en: "Liquidity", es: "Liquidez" },
+  "coin.holders": { en: "Holders", es: "Holders" },
   "coin.tab.trades": { en: "Trades", es: "Operaciones" },
   "coin.tab.holders": { en: "Holders", es: "Holders" },
   "coin.tab.rewards": { en: "Rewards", es: "Recompensas" },
   "coin.website": { en: "Website", es: "Sitio web" },
+  "coin.status.live": { en: "Live — still bonding curve", es: "En vivo — todavía en curva de vinculación" },
+  "coin.status.graduated": { en: "Graduated to PumpSwap", es: "Graduada a PumpSwap" },
+  "coin.readMore": { en: "Read more", es: "Ver más" },
 
   // Trades tab
   "coin.trades.side": { en: "Side", es: "Lado" },

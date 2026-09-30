@@ -153,7 +153,7 @@ test("the UI: nothing for a coin RugCheck can't rate; the page shows the level, 
   assert.match(badge, /if \(!summary\)/, "no summary → no badge");
   assert.doesNotMatch(badge.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""), /unknown|loading|Unknown|Loading/, "no fake states");
   assert.match(read("src/components/CoinCard.tsx"), /<RugBadge mint=\{coin\.mint\}/);
-  assert.match(read("src/components/coin/CoinClient.tsx"), /<RugBadge mint=\{coin\.mint\} variant="full"/);
+  assert.match(read("src/components/coin/CoinClient.tsx"), /<RugBadge mint=\{coin\.mint\} variant="pill"/);
   // the browser only ever talks to PANDA's own route
   assert.doesNotMatch(read("src/lib/rugcheck/client.ts"), /rugcheck\.xyz/);
 });
