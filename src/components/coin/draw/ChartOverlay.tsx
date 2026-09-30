@@ -1,20 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatPct, formatPrice } from "@/lib/format";
+import { formatPct } from "@/lib/format";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import { pctVsBuy } from "@/lib/strategy/plan";
-import { CHART, priceToY, spreadLabels, type Domain } from "@/lib/strategy/scale";
+import { CHART, clampedY, spreadLabels, type Domain } from "@/lib/strategy/scale";
 import type { ChartLine } from "./useDrawTrade";
 
 export type ChartOverlayData = {
   lines: ChartLine[];
   /** Which line the user is placing right now, if any. */
   drawing: DrawTarget | null;
+  /** Real USD price, same space as every `ChartLine.price` — never the display unit directly. */
   preview: number | null;
   onPointer: (phase: "move" | "down" | "up" | "leave", price: number, info: { type: string; button: number; pressed: boolean }) => void;
   labels: (target: DrawTarget) => string;
   previewLabels: (target: DrawTarget) => string;
+  /** Converts a real USD price into whatever the Y axis is showing right now (price or market cap) — for
+   *  positioning only; every line's own data (and the % vs. buy) always stays real USD underneath. */
+  toDisplay: (usd: number) => number;
+  /** A real USD price, formatted in the unit currently on screen (price or market cap). */
+  formatValue: (usd: number) => string;
 };
 
 /** 0-based index of a sell tranche target ("sell1" → 0 … up to MAX_TRANCHES); -1 for "buy"/"stop". Mirrors
@@ -37,12 +43,21 @@ export function lineColor(kind: DrawTarget): string {
   return `hsl(200 85% ${light}%)`;
 }
 
+/** A small solid triangle pinned to the top/bottom edge, pointing further off-screen — stands in for a line or
+ *  a trade marker that's out of the currently visible price range, instead of stretching the scale to fit it
+ *  (see scale.ts's `clampedY`). Its real price is still shown in the tag/tooltip, just not drawn at scale. */
+export function EdgeArrow({ x, y, out, color }: { x: number; y: number; out: "above" | "below"; color: string }) {
+  const points = out === "above" ? `${x - 6},${y + 9} ${x + 6},${y + 9} ${x},${y}` : `${x - 6},${y - 9} ${x + 6},${y - 9} ${x},${y}`;
+  return <polygon points={points} fill={color} stroke="var(--ink)" strokeWidth={1} vectorEffect="non-scaling-stroke" />;
+}
+
 /** The dashed lines inside the chart's own SVG (nothing is filled: the chart's background stays as it was). */
 export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
   return (
     <g pointerEvents="none">
       {overlay.lines.map((l) => {
-        const y = priceToY(l.price, domain);
+        const { y, out } = clampedY(overlay.toDisplay(l.price), domain);
+        if (out) return <EdgeArrow key={l.key} x={CHART.width - 16} y={y} out={out} color={lineColor(l.kind)} />;
         return (
           <g key={l.key}>
           {/* a dark halo under every line keeps it readable over the curve and the gridlines */}
@@ -62,18 +77,16 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
         );
       })}
       {overlay.drawing && overlay.preview !== null && (
-        <>
-        <line x1={0} x2={CHART.width} y1={priceToY(overlay.preview, domain)} y2={priceToY(overlay.preview, domain)} stroke="var(--ink)" strokeOpacity={0.55} strokeWidth={5.5} vectorEffect="non-scaling-stroke" />
-        <line
-          x1={0}
-          x2={CHART.width}
-          y1={priceToY(overlay.preview, domain)}
-          y2={priceToY(overlay.preview, domain)}
-          stroke={lineColor(overlay.drawing)}
-          strokeWidth={2.5}
-          vectorEffect="non-scaling-stroke"
-        />
-        </>
+        (() => {
+          const { y, out } = clampedY(overlay.toDisplay(overlay.preview), domain);
+          if (out) return <EdgeArrow x={CHART.width - 16} y={y} out={out} color={lineColor(overlay.drawing)} />;
+          return (
+            <>
+              <line x1={0} x2={CHART.width} y1={y} y2={y} stroke="var(--ink)" strokeOpacity={0.55} strokeWidth={5.5} vectorEffect="non-scaling-stroke" />
+              <line x1={0} x2={CHART.width} y1={y} y2={y} stroke={lineColor(overlay.drawing)} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+            </>
+          );
+        })()
       )}
     </g>
   );
@@ -98,16 +111,18 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
 
   // The live % every line shows: relative to ITS OWN group's buy target (a chart can have several drawn
   // strategies open at once, each with its own buy price) — updates on every drag, since it's derived from
-  // the price, never stored separately.
+  // the price, never stored separately (and is unit-independent: a ratio of two prices is the same ratio of
+  // their market caps, so it's never converted).
   const items = overlay.lines.map((l) => {
     const buyPrice = l.kind === "buy" ? l.price : overlay.lines.find((x) => x.groupId === l.groupId && x.kind === "buy")?.price;
     const pct = l.kind !== "buy" ? pctVsBuy(l.price, buyPrice) : null;
-    const parts = [`${overlay.labels(l.kind)} ${l.tag}`, formatPrice(l.price)];
+    const { y, out } = clampedY(overlay.toDisplay(l.price), domain);
+    const parts = [`${out === "above" ? "↑ " : out === "below" ? "↓ " : ""}${overlay.labels(l.kind)} ${l.tag}`, overlay.formatValue(l.price)];
     if (pct !== null) parts.push(formatPct(pct));
     if (l.pct !== undefined) parts.push(`${l.pct}%`);
-    return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(priceToY(l.price, domain)), strong: l.live || l.active };
+    return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(y), strong: l.live || l.active };
   });
-  const previewY = overlay.drawing && overlay.preview !== null ? px(priceToY(overlay.preview, domain)) : null;
+  const previewY = overlay.drawing && overlay.preview !== null ? px(clampedY(overlay.toDisplay(overlay.preview), domain).y) : null;
   const spread = spreadLabels(
     items.map((i) => i.y),
     18,
@@ -129,7 +144,7 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
           className="absolute left-2 z-10 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-bold leading-none text-ink shadow-lg"
           style={{ top: Math.min(Math.max(10, previewY), h - 10), background: lineColor(overlay.drawing) }}
         >
-          {overlay.previewLabels(overlay.drawing)} · {formatPrice(overlay.preview!)}
+          {overlay.previewLabels(overlay.drawing)} · {overlay.formatValue(overlay.preview!)}
         </span>
       )}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -9,14 +9,32 @@ import { CHART, clientYToChartY, domainFor, priceToY, yToPrice } from "@/lib/str
 import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
-import { TradeMarkerDots, TradeMarkerTooltip, tradePriceUsd } from "@/components/coin/TradeMarkers";
+import { TradeMarkerDots, TradeMarkerTooltip } from "@/components/coin/TradeMarkers";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 
-const timeframes = ["1m", "5m", "1h", "4h", "1w", "1d"] as const;
+// Shortest to longest, each requesting its own genuinely correctly-sized range from /api/chart — see that
+// route's own comment for the bug this replaced (a "1 day" tab that silently pulled 30 days of daily candles).
+const timeframes = ["1m", "5m", "1h", "4h", "1d", "1w", "30d"] as const;
 type Timeframe = (typeof timeframes)[number];
+type Unit = "price" | "mcap";
 
 type Candle = { time: number; close: number };
+
+const UNIT_KEY = "panda.chart.unit";
+
+function tfLabel(tfOption: Timeframe, weekLabel: string): string {
+  switch (tfOption) {
+    case "1d":
+      return "1D";
+    case "1w":
+      return weekLabel; // "1S" / "1W" — the only one whose short form differs by language
+    case "30d":
+      return "30D";
+    default:
+      return tfOption; // "1m" / "5m" / "1h" / "4h" — already exactly right, lowercase
+  }
+}
 
 export default function PriceChart({
   poolAddress,
@@ -41,15 +59,39 @@ export default function PriceChart({
   // has no real per-point timestamps, so this fires once on mount to swap in
   // real, timestamped 1-minute data right away.
   const [tf, setTf] = useState<Timeframe>("1m");
-  const [candles, setCandles] = useState<Candle[]>(initialCloses.map((close) => ({ time: 0, close })));
-  const [hasRealTimes, setHasRealTimes] = useState(false);
+  // Cached per timeframe, so flipping between tabs doesn't re-hit GeckoTerminal's own (tight) rate limit every
+  // time, and — just as important — a failed fetch for one tab can never silently leave another tab's stale
+  // candles on screen under the wrong label (each tf only ever shows its OWN cached data, or a clear "couldn't
+  // load" state, never someone else's).
+  const [byTf, setByTf] = useState<Partial<Record<Timeframe, Candle[]>>>({});
+  const [failedTf, setFailedTf] = useState<Partial<Record<Timeframe, boolean>>>({});
   const [loading, setLoading] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const requestId = useRef(0);
   const mounted = useRef(false);
 
-  // Your own buys/sells of this coin, marked on the chart — only with a connected wallet, only for real
-  // PANDA-recorded trades (not read back from the chain — a false marker on a chart is worse than a missing one).
+  // Price vs market cap — remembered across visits. The server (and the first paint) always assume "price",
+  // corrected a moment after mount (same hydration-safe pattern as useCurrency.ts: never read localStorage in
+  // a useState initializer, or the server/client markup can disagree).
+  const [unit, setUnit] = useState<Unit>("price");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        const saved = localStorage.getItem(UNIT_KEY);
+        if (saved === "price" || saved === "mcap") setUnit(saved);
+      } catch {}
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  function pickUnit(u: Unit) {
+    setUnit(u);
+    try {
+      localStorage.setItem(UNIT_KEY, u);
+    } catch {}
+  }
+
+  // Your own buys/sells of this coin, marked on the chart — only with a connected wallet. Real PANDA trades
+  // AND real on-chain history outside PANDA (the same backfill /portfolio uses) — see /api/portfolio/trades.
   const { connected, publicKey } = useWallet();
   const { currency, eurUsd } = useCurrency(lang);
   const [myTrades, setMyTrades] = useState<LoggedTrade[]>([]);
@@ -78,18 +120,22 @@ export default function PriceChart({
   }, [connected, publicKey, coin]);
 
   function loadTimeframe(next: Timeframe) {
-    if (!poolAddress) return;
+    if (!poolAddress || byTf[next]) return;
     const id = ++requestId.current;
     setLoading(true);
     fetch(`/api/chart?pool=${poolAddress}&tf=${next}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { candles?: Candle[] }) => {
         if (requestId.current !== id) return;
         const points = data.candles || [];
         if (points.length > 1) {
-          setCandles(points);
-          setHasRealTimes(true);
+          setByTf((m) => ({ ...m, [next]: points }));
+        } else {
+          setFailedTf((m) => ({ ...m, [next]: true }));
         }
+      })
+      .catch(() => {
+        if (requestId.current === id) setFailedTf((m) => ({ ...m, [next]: true }));
       })
       .finally(() => {
         if (requestId.current === id) setLoading(false);
@@ -106,9 +152,18 @@ export default function PriceChart({
   function selectTimeframe(next: Timeframe) {
     setTf(next);
     setHoverIndex(null);
-    if (!poolAddress || next === tf) return;
     loadTimeframe(next);
   }
+
+  /** A failed load leaves `byTf[tf]` unset, so simply asking again (loadTimeframe no-ops only when it already
+   *  has real data) retries it — no special-cased "clear the failure" step needed. */
+  function retryTimeframe() {
+    loadTimeframe(tf);
+  }
+
+  const hasRealTimes = !!byTf[tf];
+  const candles = byTf[tf] ?? (tf === "1m" ? initialCloses.map((close) => ({ time: 0, close })) : []);
+  const failed = !!failedTf[tf] && !byTf[tf];
 
   const closes = candles.map((c) => c.close);
   const lastClose = closes[closes.length - 1] ?? 0;
@@ -116,6 +171,10 @@ export default function PriceChart({
   // page loaded with — not refetched per candle, since none of GeckoTerminal,
   // Dexscreener, or the OHLCV endpoint expose a market-cap history.
   const supply = marketCap && lastClose > 0 ? marketCap / lastClose : undefined;
+
+  const toDisplay = useCallback((usd: number) => (unit === "mcap" && supply ? usd * supply : usd), [unit, supply]);
+  const fromDisplay = useCallback((v: number) => (unit === "mcap" && supply ? v / supply : v), [unit, supply]);
+  const formatValue = useCallback((usd: number) => (unit === "mcap" ? formatCompact(toDisplay(usd)) : formatPrice(toDisplay(usd))), [unit, toDisplay]);
 
   const draw = useDrawTrade(coin ?? null, lastClose);
   const overlay: ChartOverlayData | undefined = coin
@@ -127,6 +186,8 @@ export default function PriceChart({
         // Every sell tranche shares the one "Sell" label — the tag itself (e.g. "#1.2") is what tells them apart.
         labels: (k) => (k === "buy" ? t("draw.line.buy") : k === "stop" ? t("draw.line.stop") : t("draw.line.sell")),
         previewLabels: (k) => (k === "buy" ? t("draw.line.buyTarget") : k === "stop" ? t("draw.line.stopTarget") : t("draw.line.sellTarget")),
+        toDisplay,
+        formatValue,
       }
     : undefined;
 
@@ -137,27 +198,46 @@ export default function PriceChart({
 
   const windowChangePct = closes.length > 1 ? ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100 : changePct;
   const positive = windowChangePct >= 0;
-  const low = closes.length ? Math.min(...closes) : 0;
-  const high = closes.length ? Math.max(...closes) : 0;
+  const displayCloses = closes.map(toDisplay);
+  const low = displayCloses.length ? Math.min(...displayCloses) : 0;
+  const high = displayCloses.length ? Math.max(...displayCloses) : 0;
+  const fmtDisplay = (n: number) => (unit === "mcap" ? formatCompact(n) : formatPrice(n));
+
+  const bigValue = unit === "mcap" ? (shownMarketCap !== undefined ? formatCompact(shownMarketCap) : "—") : formatPrice(shownPrice);
+  const otherLabel = unit === "mcap" ? t("chart.price") : t("chart.mc");
+  const otherValue = unit === "mcap" ? formatPrice(shownPrice) : shownMarketCap !== undefined ? formatCompact(shownMarketCap) : null;
 
   return (
     <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-display text-2xl font-bold sm:text-3xl">{formatPrice(shownPrice)}</p>
+          {marketCap !== undefined && (
+            <div className="mb-1.5 flex gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={`${t("chart.price")} / ${t("chart.mc")}`}>
+              {(["price", "mcap"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => pickUnit(u)}
+                  aria-pressed={unit === u}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"}`}
+                >
+                  {u === "price" ? t("chart.price") : t("chart.mc")}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="font-display text-2xl font-bold sm:text-3xl">{bigValue}</p>
           <p className={`text-sm font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
-            {formatPct(windowChangePct)} <span className="text-panda-grey font-normal">· {tf.toUpperCase()}</span>
+            {formatPct(windowChangePct)} <span className="text-panda-grey font-normal">· {tfLabel(tf, t("chart.tf.week"))}</span>
           </p>
-          {shownMarketCap !== undefined && (
+          {otherValue !== null && (
             <p className="mt-0.5 text-xs text-panda-grey">
-              {t("chart.mc")}: <span className="font-medium text-paper/80">{formatCompact(shownMarketCap)}</span>
-              {hoverIndex !== null && shownTime ? (
-                <span> · {formatAxisTime(shownTime, tf, true)}</span>
-              ) : null}
+              {otherLabel}: <span className="font-medium text-paper/80">{otherValue}</span>
+              {hoverIndex !== null && shownTime ? <span> · {formatAxisTime(shownTime, tf, true)}</span> : null}
             </p>
           )}
         </div>
-        <div className="flex gap-1 rounded-full bg-ink p-1">
+        <div className="flex flex-wrap justify-end gap-1 rounded-full bg-ink p-1">
           {timeframes.map((tfOption) => (
             <button
               key={tfOption}
@@ -167,34 +247,45 @@ export default function PriceChart({
                 tf === tfOption ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"
               }`}
             >
-              {tfOption}
+              {tfLabel(tfOption, t("chart.tf.week"))}
             </button>
           ))}
         </div>
       </div>
 
       <div className={`mt-4 transition-opacity duration-500 sm:mt-6 ${loading ? "opacity-40" : "opacity-100"}`}>
-        <AreaChart
-          candles={candles}
-          positive={positive}
-          noDataLabel={t("chart.noData")}
-          hasRealTimes={hasRealTimes}
-          tf={tf}
-          hoverIndex={hoverIndex}
-          onHover={setHoverIndex}
-          overlay={overlay}
-          myTrades={hasRealTimes ? myTrades : []}
-          hoveredTradeKey={hoveredTradeKey}
-          onHoverTrade={setHoveredTradeKey}
-          currency={currency}
-          eurUsd={eurUsd}
-        />
+        {failed ? (
+          <div className="flex h-[170px] flex-col items-center justify-center gap-2 text-sm text-panda-grey sm:h-[260px]">
+            <p>{t("chart.loadError")}</p>
+            <button type="button" onClick={retryTimeframe} className="rounded-full bg-paper/10 px-3 py-1.5 text-xs font-semibold text-paper hover:bg-paper/15">
+              {t("chart.retry")}
+            </button>
+          </div>
+        ) : (
+          <AreaChart
+            candles={candles}
+            positive={positive}
+            noDataLabel={t("chart.noData")}
+            hasRealTimes={hasRealTimes}
+            tf={tf}
+            hoverIndex={hoverIndex}
+            onHover={setHoverIndex}
+            overlay={overlay}
+            myTrades={hasRealTimes ? myTrades : []}
+            hoveredTradeKey={hoveredTradeKey}
+            onHoverTrade={setHoveredTradeKey}
+            currency={currency}
+            eurUsd={eurUsd}
+            toDisplay={toDisplay}
+            fromDisplay={fromDisplay}
+          />
+        )}
       </div>
 
-      {closes.length > 1 && (
+      {!failed && closes.length > 1 && (
         <div className="mt-3 flex items-center justify-between text-xs text-panda-grey">
-          <span>{t("chart.low", { value: formatPrice(low) })}</span>
-          <span>{t("chart.high", { value: formatPrice(high) })}</span>
+          <span>{t("chart.low", { value: fmtDisplay(low) })}</span>
+          <span>{t("chart.high", { value: fmtDisplay(high) })}</span>
         </div>
       )}
 
@@ -228,7 +319,7 @@ function smoothPath(points: { x: number; y: number }[]): string {
 /** `real` picks a fuller "day, HH:MM" format for the small inline caption; the x-axis ticks stay short. */
 function formatAxisTime(epochSeconds: number, tf: Timeframe, real = false): string {
   const d = new Date(epochSeconds * 1000);
-  if (tf === "1d" || tf === "1w") {
+  if (tf === "1w" || tf === "30d") {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -251,6 +342,8 @@ function AreaChart({
   onHoverTrade,
   currency,
   eurUsd,
+  toDisplay,
+  fromDisplay,
 }: {
   overlay?: ChartOverlayData;
   candles: Candle[];
@@ -265,6 +358,9 @@ function AreaChart({
   onHoverTrade: (key: string | null) => void;
   currency: import("@/lib/format").Currency;
   eurUsd: number | null;
+  /** Real USD ↔ whatever's on the Y axis right now (price or market cap) — see PriceChart.tsx. */
+  toDisplay: (usd: number) => number;
+  fromDisplay: (displayValue: number) => number;
 }) {
   const { width, height, padding } = CHART;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -278,25 +374,23 @@ function AreaChart({
     ro.observe(el);
     return () => ro.disconnect();
   }, [height]);
-  const data = candles.map((c) => c.close);
+  const data = candles.map((c) => toDisplay(c.close));
 
-  // With no strategy lines and nothing being drawn this is exactly min..max of the closes (the chart as it always was);
-  // lines that already exist stay in view, and while drawing there is headroom to place a target beyond the recent range.
-  // A trade's own price is included too, so a buy made well above or below the currently visible range still shows,
-  // rather than being clipped off the top/bottom of the chart.
+  // The vertical scale ALWAYS fits the visible candles alone, with a small margin — a strategy line or a
+  // trade marker outside it never stretches this any more (see ChartOverlay.tsx/TradeMarkers.tsx: they clamp
+  // to an edge arrow instead). `headroom` while actively drawing still adds a little extra room so a target
+  // can be placed beyond the recent highs and lows.
   // Computed even with too little data to draw a curve (domainFor is safe with an empty/short list) so every hook below
   // can always run in the same order, whether or not there's a chart to show — React requires that either way.
-  const domain = domainFor(
-    data,
-    [...(overlay ? overlay.lines.map((l) => l.price) : []), ...myTrades.map(tradePriceUsd)],
-    overlay?.drawing ? 0.25 : 0
-  );
+  const domain = domainFor(data, overlay?.drawing ? 0.25 : 0);
   const drawing = !!overlay?.drawing;
 
-  /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve). */
+  /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve) — always
+   *  converted back to a real USD price before it leaves this function, since that's the space every strategy
+   *  line and the drag machine itself work in. */
   function priceAtClientY(clientY: number): number {
     const rect = svgRef.current!.getBoundingClientRect();
-    return yToPrice(clientYToChartY(clientY, rect.top, rect.height), domain);
+    return fromDisplay(yToPrice(clientYToChartY(clientY, rect.top, rect.height), domain));
   }
   function priceAt(e: React.PointerEvent<SVGSVGElement>): number {
     return priceAtClientY(e.clientY);
@@ -445,12 +539,12 @@ function AreaChart({
           strokeLinecap="round"
           strokeLinejoin="round"
           pathLength={1}
-          style={{ animation: "panda-chart-draw 900ms ease-out" }}
+          style={{ animation: "chartline-draw-in 900ms ease-out" }}
         />
 
         {overlay && <StrategyLines overlay={overlay} domain={domain} />}
 
-        {myTrades.length > 0 && <TradeMarkerDots trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} onHover={onHoverTrade} />}
+        {myTrades.length > 0 && <TradeMarkerDots trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} onHover={onHoverTrade} toDisplay={toDisplay} />}
 
         {hoverIndex !== null && !drawing && (
           <line x1={active.x} x2={active.x} y1={padding} y2={height - padding} stroke="var(--paper)" strokeOpacity="0.25" strokeDasharray="3 3" />
@@ -465,7 +559,7 @@ function AreaChart({
           )}
         </circle>
         <style>{`
-          @keyframes panda-chart-draw {
+          @keyframes chartline-draw-in {
             from { stroke-dasharray: 1; stroke-dashoffset: 1; }
             to { stroke-dasharray: 1; stroke-dashoffset: 0; }
           }
@@ -474,7 +568,7 @@ function AreaChart({
 
       {overlay && <PriceTags overlay={overlay} domain={domain} />}
       {myTrades.length > 0 && (
-        <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} />
+        <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} toDisplay={toDisplay} />
       )}
 
       {axisTicks.length > 0 && (

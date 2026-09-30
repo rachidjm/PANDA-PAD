@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { abort, cancel, down, IDLE, move, start, up, type DrawState } from "./draw-machine";
-import { CHART, clientYToChartY, domainFor, priceToY, spreadLabels, yToPrice } from "./scale";
+import { CHART, clampedY, clientYToChartY, domainFor, priceToY, spreadLabels, yToPrice } from "./scale";
 
 const mouse = { type: "mouse", button: 0 };
 const touch = { type: "touch" };
@@ -75,28 +75,38 @@ test("with no mode active the gesture is inert; cancel returns to idle", () => {
   assert.deepEqual(cancel(), IDLE);
 });
 
-test("chart scale: with nothing drawn the domain is exactly min..max, as before", () => {
-  assert.deepEqual(domainFor([2, 1, 3]), { min: 1, max: 3 });
+test("chart scale: the domain always fits the closes, with a small fixed margin", () => {
   const d = domainFor([2, 1, 3]);
-  // The original formula from the chart.
-  const old = (v: number) => CHART.padding + (CHART.height - CHART.padding * 2) * (1 - (v - 1) / 2);
-  for (const v of [1, 1.5, 2, 3]) assert.equal(priceToY(v, d), old(v));
+  assert.ok(d.min < 1 && d.max > 3); // margin on both sides, not exactly min..max any more
+  assert.ok(Math.abs(d.min - (1 - 2 * 0.06)) < 1e-9 && Math.abs(d.max - (3 + 2 * 0.06)) < 1e-9);
 });
 
 test("chart scale: price → row → price round-trips", () => {
-  const d = domainFor([1, 2, 3], [4], 0.25);
+  const d = domainFor([1, 2, 3], 0.25);
   for (const p of [0.9, 1.7, 2.5, 3.9]) assert.ok(Math.abs(yToPrice(priceToY(p, d), d) - p) < 1e-9);
 });
 
-test("chart scale: existing lines stay inside the picture, drawing adds headroom", () => {
-  const d = domainFor([1, 2], [3.5, 0.5]);
-  assert.ok(d.max > 3.5 && d.min < 0.5 && d.min >= 0);
-  const drawing = domainFor([1, 2], [], 0.25);
-  assert.ok(drawing.max > 2 && drawing.min < 1);
+test("chart scale: drawing adds extra headroom on top of the base margin", () => {
+  const plain = domainFor([1, 2]);
+  const drawing = domainFor([1, 2], 0.25);
+  assert.ok(drawing.max > plain.max && drawing.min < plain.min);
+});
+
+test("chart scale: a line/marker outside the domain clamps to the edge instead of stretching it", () => {
+  const d = domainFor([1, 2]); // small margin around [1,2], well short of 3.5 or 0.1
+  const above = clampedY(3.5, d);
+  assert.equal(above.out, "above");
+  assert.equal(above.y, CHART.padding);
+  const below = clampedY(0.1, d);
+  assert.equal(below.out, "below");
+  assert.equal(below.y, CHART.height - CHART.padding);
+  const inside = clampedY(1.5, d);
+  assert.equal(inside.out, null);
+  assert.equal(inside.y, priceToY(1.5, d));
 });
 
 test("chart scale: a line can be dragged to the bottom edge without becoming a zero or negative price", () => {
-  const d = domainFor([0.001, 0.002], [], 0.25);
+  const d = domainFor([0.001, 0.002], 0.25);
   assert.ok(yToPrice(CHART.height, d) > 0);
   assert.ok(yToPrice(CHART.height * 5, d) > 0);
 });

@@ -1,30 +1,38 @@
 /**
  * The chart's price ↔ pixel mapping, in one place so the line the user drags and the curve underneath it
- * always agree. With no strategy lines and no drawing in progress the domain is exactly the old one
- * (min..max of the closes), so the chart looks the same as before.
+ * always agree. The vertical scale ALWAYS fits the visible candles alone, with a small fixed margin — a
+ * strategy line or a trade marker outside that range never stretches it (see `clampedY` below: those render
+ * as an arrow pinned to the top/bottom edge instead of pulling the whole scale to fit them).
  */
 
 export const CHART = { width: 720, height: 260, padding: 8 } as const;
 
 export type Domain = { min: number; max: number };
 
-/**
- * `extra` prices (existing lines) are always inside the picture; `headroom` (a fraction of the range, used
- * while drawing) adds room above and below so a target can be placed beyond the recent highs and lows.
- */
-export function domainFor(closes: number[], extra: number[] = [], headroom = 0): Domain {
+/** Always applied, even with nothing else going on — the curve never touches the very top/bottom edge. */
+const BASE_MARGIN = 0.06;
+
+/** `headroom` (a fraction of the range, used only while actively drawing) adds EXTRA room on top of the base
+ *  margin, so a target can be placed beyond the recent highs and lows while dragging it. */
+export function domainFor(closes: number[], headroom = 0): Domain {
   const all = closes.filter((n) => Number.isFinite(n));
-  let min = all.length ? Math.min(...all) : 0;
-  let max = all.length ? Math.max(...all) : 0;
-  const extras = extra.filter((n) => Number.isFinite(n) && n > 0);
-  if (extras.length === 0 && headroom === 0) return { min, max };
-  if (extras.length) {
-    min = Math.min(min, ...extras);
-    max = Math.max(max, ...extras);
-  }
+  const min = all.length ? Math.min(...all) : 0;
+  const max = all.length ? Math.max(...all) : 0;
   const range = max - min || max * 0.05 || 1;
-  const margin = range * (extras.length ? Math.max(0.08, headroom) : headroom);
+  const margin = range * (BASE_MARGIN + Math.max(0, headroom));
   return { min: Math.max(min - margin, 0), max: max + margin };
+}
+
+/**
+ * Where a price lands on the chart's own row scale, clamped to the visible box: inside the domain it's the
+ * real row; above or below it, it's pinned to the top/bottom edge instead of a row that would sit off-canvas.
+ * `out` says which edge (or null when it's genuinely inside), for drawing a small arrow instead of the usual
+ * shape — that's the only visual difference; the real price is still whatever the caller already has.
+ */
+export function clampedY(price: number, d: Domain, height: number = CHART.height, padding: number = CHART.padding): { y: number; out: "above" | "below" | null } {
+  if (price > d.max) return { y: padding, out: "above" };
+  if (price < d.min) return { y: height - padding, out: "below" };
+  return { y: priceToY(price, d, height, padding), out: null };
 }
 
 export function priceToY(price: number, d: Domain, height: number = CHART.height, padding: number = CHART.padding): number {

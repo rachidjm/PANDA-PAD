@@ -1589,6 +1589,9 @@ export const dict = {
   "chart.mc": { en: "Market cap", es: "Cap. de mercado" },
   "chart.trade.bought": { en: "You bought", es: "Compraste" },
   "chart.trade.sold": { en: "You sold", es: "Vendiste" },
+  "chart.loadError": { en: "Couldn't load this range right now.", es: "No se pudo cargar este rango ahora mismo." },
+  "chart.retry": { en: "Retry", es: "Reintentar" },
+  "chart.tf.week": { en: "1W", es: "1S" },
 
   // Trading panel
   "trading.buy": { en: "Buy", es: "Comprar" },

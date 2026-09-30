@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { CHART, priceToY, type Domain } from "@/lib/strategy/scale";
+import { CHART, clampedY, type Domain } from "@/lib/strategy/scale";
 import { formatMoney, type Currency } from "@/lib/format";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { EdgeArrow } from "@/components/coin/draw/ChartOverlay";
 
 /** Real USD price per token at the moment of the trade — the same figures the trade was logged with (see
  *  src/lib/portfolio/trade-log.ts), never re-estimated. */
@@ -12,14 +13,15 @@ export function tradePriceUsd(t: LoggedTrade): number {
   return t.tokenAmount > 0 ? (t.solAmount * t.solPriceUsdAtTrade) / t.tokenAmount : 0;
 }
 
-type Mark = { trade: LoggedTrade; x: number; y: number };
+type Mark = { trade: LoggedTrade; x: number; y: number; out: "above" | "below" | null };
 
-/** Places each trade at its real timestamp's nearest candle and its real price, on the SAME domain (price ↔
- *  pixel scale) the curve and gridlines already use — so a trade whose price sits outside the visible closes
- *  still lines up correctly once the chart extends its own domain to include it (see PriceChart.tsx). Only
- *  for trades that fall inside the currently displayed candle window; a trade outside it (a different
- *  timeframe entirely) simply isn't shown, rather than guessed at the edge of the chart. */
-function useTradeMarks(trades: LoggedTrade[], candles: { time: number; close: number }[], domain: Domain): Mark[] {
+/** Places each trade at its real timestamp's nearest candle, and its real price converted to whatever the Y
+ *  axis is showing right now (`toDisplay` — price or market cap; see PriceChart.tsx). A trade whose price
+ *  sits outside the currently visible range never stretches the scale to fit it: it clamps to the top/bottom
+ *  edge instead (`out`), drawn as a small arrow rather than a dot — see TradeMarkerDots. Only for trades that
+ *  fall inside the currently displayed candle WINDOW (time); a trade from a different timeframe entirely
+ *  simply isn't shown, rather than guessed at the edge of the chart. */
+function useTradeMarks(trades: LoggedTrade[], candles: { time: number; close: number }[], domain: Domain, toDisplay: (usd: number) => number): Mark[] {
   return useMemo(() => {
     if (candles.length < 2) return [];
     const { width, padding } = CHART;
@@ -39,10 +41,11 @@ function useTradeMarks(trades: LoggedTrade[], candles: { time: number; close: nu
           nearest = k;
         }
       }
-      marks.push({ trade: t, x: padding + nearest * step, y: priceToY(tradePriceUsd(t), domain) });
+      const { y, out } = clampedY(toDisplay(tradePriceUsd(t)), domain);
+      marks.push({ trade: t, x: padding + nearest * step, y, out });
     }
     return marks;
-  }, [trades, candles, domain]);
+  }, [trades, candles, domain, toDisplay]);
 }
 
 const COLOR = { buy: "var(--bamboo)", sell: "var(--clay-red)" };
@@ -54,18 +57,21 @@ export function TradeMarkerDots({
   domain,
   hoveredKey,
   onHover,
+  toDisplay = (usd) => usd,
 }: {
   trades: LoggedTrade[];
   candles: { time: number; close: number }[];
   domain: Domain;
   hoveredKey: string | null;
   onHover: (key: string | null) => void;
+  /** Converts a real USD price into whatever the Y axis is showing (price or market cap) — see PriceChart.tsx. */
+  toDisplay?: (usd: number) => number;
 }) {
-  const marks = useTradeMarks(trades, candles, domain);
+  const marks = useTradeMarks(trades, candles, domain, toDisplay);
   if (marks.length === 0) return null;
   return (
     <g>
-      {marks.map(({ trade, x, y }) => {
+      {marks.map(({ trade, x, y, out }) => {
         const active = hoveredKey === trade.signature;
         return (
           <g
@@ -75,12 +81,18 @@ export function TradeMarkerDots({
             onClick={() => onHover(active ? null : trade.signature)} // tap-to-toggle: touch devices don't reliably fire pointerenter/leave
             style={{ cursor: "pointer" }}
           >
-            {/* An invisible, larger hit target — the visible dot alone is too small to reliably tap. */}
+            {/* An invisible, larger hit target — the visible dot/arrow alone is too small to reliably tap. */}
             <circle cx={x} cy={y} r={12} fill="transparent" />
-            <circle cx={x} cy={y} r={active ? 8 : 6} fill={COLOR[trade.side]} stroke="var(--ink)" strokeWidth={1.5} />
-            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={active ? 8 : 7} fontWeight={800} fill="var(--ink)" pointerEvents="none">
-              {trade.side === "buy" ? "C" : "V"}
-            </text>
+            {out ? (
+              <EdgeArrow x={x} y={y} out={out} color={COLOR[trade.side]} />
+            ) : (
+              <>
+                <circle cx={x} cy={y} r={active ? 8 : 6} fill={COLOR[trade.side]} stroke="var(--ink)" strokeWidth={1.5} />
+                <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={active ? 8 : 7} fontWeight={800} fill="var(--ink)" pointerEvents="none">
+                  {trade.side === "buy" ? "C" : "V"}
+                </text>
+              </>
+            )}
           </g>
         );
       })}
@@ -97,6 +109,7 @@ export function TradeMarkerTooltip({
   currency,
   eurUsd,
   boxHeight,
+  toDisplay = (usd) => usd,
 }: {
   trades: LoggedTrade[];
   candles: { time: number; close: number }[];
@@ -106,9 +119,10 @@ export function TradeMarkerTooltip({
   eurUsd: number | null;
   /** The <svg>'s real rendered height in CSS pixels (170 on a phone, 260 on desktop) — scales CHART's own coordinate space to it. */
   boxHeight: number;
+  toDisplay?: (usd: number) => number;
 }) {
   const { t, lang } = useLanguage();
-  const marks = useTradeMarks(trades, candles, domain);
+  const marks = useTradeMarks(trades, candles, domain, toDisplay);
   const mark = marks.find((m) => m.trade.signature === hoveredKey);
   if (!mark) return null;
 
