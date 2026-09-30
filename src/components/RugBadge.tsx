@@ -16,12 +16,16 @@ const LABEL = { good: "rc.good", warn: "rc.warn", danger: "rc.danger" } as const
  * RugCheck's risk level for a coin (third party, automated — see src/lib/rugcheck/summary.ts). Shows NOTHING until RugCheck has really
  * answered, and nothing if it can't: there is no "loading" or "unknown" badge to mislead. On a card it asks only once it scrolls into view.
  *   compact  the small pill for cards: a dot and RugCheck's score.
- *   full     the coin page: the level in words, the score, the first risks it flagged and a link to RugCheck's own page.
+ *   pill     the coin page header: "RugCheck 1/100" — the level, top risks and disclaimer live in the hover/tap tooltip, not a big box.
+ *   full     a page with no chart/trading of its own (TokenNoMarket): the level in words, the score, the first risks and a link to RugCheck's own page.
  */
-export default function RugBadge({ mint, variant = "compact", className = "" }: { mint: string; variant?: "compact" | "full"; className?: string }) {
+export default function RugBadge({ mint, variant = "compact", className = "" }: { mint: string; variant?: "compact" | "full" | "pill"; className?: string }) {
   const { t } = useLanguage();
   const ref = useRef<HTMLSpanElement>(null);
-  const [visible, setVisible] = useState(variant === "full");
+  const [visible, setVisible] = useState(variant !== "compact");
+  // Mobile has no hover, so the (i) icon toggles the same tooltip text instead — off by default,
+  // and closed again on a second tap or a tap elsewhere.
+  const [mobileTipOpen, setMobileTipOpen] = useState(false);
 
   useEffect(() => {
     if (visible) return;
@@ -44,10 +48,72 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
   const tone = TONE[summary.level];
   const title = t("rc.title", { n: summary.score ?? "—" });
   if (variant === "compact") {
+    // No `relative` on this element on purpose: the caller's own className (CoinCard.tsx) is what positions
+    // this badge with `absolute` over the card's image — `position: absolute` already establishes the
+    // containing block the tooltip below needs, and Tailwind's core plugin order would otherwise have a
+    // same-element `relative` win over that `absolute` (relative is defined after absolute in its generated
+    // CSS), silently breaking the overlay position.
     return (
-      <span title={title} aria-label={`${t(LABEL[summary.level])}${summary.score !== null ? ` ${summary.score}` : ""}`} className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur sm:px-2 sm:text-[11px] ${tone.pill} ${className}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
-        {summary.score !== null ? summary.score : t(LABEL[summary.level])}
+      <span title={title} aria-label={`${t(LABEL[summary.level])}${summary.score !== null ? ` ${summary.score}/100` : ""}`} className={`group/rug inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur sm:px-2 sm:text-[11px] ${tone.pill} ${className}`}>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
+        {summary.score !== null ? `${summary.score}/100` : t(LABEL[summary.level])}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMobileTipOpen((v) => !v);
+          }}
+          aria-label={title}
+          className="-my-0.5 -mr-0.5 ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold opacity-80 sm:hidden"
+        >
+          i
+        </button>
+        {/* Desktop: hover tooltip (same text as the title attribute, styled). Mobile: the same box, toggled by
+            the (i) button above instead of hover. Left-aligned, not centered: the badge sits at the card's own
+            left edge, so a centered tooltip would overflow past it and get clipped by the image's overflow-hidden. */}
+        <span
+          className={`pointer-events-none absolute left-0 top-full z-20 mt-1 w-max max-w-[160px] rounded-lg bg-ink px-2 py-1 text-[10px] font-medium normal-case text-paper opacity-0 shadow-lg transition-opacity group-hover/rug:sm:opacity-100 ${mobileTipOpen ? "opacity-100" : ""}`}
+        >
+          {title}
+        </span>
+      </span>
+    );
+  }
+  if (variant === "pill") {
+    const risksText = summary.risks.slice(0, 3).map((r) => r.name).join(", ");
+    return (
+      <span title={`${title} ${risksText ? `(${risksText}) ` : ""}— ${t("rc.disclaimer")}`} className={`group/rug relative inline-block ${className}`}>
+        <a
+          href={rugcheckPageUrl(mint)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors hover:brightness-110 ${tone.pill}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
+          RugCheck {summary.score !== null ? `${summary.score}/100` : t(LABEL[summary.level])}
+        </a>
+        <span
+          className={`pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-max max-w-[260px] -translate-x-0 rounded-xl border border-paper/10 bg-ink px-3 py-2 text-xs leading-relaxed text-paper/85 opacity-0 shadow-xl transition-opacity group-hover/rug:block group-hover/rug:opacity-100 ${mobileTipOpen ? "!block !opacity-100" : ""}`}
+        >
+          <span className="font-semibold text-paper">
+            {t(LABEL[summary.level])}
+            {risksText && ` · ${risksText}`}
+          </span>
+          <span className="mt-1 block text-panda-grey">{t("rc.disclaimer")}</span>
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMobileTipOpen((v) => !v);
+          }}
+          aria-label={title}
+          className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-paper/20 align-middle text-[9px] font-bold text-paper/60 sm:hidden"
+        >
+          i
+        </button>
       </span>
     );
   }
