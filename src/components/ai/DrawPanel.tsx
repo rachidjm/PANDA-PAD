@@ -6,7 +6,7 @@ import { useAiCall } from "./useAiCall";
 import { useDrawTradeAIBridge } from "./DrawTradeAIBridge";
 import { useAIAssistant } from "./AIAssistantProvider";
 
-type AiDrawTradeResult = { buyPrice: number; stopPrice: number; staggered: boolean; sells: { price: number; pct: number }[]; note: string };
+type AiDrawTradeResult = { buyPrice: number; sellPrice: number; stopPrice: number; note: string };
 
 /** "Ayuda con Draw Your Trade": turns a plain-language strategy into a DRAFT on the current coin's chart —
  *  never confirms it. Only usable from an actual coin page (the bridge is null everywhere else). */
@@ -27,7 +27,7 @@ export default function DrawPanel() {
     setApplied(null);
     const res = await call({ description: description.trim(), mint: coin.mint, ticker: coin.ticker, currentPriceUsd: coin.currentPriceUsd });
     if (res && draw) {
-      draw.applyAiDraft({ buy: res.buyPrice, stop: res.stopPrice, sells: res.sells, staggered: res.staggered });
+      draw.applyAiDraft({ buy: res.buyPrice, sell: res.sellPrice, stop: res.stopPrice });
       setApplied(res.note);
     }
   }

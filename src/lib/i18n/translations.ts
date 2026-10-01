@@ -815,41 +815,10 @@ export const dict = {
     en: "You can also type a price by hand in any box (USD per token) instead of drawing it.",
     es: "También puedes escribir un precio a mano en cualquier casilla (USD por token) en vez de dibujarlo.",
   },
+  /** Still used to label an individual leg of an OLD, legacy multi-tranche strategy (see RecordGroupCard in
+   *  DrawTradePanel.tsx) — nothing new is ever created with more than one leg. */
   "draw.sellN": { en: "Sell #{n}", es: "Venta #{n}" },
-  "draw.addSell": { en: "+ sell", es: "+ venta" },
-  "draw.removeSell": { en: "Remove this tranche", es: "Quitar este tramo" },
-  "draw.sellPctOfPosition": { en: "% of position", es: "% de la posición" },
-  "draw.sellPctSum": {
-    en: "Total: {pct}% — must add up to exactly 100%.",
-    es: "Total: {pct}% · debe sumar 100%.",
-  },
-  "draw.sellPctSumOk": {
-    en: "Total: {pct}%",
-    es: "Total: {pct}%",
-  },
-  "draw.multiSellNote": {
-    en: "Each tranche becomes its own real order, on its own share of the position — one fills, the stop covers only what's left of the others.",
-    es: "Cada tramo se convierte en una orden real independiente, sobre su propia parte de la posición — si uno se ejecuta, el stop solo cubre lo que queda de los demás.",
-  },
-  "draw.legProgress": { en: "Tranche {n} of {m}", es: "Tramo {n} de {m}" },
   "draw.tranches": { en: "{n} tranches", es: "{n} tramos" },
-  "draw.legPartial": {
-    en: "{done} of {total} tranches were placed as real orders before this happened. {rolledBack} were cancelled and refunded automatically; {stillOpen} are still live and shown below — cancel them by hand if you don't want them.",
-    es: "{done} de {total} tramos se llegaron a colocar como órdenes reales antes de esto. {rolledBack} se cancelaron y devolvieron automáticamente; {stillOpen} siguen activos y se muestran abajo — cancélalos a mano si no los quieres.",
-  },
-  "draw.staggered.label": { en: "Staggered sell", es: "Venta escalonada" },
-  "draw.staggered.hint": {
-    en: "Off: one sell and one stop, minimum $10. On: split the position into several sell points, each its own %.",
-    es: "Apagado: una sola venta y un stop, mínimo 10 $. Encendido: reparte la posición en varios puntos de venta, cada uno con su %.",
-  },
-  "draw.tranche.tooSmall": {
-    en: "This tranche is only {usd} — each one needs at least {min}.",
-    es: "Este tramo es solo {usd} — cada uno necesita al menos {min}.",
-  },
-  "draw.tranche.maxReached": {
-    en: "This amount supports up to {n} tranches (at least {min} each).",
-    es: "Este importe permite hasta {n} tramos (mínimo {min} cada uno).",
-  },
   "draw.execution.notice": {
     en: "Orders execute when the price reaches your level, but due to slippage and volatility we cannot guarantee that the buy or sell will fill exactly at the price you set. The final price may be better or worse.",
     es: "Las órdenes se ejecutan cuando el precio alcanza tu nivel, pero debido al deslizamiento y a la volatilidad no podemos garantizar que la compra o la venta se hagan exactamente al precio marcado. El precio final puede ser mejor o peor.",
@@ -1068,18 +1037,6 @@ export const dict = {
   "draw.issue.below_minimum": {
     en: "The minimum is 10 USD per order (a Jupiter rule).",
     es: "El mínimo es 10 USD por orden (norma de Jupiter).",
-  },
-  "draw.issue.too_many_sells": {
-    en: "Between 1 and 10 sell tranches.",
-    es: "Entre 1 y 10 tramos de venta.",
-  },
-  "draw.issue.sells_pct_invalid": {
-    en: "The sell tranches must add up to exactly 100% of the position.",
-    es: "Los tramos de venta deben sumar exactamente el 100% de la posición.",
-  },
-  "draw.issue.tranche_below_minimum": {
-    en: "One or more tranches are under $11, the minimum per tranche with staggered selling on — see which one below.",
-    es: "Uno o más tramos son menores de 11 $, el mínimo por tramo con la venta escalonada activada — mira cuál abajo.",
   },
   "draw.issue.price_unavailable": {
     en: "Live prices aren't available right now — try again in a moment.",

@@ -83,51 +83,7 @@ export type StrategyIssue =
   | "price_unavailable"
   | "liquidity_unknown"
   | "liquidity_low"
-  | "too_large_for_pool"
-  | "too_many_sells"
-  | "sells_pct_invalid"
-  | "tranche_below_minimum";
-
-/**
- * "Staggered sell" (OFF by default — see the toggle on the card): up to MAX_TRANCHES sell targets per
- * strategy, the position split between them, drawn once, sold in pieces. Each becomes its own real Jupiter
- * order (its own deposit, its own OCO pair with the shared stop — see docs/STRATEGIES_TEST_PLAN.md), so a
- * fill on one never touches what the others are still watching — the stop always only ever covers what is
- * still unsold. With the toggle off there is exactly one tranche, unconditionally at 100%, same as before.
- */
-export const MAX_TRANCHES = 10;
-export const MIN_SELLS = 1;
-/** Every tranche's own dollar share must clear this — a small margin over Jupiter's real $10 order minimum
- *  (MIN_ORDER_USD), for the price moving a little between drawing and confirming each tranche. */
-export const MIN_TRANCHE_USD = 11;
-
-/** How many tranches a total amount can actually support, each worth at least MIN_TRANCHE_USD — capped at
- *  MAX_TRANCHES. Null/too small an amount → 1 (only the plain single sell makes sense). */
-export function maxTranchesFor(amountUsd: number | null): number {
-  if (!amountUsd || amountUsd < MIN_TRANCHE_USD) return 1;
-  return Math.max(1, Math.min(MAX_TRANCHES, Math.floor(amountUsd / MIN_TRANCHE_USD)));
-}
-
-/**
- * The sell tranches' own shape: how many there are, and whether their percentages of the position add up to
- * exactly 100. Each tranche's own price/amount is checked separately, once per leg, with validateStrategy
- * below (unchanged) — this only checks the split itself, not any one leg's numbers.
- */
-export function validateSellPcts(sells: { pct: number }[]): StrategyIssue[] {
-  const issues: StrategyIssue[] = [];
-  if (sells.length < MIN_SELLS || sells.length > MAX_TRANCHES) issues.push("too_many_sells");
-  const sum = sells.reduce((s, x) => s + (Number.isFinite(x.pct) ? x.pct : 0), 0);
-  if (Math.round(sum) !== 100) issues.push("sells_pct_invalid");
-  return issues;
-}
-
-/** Which tranches (by index) don't clear MIN_TRANCHE_USD on their own share of `totalAmountUsd` — only
- *  meaningful with more than one tranche (a single one uses the plain `below_minimum` check instead, at the
- *  normal $10 floor). `null` amount = can't tell yet, so nothing is flagged. */
-export function trancheDollarIssues(sells: { pct: number }[], totalAmountUsd: number | null): boolean[] {
-  if (sells.length <= 1 || totalAmountUsd === null) return sells.map(() => false);
-  return sells.map((s) => totalAmountUsd * (s.pct / 100) < MIN_TRANCHE_USD);
-}
+  | "too_large_for_pool";
 
 /** A trade that moves the price this much (or more) gets a warning; this much or more, a red warning plus a
  *  mandatory "I understand" checkbox before it can be sent — for a normal buy/sell and for a drawn strategy's

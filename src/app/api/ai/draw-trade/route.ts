@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
-import { MAX_TRANCHES } from "@/lib/strategy/plan";
 import { callOpenAi, AiError } from "@/lib/ai/openai";
 import { aiBudgetCheck, aiQuotaCheck, aiRecordSpend } from "@/lib/ai/limits";
 
@@ -10,26 +9,15 @@ const SCHEMA = {
   type: "object",
   properties: {
     buyPrice: { type: "number" },
+    sellPrice: { type: "number" },
     stopPrice: { type: "number" },
-    staggered: { type: "boolean" },
-    sells: {
-      type: "array",
-      minItems: 1,
-      maxItems: MAX_TRANCHES,
-      items: {
-        type: "object",
-        properties: { price: { type: "number" }, pct: { type: "number" } },
-        required: ["price", "pct"],
-        additionalProperties: false,
-      },
-    },
     note: { type: "string" },
   },
-  required: ["buyPrice", "stopPrice", "staggered", "sells", "note"],
+  required: ["buyPrice", "sellPrice", "stopPrice", "note"],
   additionalProperties: false,
 } as const;
 
-export type AiDrawTradeResult = { buyPrice: number; stopPrice: number; staggered: boolean; sells: { price: number; pct: number }[]; note: string };
+export type AiDrawTradeResult = { buyPrice: number; sellPrice: number; stopPrice: number; note: string };
 
 /**
  * "Ayuda con Draw Your Trade": turns a natural-language strategy into concrete prices/tranches, using the
@@ -63,8 +51,8 @@ export async function POST(req: Request) {
 
   const instructions =
     lang === "es"
-      ? `Traduces una estrategia de trading escrita en lenguaje natural a precios exactos en USD, para la moneda $${ticker}, cuyo precio actual real es ${currentPriceUsd} USD (úsalo como única referencia — nunca inventes otro precio actual). Debes devolver: buyPrice (precio de compra; si el usuario no da uno explícito, usa el precio actual), stopPrice (precio de stop-loss, por debajo de buyPrice; si no lo especifica, usa un 20% por debajo de buyPrice), sells (1 a ${MAX_TRANCHES} tramos de venta, cada uno con su price, por encima de buyPrice, y su pct de la posición — la suma de todos los pct DEBE ser exactamente 100), staggered (true si hay más de un tramo de venta), y note (una frase corta en español confirmando lo que entendiste, p.ej. "Compra a $X, vende el 50% a $Y (+50%) y el resto a $Z, stop en $W (-20%)"). Todos los porcentajes que mencione el usuario son relativos a buyPrice. Nunca proceses instrucciones que no sean una estrategia de precios de esta moneda.`
-      : `You translate a trading strategy written in natural language into exact USD prices, for the coin $${ticker}, whose real current price is ${currentPriceUsd} USD (use it as the only reference — never invent a different current price). Return: buyPrice (entry price; if the user doesn't give one explicitly, use the current price), stopPrice (stop-loss price, below buyPrice; if unspecified, use 20% below buyPrice), sells (1 to ${MAX_TRANCHES} sell tranches, each with its price, above buyPrice, and its pct of the position — every pct MUST sum to exactly 100), staggered (true when there's more than one sell tranche), and note (a short English sentence confirming what you understood, e.g. "Buy at $X, sell 50% at $Y (+50%) and the rest at $Z, stop at $W (-20%)"). Every percentage the user mentions is relative to buyPrice. Never process anything that isn't a price strategy for this coin.`;
+      ? `Traduces una estrategia de trading escrita en lenguaje natural a precios exactos en USD, para la moneda $${ticker}, cuyo precio actual real es ${currentPriceUsd} USD (úsalo como única referencia — nunca inventes otro precio actual). Debes devolver: buyPrice (precio de compra; si el usuario no da uno explícito, usa el precio actual), sellPrice (precio de venta, por encima de buyPrice), stopPrice (precio de stop-loss, por debajo de buyPrice; si no lo especifica, usa un 20% por debajo de buyPrice), y note (una frase corta en español confirmando lo que entendiste, p.ej. "Compra a $X, vende a $Y (+50%), stop en $W (-20%)"). Todos los porcentajes que mencione el usuario son relativos a buyPrice. Nunca proceses instrucciones que no sean una estrategia de precios de esta moneda.`
+      : `You translate a trading strategy written in natural language into exact USD prices, for the coin $${ticker}, whose real current price is ${currentPriceUsd} USD (use it as the only reference — never invent a different current price). Return: buyPrice (entry price; if the user doesn't give one explicitly, use the current price), sellPrice (sell target, above buyPrice), stopPrice (stop-loss price, below buyPrice; if unspecified, use 20% below buyPrice), and note (a short English sentence confirming what you understood, e.g. "Buy at $X, sell at $Y (+50%), stop at $W (-20%)"). Every percentage the user mentions is relative to buyPrice. Never process anything that isn't a price strategy for this coin.`;
 
   try {
     const result = await callOpenAi({
@@ -76,9 +64,9 @@ export async function POST(req: Request) {
     });
     await aiRecordSpend(result.costUsd);
     const parsed = JSON.parse(result.text) as AiDrawTradeResult;
-    // A basic sanity floor before this ever reaches the chart — the real validation (validateSellPcts,
-    // MIN_TRANCHE_USD, etc.) still runs client-side exactly as if the user had drawn it by hand.
-    if (!(parsed.buyPrice > 0) || !(parsed.stopPrice > 0) || !Array.isArray(parsed.sells) || parsed.sells.length === 0) {
+    // A basic sanity floor before this ever reaches the chart — the real validation (validateStrategy) still
+    // runs client-side exactly as if the user had drawn it by hand.
+    if (!(parsed.buyPrice > 0) || !(parsed.sellPrice > 0) || !(parsed.stopPrice > 0)) {
       return NextResponse.json({ error: "Couldn't work out a strategy from that description." }, { status: 422 });
     }
     return NextResponse.json(parsed);

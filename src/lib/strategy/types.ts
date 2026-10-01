@@ -19,12 +19,14 @@ export type StrategyRecord = {
   sellUsd: number;
   stopUsd: number;
   /**
-   * With "Venta escalonada" on, up to MAX_TRANCHES sell tranches (plan.ts) share one drawn position and are
-   * shown as ONE strategy — but each is its own real Jupiter order (its own deposit, its own OCO pair on its
-   * own slice of the tokens), so each is its own StrategyRecord. `groupId` (= the first leg's `id`) ties them
+   * Legacy fields from "staggered selling" (removed — Draw Your Trade is one buy, one sell, one stop again).
+   * A strategy created while it existed could split into up to 10 sell tranches sharing one drawn position,
+   * shown as ONE strategy — but each was its own real Jupiter order (its own deposit, its own OCO pair on its
+   * own slice of the tokens), so each was its own StrategyRecord. `groupId` (= the first leg's `id`) ties them
    * back together; `legIndex` is 0-based, `legCount` how many siblings it has, `legPct` its share of the
-   * position (all legs' `legPct` sum to 100). Absent (undefined) on a strategy from before this existed, or a
-   * plain non-staggered one — meaning exactly one leg, 100%.
+   * position (all legs' `legPct` summed to 100). Still read (DrawTradePanel.tsx groups and shows them, and
+   * each leg can still be cancelled) so an old multi-tranche strategy keeps working — nothing new is ever
+   * created with more than one leg, so these are undefined on every strategy going forward.
    */
   groupId?: string;
   legIndex?: number;

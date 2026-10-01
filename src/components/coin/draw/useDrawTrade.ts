@@ -12,16 +12,11 @@ import {
   amountToUsd,
   type AmountUnit,
   chooseFunding,
-  MAX_TRANCHES,
-  maxTranchesFor,
-  MIN_SELLS,
   preferredFunding,
   roundPrice,
   strategyMetrics,
   STRATEGY_FEE_BPS,
-  trancheDollarIssues,
   USDC_MINT,
-  validateSellPcts,
   validateStrategy,
   type FundingAsset,
   type FundingResult,
@@ -38,17 +33,11 @@ import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
  * order is the last step and needs an explicit "Confirm Strategy" plus the wallet's own signature.
  */
 
-/** One sell target: its own price, and the whole percent of the position it sells (every tranche's `pct` sums to 100). */
-export type SellTranche = { price?: number; pct: number };
-
 export type Draft = {
   id: string;
   n: number;
   buy?: number;
-  /** "Venta escalonada" — OFF by default. Off: exactly one tranche, always at 100%. On: 1 to MAX_TRANCHES
-   *  tranches, each its own % of the position (all start at 100% — see plan.ts's MIN_TRANCHE_USD). */
-  staggered: boolean;
-  sells: SellTranche[];
+  sell?: number;
   stop?: number;
   amount: string;
   /** What the amount is typed in. */
@@ -59,11 +48,9 @@ export type Draft = {
 
 export type BuyUnit = Extract<AmountUnit, "SOL" | "USD" | "EUR">;
 
-/** 0-based index of a sell tranche target ("sell1" → 0, "sell2" → 1, … up to MAX_TRANCHES); -1 for "buy"/"stop". */
-export function sellIndexOf(target: DrawTarget): number {
-  const m = /^sell(\d+)$/.exec(target);
-  return m ? Number(m[1]) - 1 : -1;
-}
+/** `sellTargetAt(0)` ("sell1") is the only sell target a NEW draft ever uses — the function still takes an
+ *  index because it also addresses each leg of an OLD, legacy multi-tranche strategy (up to 10 of them), by
+ *  its `legIndex`, when drawing/coloring that strategy's saved lines on the chart (see `lines` below). */
 export function sellTargetAt(index: number): DrawTarget {
   return `sell${Math.max(1, index + 1)}` as DrawTarget;
 }
@@ -91,15 +78,8 @@ export type DraftView = {
   amountUsd: number | null;
   funding: FundingResult | null;
   issues: StrategyIssue[];
-  /** One entry per sell tranche, same order as draft.sells — each priced on its own slice of amountUsd. */
-  legMetrics: (StrategyMetrics | null)[];
-  /** Sums across every tranche — "if every one of them sells exactly at its own target" / "PANDA's total fee". Null until every tranche has real numbers. */
-  totalNetProfitUsd: number | null;
-  totalFeeUsd: number | null;
-  /** How many tranches the typed amount can actually support (each at least MIN_TRANCHE_USD) — "+ venta" is disabled past this. */
-  maxTranchesAllowed: number;
-  /** Same order as draft.sells: true where that tranche's own dollar share is under MIN_TRANCHE_USD (only meaningful with more than one tranche). */
-  trancheTooSmall: boolean[];
+  /** Null until buy/sell/stop and a priced amount are all in. */
+  metrics: StrategyMetrics | null;
   ready: boolean;
 };
 
@@ -135,8 +115,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [step, setStep] = useState<Step>("idle");
-  const [legProgress, setLegProgress] = useState<{ index: number; total: number } | null>(null);
-  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string; partial?: { done: number; total: number; rolledBack?: number; stillOpen?: number } } | null>(null);
+  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const jwt = useRef<{ token: string; at: number } | null>(null);
@@ -161,13 +140,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
               .filter((d) => d && typeof d.id === "string" && d.buy !== undefined)
               .slice(0, 20)
               .map((d) => {
-                const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: SellTranche[]; staggered?: boolean };
+                const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: { price?: number }[] };
                 const unit: BuyUnit = old.unit === "USD" || old.unit === "EUR" ? old.unit : old.unit === "USDC" ? "USD" : "SOL";
                 const pay = old.pay === "SOL" || old.pay === "USDC" ? old.pay : old.unit === "USDC" ? "USDC" : null;
-                // A draft saved before multi-sell existed has a single `sell` number — becomes one 100% tranche.
-                const sells: SellTranche[] = Array.isArray(old.sells) && old.sells.length > 0 ? old.sells : [{ price: old.sell, pct: 100 }];
-                const staggered = typeof old.staggered === "boolean" ? old.staggered : sells.length > 1;
-                return { id: d.id, n: d.n, buy: d.buy, staggered, sells, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay };
+                // A draft saved while staggered selling still existed may carry a `sells` array instead of a
+                // single `sell` — only its first tranche's price survives (this is a local, unsent draft, never a real order).
+                const sell = typeof old.sell === "number" ? old.sell : old.sells?.[0]?.price;
+                return { id: d.id, n: d.n, buy: d.buy, sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay };
               })
           );
         }
@@ -262,34 +241,17 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
         const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS }) : null;
         const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
-        const complete = draft.buy !== undefined && draft.stop !== undefined && draft.sells.length > 0 && draft.sells.every((s) => s.price !== undefined);
+        const complete = draft.buy !== undefined && draft.sell !== undefined && draft.stop !== undefined;
 
         const issues: StrategyIssue[] = [];
-        const legMetrics: (StrategyMetrics | null)[] = [];
-        const maxTranchesAllowed = Math.min(MAX_TRANCHES, maxTranchesFor(amountUsd));
-        const trancheTooSmall = trancheDollarIssues(draft.sells, amountUsd);
+        let metrics: StrategyMetrics | null = null;
         if (complete) {
-          for (const iss of validateSellPcts(draft.sells)) issues.push(iss);
-          if (trancheTooSmall.some(Boolean)) issues.push("tranche_below_minimum");
-          for (const s of draft.sells) {
-            const legAmountUsd = amountUsd !== null ? (amountUsd * s.pct) / 100 : null;
-            // A single tranche is checked at the plain $10 floor (validateStrategy's own below_minimum); with
-            // more than one, the tighter $11-per-tranche check above already covers it — skip the double-count.
-            const legIssues = validateStrategy({ buy: draft.buy!, sell: s.price!, stop: draft.stop!, amountUsd: legAmountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }).filter(
-              (iss) => !(iss === "below_minimum" && draft.sells.length > 1)
-            );
-            for (const iss of legIssues) if (!issues.includes(iss)) issues.push(iss);
-            legMetrics.push(
-              legAmountUsd && !legIssues.includes("invalid_price") && draft.buy! > 0
-                ? strategyMetrics({ buy: draft.buy!, sell: s.price!, stop: draft.stop!, amountUsd: legAmountUsd, feeUsd: (legAmountUsd * STRATEGY_FEE_BPS) / 10_000 })
-                : null
-            );
+          issues.push(...validateStrategy({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }));
+          if (amountUsd !== null && !issues.includes("invalid_price") && draft.buy! > 0) {
+            metrics = strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, feeUsd: (amountUsd * STRATEGY_FEE_BPS) / 10_000 });
           }
         }
-        const everyLegPriced = legMetrics.length > 0 && legMetrics.every((m): m is StrategyMetrics => m !== null);
-        const totalNetProfitUsd = everyLegPriced ? legMetrics.reduce((s, m) => s + m!.netProfitUsd, 0) : null;
-        const totalFeeUsd = everyLegPriced ? legMetrics.reduce((s, m) => s + m!.feeUsd, 0) : null;
-        return { draft, asset, amountUsd, funding, issues, legMetrics, totalNetProfitUsd, totalFeeUsd, maxTranchesAllowed, trancheTooSmall, ready: complete && issues.length === 0 && !!funding?.ok };
+        return { draft, asset, amountUsd, funding, issues, metrics, ready: complete && issues.length === 0 && !!funding?.ok };
       }),
     [drafts, rates, balances, currentUsd, quote]
   );
@@ -300,9 +262,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       const tag = `#${d.n}`;
       const active = d.id === activeId;
       if (d.buy) out.push({ key: `${d.id}-b`, groupId: d.id, kind: "buy", price: d.buy, tag, live: false, active });
-      d.sells.forEach((s, i) => {
-        if (s.price) out.push({ key: `${d.id}-s${i}`, groupId: d.id, kind: sellTargetAt(i), price: s.price, tag: d.sells.length > 1 ? `${tag}.${i + 1}` : tag, live: false, active, pct: d.sells.length > 1 ? s.pct : undefined });
-      });
+      if (d.sell) out.push({ key: `${d.id}-s`, groupId: d.id, kind: "sell1", price: d.sell, tag, live: false, active });
       if (d.stop) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
     }
     // Live (submitted) strategies: a multi-tranche one is several sibling StrategyRecords sharing `groupId` — the shared
@@ -339,7 +299,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const patchDraft = useCallback((id: string, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))), []);
 
   const newDraft = useCallback((): Draft => {
-    const d: Draft = { id: newId(), n: nextNumber(), staggered: false, sells: [{ pct: 100 }], amount: "", unit: readUnit(), pay: null };
+    const d: Draft = { id: newId(), n: nextNumber(), amount: "", unit: readUnit(), pay: null };
     setDrafts((ds) => [...ds, d]);
     setActiveId(d.id);
     return d;
@@ -350,9 +310,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
    *  (views, below) and still needs the user's own review and "Confirmar estrategia" tap; nothing here ever
    *  signs or submits anything. Returns the new draft's id. */
   const applyAiDraft = useCallback(
-    (patch: { buy: number; stop: number; sells: SellTranche[]; staggered: boolean }): string => {
+    (patch: { buy: number; stop: number; sell: number }): string => {
       const d = newDraft();
-      setDrafts((ds) => ds.map((x) => (x.id === d.id ? { ...x, buy: patch.buy, stop: patch.stop, sells: patch.sells, staggered: patch.staggered } : x)));
+      setDrafts((ds) => ds.map((x) => (x.id === d.id ? { ...x, buy: patch.buy, stop: patch.stop, sell: patch.sell } : x)));
       return d.id;
     },
     [newDraft]
@@ -397,8 +357,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         if (d.id !== id) return d;
         if (target === "buy") return { ...d, buy: price };
         if (target === "stop") return { ...d, stop: price };
-        const idx = sellIndexOf(target);
-        return { ...d, sells: d.sells.map((s, i) => (i === idx ? { ...s, price } : s)) };
+        return { ...d, sell: price };
       })
     );
     setNotice({ kind: target, price });
@@ -412,30 +371,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     },
     [applyPrice]
   );
-
-  /** "Venta escalonada" on/off. Off collapses back to exactly one tranche at 100% (keeping its price, if any) —
-   *  the plain, non-staggered behaviour. On just reveals the per-tranche % boxes and "+ venta"; the tranches
-   *  themselves don't change. */
-  const setStaggered = useCallback((id: string, on: boolean) => {
-    setDrafts((ds) => ds.map((d) => (d.id === id ? (on ? { ...d, staggered: true } : { ...d, staggered: false, sells: [{ price: d.sells[0]?.price, pct: 100 }] }) : d)));
-  }, []);
-
-  /** Adds a sell tranche, up to `maxAllowed` (the caller passes the amount-based cap from the draft's own
-   *  view — see plan.ts's maxTranchesFor). Every box starts at 100%, same as the first one: nothing is
-   *  auto-redistributed, so "Total: …% · debe sumar 100%" always reflects exactly what's on screen. */
-  const addSellTranche = useCallback((id: string, maxAllowed: number) => {
-    setDrafts((ds) => ds.map((d) => (d.id === id && d.sells.length < Math.min(MAX_TRANCHES, maxAllowed) ? { ...d, sells: [...d.sells, { pct: 100 }] } : d)));
-  }, []);
-
-  /** Removes a sell tranche outright — the rest keep whatever % they already had (never below MIN_SELLS). */
-  const removeSellTranche = useCallback((id: string, index: number) => {
-    setDrafts((ds) => ds.map((d) => (d.id === id && d.sells.length > MIN_SELLS ? { ...d, sells: d.sells.filter((_, i) => i !== index) } : d)));
-  }, []);
-
-  /** A tranche's own % of the position, typed by hand. */
-  const setSellPct = useCallback((id: string, index: number, pct: number) => {
-    setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, sells: d.sells.map((s, i) => (i === index ? { ...s, pct } : s)) } : d)));
-  }, []);
 
   const removeDraft = useCallback(
     (id: string) => {
@@ -473,165 +408,77 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     return () => window.removeEventListener("keydown", onKey);
   }, [machine.target, setMachine]);
 
-  // ── rolls back a set of already-created tranches: crafts every cancel first (server calls only), then ONE
-  // signAllTransactions for the whole batch (same "one popup" approach as confirm() itself), then confirms
-  // each. Best-effort: whatever can't be cancelled is returned in `failed` and stays visible as a real, live
-  // order — never silently hidden — so the user can cancel it by hand from the list.
-  const autoCancelLegs = useCallback(
-    async (recs: StrategyRecord[]): Promise<{ cancelled: string[]; failed: string[] }> => {
-      if (recs.length === 0 || !signTransaction) return { cancelled: [], failed: recs.map((r) => r.id) };
-      try {
-        const token = await ensureJwt();
-        const headers = { Authorization: `Bearer ${token}` };
-        const crafts: { id: string; orderId: string; tx: VersionedTransaction; requestId: string }[] = [];
-        for (const r of recs) {
-          if (!r.jupiterOrderId) continue;
-          const craft = await fetch(`/api/jupiter/trigger/orders/${r.jupiterOrderId}/cancel`, { method: "POST", headers });
-          if (!craft.ok) continue;
-          const c = await craft.json();
-          crafts.push({ id: r.id, orderId: r.jupiterOrderId, tx: base64ToVersionedTransaction(c.transaction), requestId: c.requestId });
-        }
-        if (crafts.length === 0) return { cancelled: [], failed: recs.map((r) => r.id) };
-        const signedTxs = signAllTransactions ? await signAllTransactions(crafts.map((c) => c.tx)) : await Promise.all(crafts.map((c) => signTransaction(c.tx)));
-        const cancelled: string[] = [];
-        const failed: string[] = [];
-        for (let i = 0; i < crafts.length; i++) {
-          const c = crafts[i];
-          const done = await fetch(`/api/jupiter/trigger/orders/${c.orderId}/confirm-cancel`, {
-            method: "POST",
-            headers: { ...headers, "Content-Type": "application/json" },
-            body: JSON.stringify({ signedTransaction: versionedTransactionToBase64(signedTxs[i] as VersionedTransaction), cancelRequestId: c.requestId }),
-          });
-          (done.ok ? cancelled : failed).push(c.id);
-        }
-        // A leg with no jupiterOrderId yet (failed before an order existed) was never really live: nothing to cancel.
-        for (const r of recs) if (!r.jupiterOrderId) failed.push(r.id);
-        return { cancelled, failed };
-      } catch {
-        return { cancelled: [], failed: recs.map((r) => r.id) };
-      }
-    },
-    [ensureJwt, signTransaction, signAllTransactions]
-  );
-
-  // ── confirm: sign in, PREPARE every tranche first (server calls only), then ONE signAllTransactions for
-  // every deposit + fee together (a single wallet approval, on Phantom and Solflare alike — both support
-  // batched signing), then submit each. Jupiter's Trigger API still ties one deposit signature to exactly one
-  // order underneath (verified against its own docs — there is no way to fund several orders with one
-  // cryptographic signature), so this is one wallet POPUP covering several transactions, not one signature —
-  // the closest real thing to "one approval" the API allows. They are drawn and shown as ONE strategy (see the
-  // `groupId`-based grouping in `lines` above and `records` below) even though each is independent underneath:
-  // a fill on one can never oversell another's share, and the stop always only covers what's still unsold.
+  // ── confirm: sign in, PREPARE the deposit (server call only, nothing to sign yet), then ONE
+  // signAllTransactions for the deposit + fee together (a single wallet approval, on Phantom and Solflare
+  // alike — both support batched signing; a wallet that doesn't falls back to one approval per transaction),
+  // then submit. One draft is always exactly one real Jupiter order now.
   const confirm = useCallback(
     async (view: DraftView) => {
       const d = view.draft;
       if (!view.ready || !coin || !signTransaction) return;
       setError(null);
-      const groupId = d.id;
-      const legs = d.sells;
-      const createdRecords: StrategyRecord[] = [];
       try {
         setStep("session");
         await ensureSession();
         setStep("jupiter");
         const token = await ensureJwt();
         const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-        const totalValue = parseFloat(d.amount);
+        const value = parseFloat(d.amount);
 
-        // 1) Prepare every tranche's deposit — server calls only, nothing to sign yet.
         setStep("prepare");
-        type Prepared = { legId: string; deposit: VersionedTransaction; feeTx: Transaction | null };
-        const prepared: Prepared[] = [];
-        for (let i = 0; i < legs.length; i++) {
-          const leg = legs[i];
-          const legId = legs.length === 1 ? d.id : `${d.id}-${i}`;
-          const legValue = totalValue * (leg.pct / 100);
-          const prep = await fetch("/api/strategy/prepare", {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              id: legId,
-              n: d.n,
-              mint: coin.mint,
-              ticker: coin.ticker,
-              buyUsd: d.buy,
-              sellUsd: leg.price,
-              stopUsd: d.stop,
-              amount: { unit: d.unit, value: legValue },
-              fundingAsset: view.asset,
-              groupId,
-              legIndex: i,
-              legCount: legs.length,
-              legPct: leg.pct,
-            }),
-          });
-          const p = await prep.json();
-          if (!prep.ok) throw new ApiError(p.error, p.code, p.issues);
-          prepared.push({ legId, deposit: base64ToVersionedTransaction(p.transaction), feeTx: p.feeTransaction ? base64ToTransaction(p.feeTransaction) : null });
-        }
+        const prep = await fetch("/api/strategy/prepare", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            id: d.id,
+            n: d.n,
+            mint: coin.mint,
+            ticker: coin.ticker,
+            buyUsd: d.buy,
+            sellUsd: d.sell,
+            stopUsd: d.stop,
+            amount: { unit: d.unit, value },
+            fundingAsset: view.asset,
+          }),
+        });
+        const p = await prep.json();
+        if (!prep.ok) throw new ApiError(p.error, p.code, p.issues);
+        const deposit = base64ToVersionedTransaction(p.transaction);
+        const feeTx = p.feeTransaction ? base64ToTransaction(p.feeTransaction) : null;
 
-        // 2) Sign every deposit + fee together: one wallet popup for the whole batch when the wallet supports
-        // it (both Phantom and Solflare do); a wallet that doesn't falls back to one approval per tranche.
         setStep("sign");
-        let signed: { deposit: VersionedTransaction; feeTx: Transaction | null }[];
-        if (signAllTransactions) {
-          const flat: (VersionedTransaction | Transaction)[] = [];
-          for (const p of prepared) {
-            flat.push(p.deposit);
-            if (p.feeTx) flat.push(p.feeTx);
-          }
-          const signedFlat = await signAllTransactions(flat);
-          let cursor = 0;
-          signed = prepared.map((p) => ({ deposit: signedFlat[cursor++] as VersionedTransaction, feeTx: p.feeTx ? (signedFlat[cursor++] as Transaction) : null }));
+        let signedDeposit: VersionedTransaction;
+        let signedFee: Transaction | null = null;
+        if (signAllTransactions && feeTx) {
+          const [sd, sf] = await signAllTransactions([deposit, feeTx]);
+          signedDeposit = sd as VersionedTransaction;
+          signedFee = sf as Transaction;
         } else {
-          signed = [];
-          for (const p of prepared) signed.push({ deposit: await signTransaction(p.deposit), feeTx: p.feeTx ? await signTransaction(p.feeTx) : null });
+          signedDeposit = await signTransaction(deposit);
+          if (feeTx) signedFee = await signTransaction(feeTx);
         }
 
-        // 3) Submit every signed order, in order.
         setStep("create");
-        for (let i = 0; i < prepared.length; i++) {
-          setLegProgress({ index: i, total: prepared.length });
-          const created = await fetch("/api/strategy/create", {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ id: prepared[i].legId, depositSignedTx: versionedTransactionToBase64(signed[i].deposit), feeSignedTx: signed[i].feeTx ? transactionToBase64(signed[i].feeTx!) : undefined }),
-          });
-          const result = await created.json();
-          if (!created.ok) throw new ApiError(result.error, result.code);
-          createdRecords.push(result.strategy as StrategyRecord);
-        }
+        const created = await fetch("/api/strategy/create", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ id: d.id, depositSignedTx: versionedTransactionToBase64(signedDeposit), feeSignedTx: signedFee ? transactionToBase64(signedFee) : undefined }),
+        });
+        const result = await created.json();
+        if (!created.ok) throw new ApiError(result.error, result.code);
 
-        setRecords((rs) => [...rs.filter((r) => r.groupId !== groupId && r.id !== d.id), ...createdRecords]);
+        setRecords((rs) => [...rs.filter((r) => r.id !== d.id), result.strategy as StrategyRecord]);
         setDrafts((ds) => ds.filter((x) => x.id !== d.id));
         setActiveId(null);
-        setLegProgress(null);
         setStep("done");
         setTimeout(() => setStep("idle"), 3500);
       } catch (err) {
-        setLegProgress(null);
-        if (err instanceof ApiError && err.code === "JUPITER_AUTH_REQUIRED") jwt.current = null;
-        // A tranche that failed to SEND after some others already went through: cancel the ones that did,
-        // automatically, so nothing partial is left silently open — then say plainly what happened. Cancelling
-        // needs its own wallet approval (a real withdrawal from Jupiter's vault), batched the same way if there's
-        // more than one to roll back.
-        if (createdRecords.length > 0 && createdRecords.length < legs.length) {
-          setStep("prepare");
-          const { cancelled, failed } = await autoCancelLegs(createdRecords);
-          const stillOpen = createdRecords.filter((r) => failed.includes(r.id));
-          setRecords((rs) => [...rs.filter((r) => !createdRecords.some((c) => c.id === r.id)), ...stillOpen]);
-          setStep("idle");
-          const partial = { done: createdRecords.length, total: legs.length, rolledBack: cancelled.length, stillOpen: stillOpen.length };
-          setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues, partial } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined, partial });
-          return;
-        }
         setStep("idle");
-        // A single-tranche strategy, or one that failed before any tranche was created: nothing to roll back.
-        if (createdRecords.length > 0) setRecords((rs) => [...rs.filter((r) => !createdRecords.some((c) => c.id === r.id)), ...createdRecords]);
+        if (err instanceof ApiError && err.code === "JUPITER_AUTH_REQUIRED") jwt.current = null;
         setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
       }
     },
-    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions, autoCancelLegs]
+    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
   );
 
   // ── read back what Jupiter did (needs Jupiter's sign-in, so it is on demand) ─────────────────────
@@ -719,7 +566,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     notice,
     needsSignIn,
     step,
-    legProgress,
     error,
     syncing,
     cancelling,
@@ -727,10 +573,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     setActiveId,
     patchDraft,
     setPrice,
-    setStaggered,
-    addSellTranche,
-    removeSellTranche,
-    setSellPct,
     startTarget,
     addStrategy,
     applyAiDraft,
