@@ -684,16 +684,16 @@ export const dict = {
     es: "STOP — mueve el ratón sobre el gráfico y haz clic (o toca) para fijarlo.",
   },
   "draw.line.buy": {
-    en: "BUY",
-    es: "COMPRA",
+    en: "Buy",
+    es: "Compra",
   },
   "draw.line.sell": {
-    en: "SELL",
-    es: "VENTA",
+    en: "Sell",
+    es: "Venta",
   },
   "draw.line.stop": {
-    en: "STOP",
-    es: "STOP",
+    en: "Stop",
+    es: "Stop",
   },
   "draw.line.buyTarget": {
     en: "BUY TARGET",
@@ -831,6 +831,9 @@ export const dict = {
   "draw.total": { en: "You pay in total", es: "Pagas en total" },
   "draw.feeNote": { en: "The fee is paid when you confirm and isn't returned if you cancel.", es: "La comisión se paga al confirmar y no se devuelve si cancelas." },
   "draw.ifSell": { en: "If it sells at your price (after the fee)", es: "Si vende a tu precio (tras la comisión)" },
+  "draw.summary": { en: "If it sells: {sell} · If the stop triggers: {stop}", es: "Si vende: {sell} · Si salta el stop: {stop}" },
+  "draw.detail.show": { en: "View detail", es: "Ver detalle" },
+  "draw.detail.hide": { en: "Hide detail", es: "Ocultar detalle" },
   "draw.estimateShort": { en: "An estimate: the real price can differ a little.", es: "Es una estimación: el precio real puede variar un poco." },
   "draw.custodyShort": { en: "My money stays in Jupiter's vault until this ends or I cancel it.", es: "Mi dinero queda en la bóveda de Jupiter hasta que termine o lo cancele." },
   "draw.engineOffShort": { en: "Not available yet — nothing will run.", es: "Aún no disponible — no se ejecutará nada." },

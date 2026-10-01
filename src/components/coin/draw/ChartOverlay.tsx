@@ -109,6 +109,10 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
   }, []);
   const px = (y: number) => (y / CHART.height) * h;
 
+  // Short, clean tags: "Compra $1.0M", "Venta $1.5M · +51%" — the "#N" strategy tag only gets added when more
+  // than one strategy is actually drawn on the chart at once (otherwise it's just noise).
+  const multipleGroups = new Set(overlay.lines.map((l) => l.groupId)).size > 1;
+
   // The live % every line shows: relative to ITS OWN group's buy target (a chart can have several drawn
   // strategies open at once, each with its own buy price) — updates on every drag, since it's derived from
   // the price, never stored separately (and is unit-independent: a ratio of two prices is the same ratio of
@@ -117,7 +121,8 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
     const buyPrice = l.kind === "buy" ? l.price : overlay.lines.find((x) => x.groupId === l.groupId && x.kind === "buy")?.price;
     const pct = l.kind !== "buy" ? pctVsBuy(l.price, buyPrice) : null;
     const { y, out } = clampedY(overlay.toDisplay(l.price), domain);
-    const parts = [`${out === "above" ? "↑ " : out === "below" ? "↓ " : ""}${overlay.labels(l.kind)} ${l.tag}`, overlay.formatValue(l.price)];
+    const arrow = out === "above" ? "↑ " : out === "below" ? "↓ " : "";
+    const parts = [`${arrow}${overlay.labels(l.kind)}${multipleGroups ? ` ${l.tag}` : ""} ${overlay.formatValue(l.price)}`];
     if (pct !== null) parts.push(formatPct(pct));
     if (l.pct !== undefined) parts.push(`${l.pct}%`);
     return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(y), strong: l.live || l.active };
