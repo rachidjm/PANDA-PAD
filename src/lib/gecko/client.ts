@@ -16,12 +16,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** GeckoTerminal's free tier rate-limits hard (a handful of requests per minute) — a 429 here is routine, not
- *  exceptional, so it gets one short retry before giving up. Anything else fails immediately. */
+ *  exceptional, so it gets several retries with growing backoff before giving up (reproduced directly: a
+ *  single short retry wasn't enough during a long, cumulative run — the budget was still exhausted a few
+ *  seconds later, not just for one request). Anything else fails immediately. */
 async function geckoGet<T>(path: string, revalidateSeconds: number, noCache = false): Promise<T> {
   const opts: RequestInit = { headers: { Accept: "application/json" }, ...(noCache ? { cache: "no-store" as const } : { next: { revalidate: revalidateSeconds } }) };
   let res = await fetch(`${BASE}${path}`, opts);
-  if (res.status === 429) {
-    await sleep(600);
+  for (const backoffMs of [800, 1600, 3200]) {
+    if (res.status !== 429) break;
+    await sleep(backoffMs);
     res = await fetch(`${BASE}${path}`, opts);
   }
   if (!res.ok) throw new Error(`GeckoTerminal ${path} → ${res.status}`);

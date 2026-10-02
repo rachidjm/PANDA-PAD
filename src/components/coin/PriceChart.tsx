@@ -65,7 +65,10 @@ export default function PriceChart({
   // candles on screen under the wrong label (each tf only ever shows its OWN cached data, or a clear "couldn't
   // load" state, never someone else's).
   const [byTf, setByTf] = useState<Partial<Record<Timeframe, Candle[]>>>({});
-  const [failedTf, setFailedTf] = useState<Partial<Record<Timeframe, boolean>>>({});
+  // "error" = the request itself failed (network, non-200) — worth a retry button. "empty" = a real, successful
+  // response with fewer than 2 candles — not a failure, just no history yet (see the "too young" check below,
+  // which turns this into a calm "available soon" message instead of an alarming error for a brand-new coin).
+  const [failedTf, setFailedTf] = useState<Partial<Record<Timeframe, "error" | "empty">>>({});
   const [loading, setLoading] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const requestId = useRef(0);
@@ -75,6 +78,9 @@ export default function PriceChart({
   // corrected a moment after mount (same hydration-safe pattern as useCurrency.ts: never read localStorage in
   // a useState initializer, or the server/client markup can disagree).
   const [unit, setUnit] = useState<Unit>("price");
+  // Snapshot once at mount (a lazy initializer, not a render-time call) — only used for a coarse "is this coin
+  // brand new" check below, so it never needs to re-read the clock on every render.
+  const [mountedAtMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
@@ -132,11 +138,11 @@ export default function PriceChart({
         if (points.length > 1) {
           setByTf((m) => ({ ...m, [next]: points }));
         } else {
-          setFailedTf((m) => ({ ...m, [next]: true }));
+          setFailedTf((m) => ({ ...m, [next]: "empty" }));
         }
       })
       .catch(() => {
-        if (requestId.current === id) setFailedTf((m) => ({ ...m, [next]: true }));
+        if (requestId.current === id) setFailedTf((m) => ({ ...m, [next]: "error" }));
       })
       .finally(() => {
         if (requestId.current === id) setLoading(false);
@@ -164,7 +170,13 @@ export default function PriceChart({
 
   const hasRealTimes = !!byTf[tf];
   const candles = byTf[tf] ?? (tf === "1m" ? initialCloses.map((close) => ({ time: 0, close })) : []);
-  const failed = !!failedTf[tf] && !byTf[tf];
+  const reason = byTf[tf] ? undefined : failedTf[tf];
+  // A coin this young genuinely cannot have real chart history yet (indexers take real time to pick up a
+  // brand-new pool) — an empty response here is expected, not a problem, so it gets a calm "available soon"
+  // message instead of the same alarming "couldn't load" state as a genuine fetch failure.
+  const coinAgeMs = coin ? mountedAtMs - new Date(coin.createdAt).getTime() : undefined;
+  const tooYoungForData = reason === "empty" && coinAgeMs !== undefined && coinAgeMs < 6 * 3_600_000;
+  const failed = reason === "error" || (reason === "empty" && !tooYoungForData);
 
   const closes = candles.map((c) => c.close);
   const lastClose = closes[closes.length - 1] ?? 0;
@@ -266,7 +278,12 @@ export default function PriceChart({
       </div>
 
       <div className={`mt-4 transition-opacity duration-500 sm:mt-6 ${loading ? "opacity-40" : "opacity-100"}`}>
-        {failed ? (
+        {tooYoungForData ? (
+          <div className="flex h-[170px] flex-col items-center justify-center gap-1 text-sm text-panda-grey sm:h-[260px]">
+            <p>{t("chart.tooYoung")}</p>
+            <p className="text-xs text-panda-grey/70">{t("chart.tooYoung.hint")}</p>
+          </div>
+        ) : failed ? (
           <div className="flex h-[170px] flex-col items-center justify-center gap-2 text-sm text-panda-grey sm:h-[260px]">
             <p>{t("chart.loadError")}</p>
             <button type="button" onClick={retryTimeframe} className="rounded-full bg-paper/10 px-3 py-1.5 text-xs font-semibold text-paper hover:bg-paper/15">

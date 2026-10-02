@@ -1556,6 +1556,8 @@ export const dict = {
   "chart.trade.sold": { en: "You sold", es: "Vendiste" },
   "chart.loadError": { en: "Couldn't load this range right now.", es: "No se pudo cargar este rango ahora mismo." },
   "chart.retry": { en: "Retry", es: "Reintentar" },
+  "chart.tooYoung": { en: "Chart available in a few minutes", es: "Gráfico disponible en unos minutos" },
+  "chart.tooYoung.hint": { en: "This coin is brand new — give it a little time to build up real history.", es: "Esta moneda es muy nueva — dale un momento para acumular historial real." },
   "chart.tf.week": { en: "1W", es: "1S" },
 
   // Trading panel

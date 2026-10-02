@@ -22,6 +22,7 @@
     "blob:purge": "tsx --env-file-if-exists=.env.local scripts/blob-purge.ts",
     "db:compare": "tsx --env-file-if-exists=.env.local scripts/db-compare.ts",
     "vanity:import": "tsx --env-file-if-exists=.env.local scripts/vanity-import.ts",
+    "chart:check": "tsx --env-file-if-exists=.env.local scripts/chart-check.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
