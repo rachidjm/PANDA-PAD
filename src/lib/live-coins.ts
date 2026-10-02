@@ -599,6 +599,14 @@ export async function enrichCoinDetail(coin: Coin): Promise<Coin> {
   let result = socials;
   if (closes.length > 4) {
     result = { ...result, priceHistory: closes, range24h: { low: Math.min(...closes), high: Math.max(...closes) } };
+  } else {
+    // `coin.priceHistory` up to here is `poolToCoin`'s `buildApproxTrend` placeholder — a unitless index
+    // starting at 100, shaped only for a list card's small sparkline, never meant to be read as a real
+    // dollar amount. Real hourly closes came back too thin to replace it (rate-limited upstream, or this
+    // pool genuinely lacks history yet), so clearing it here stops the coin's own page from showing that
+    // placeholder's "100" as if it were a real, specific price before the page's own live chart fetch
+    // (PriceChart's /api/chart call) loads real data or shows its own honest empty/error state.
+    result = { ...result, priceHistory: [] };
   }
   const p = pumpInfo.get(coin.mint);
   if (p) result = applyPump(result, p);
