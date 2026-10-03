@@ -55,7 +55,7 @@ export default function HomeSection({ titleKey, coins, priority = false }: { tit
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: "easeOut", delay: Math.min(i, 8) * 0.04 }}
           >
-            <CoinCard coin={coin} priority={priority && i < 4} />
+            <CoinCard coin={coin} priority={priority && i < 2} />
           </motion.div>
         ))}
       </div>
