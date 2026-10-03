@@ -11,11 +11,28 @@ const KEY = "panda:ref";
 /** A little looser than a strict base58 pubkey regex (never trusted as one until the server re-validates it) — just enough to not store obvious junk. */
 const LOOKS_LIKE_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
+const WELCOME_SHOWN_KEY = "panda:ref-welcome-shown";
+const WELCOME_PENDING_KEY = "panda:ref-welcome-pending";
+
+/** Arms the one-time "you came in through a recruiter" toast (see ReferralWelcomeBanner) for the wallet that
+ *  was JUST captured — never if the toast has already been shown once, ever, in this browser. */
+function armWelcomeToast(referrer: string): void {
+  try {
+    if (window.localStorage.getItem(WELCOME_SHOWN_KEY)) return;
+    window.localStorage.setItem(WELCOME_PENDING_KEY, referrer);
+  } catch {
+    // Nothing to recover — worst case the toast just doesn't show this visit.
+  }
+}
+
 export function captureReferralFromUrl(): void {
   try {
     const ref = new URLSearchParams(window.location.search).get("ref");
     if (!ref || !LOOKS_LIKE_ADDRESS.test(ref)) return;
-    if (!window.localStorage.getItem(KEY)) window.localStorage.setItem(KEY, ref); // first link wins, even client-side
+    if (!window.localStorage.getItem(KEY)) {
+      window.localStorage.setItem(KEY, ref); // first link wins, even client-side
+      armWelcomeToast(ref);
+    }
   } catch {
     // Private window, blocked storage, ... — the referral simply isn't remembered this visit.
   }
@@ -27,9 +44,27 @@ export function captureReferralFromUrl(): void {
 export function capturePandaLaunchReferral(creator: string): void {
   try {
     if (!LOOKS_LIKE_ADDRESS.test(creator)) return;
-    if (!window.localStorage.getItem(KEY)) window.localStorage.setItem(KEY, creator);
+    if (!window.localStorage.getItem(KEY)) {
+      window.localStorage.setItem(KEY, creator);
+      armWelcomeToast(creator);
+    }
   } catch {
     // Same as above — nothing to recover, just not remembered this visit.
+  }
+}
+
+/** The wallet a pending "you just got referred" welcome toast should name, or null if none is pending —
+ *  consumed exactly once (see ReferralWelcomeBanner): calling this clears it and permanently marks the toast
+ *  as shown, so it is never armed again even across browser restarts. */
+export function consumePendingWelcome(): string | null {
+  try {
+    const wallet = window.localStorage.getItem(WELCOME_PENDING_KEY);
+    if (!wallet) return null;
+    window.localStorage.removeItem(WELCOME_PENDING_KEY);
+    window.localStorage.setItem(WELCOME_SHOWN_KEY, "1");
+    return wallet;
+  } catch {
+    return null;
   }
 }
 

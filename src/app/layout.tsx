@@ -10,6 +10,7 @@ import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
 import MobileTabBar from "@/components/MobileTabBar";
 import SkipLink from "@/components/SkipLink";
 import ReferralCapture from "@/components/ReferralCapture";
+import ReferralWelcomeBanner from "@/components/ReferralWelcomeBanner";
 import { AIAssistantProvider } from "@/components/ai/AIAssistantProvider";
 import { DrawTradeAIBridgeProvider } from "@/components/ai/DrawTradeAIBridge";
 import AIAssistantModal from "@/components/ai/AIAssistantModal";
@@ -63,6 +64,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 <DrawTradeAIBridgeProvider>
                   <AIAssistantProvider>
                     <ReferralCapture />
+                    <ReferralWelcomeBanner />
                     <SkipLink />
                     <Navbar />
                     <ProtocolBanner />

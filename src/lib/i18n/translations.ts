@@ -207,7 +207,11 @@ export const dict = {
 
   // Recruiters (FEATURE_REFERRALS)
   "rec.title": { en: "Recruiters", es: "Reclutadores" },
-  "rec.heroTitle": { en: "Earn 30% of our fees for every trader you bring. For life.", es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida." },
+  "rec.heroTitle": {
+    en: "Earn 30% of our fees for every trader you bring. For life. And your invitees pay half.",
+    es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida. Y tus invitados pagan la mitad.",
+  },
+  "rec.halfPriceBlock": { en: "Your invitees pay half: 0.5% instead of 1%, for life.", es: "Tus invitados pagan la mitad: 0,5% en vez del 1%, de por vida." },
   "rec.heroSubtitle": {
     en: "Share your link. When someone trades on PANDA through it, you earn a share of PANDA's own fee — paid straight to your wallet, inside their own transaction, every time.",
     es: "Comparte tu enlace. Cuando alguien opera en PANDA a través de él, ganas una parte de la propia comisión de PANDA — pagada directamente a tu wallet, dentro de su propia transacción, cada vez.",
@@ -267,6 +271,7 @@ export const dict = {
   "nav.recruiters": { en: "Recruiters", es: "Reclutadores" },
 
   // Recruiters — short codes
+  "rec.halfPriceNote": { en: "Anyone who comes in through your link or code pays half the fee.", es: "Quien entre con tu enlace o código paga la mitad de comisión." },
   "rec.yourCode": { en: "Your short code", es: "Tu código corto" },
   "rec.yourCodeNote": { en: "Choose it once — it can never be changed afterwards.", es: "Elígelo una vez — después no se puede cambiar." },
   "rec.setCodePlaceholder": { en: "e.g. rachid", es: "ej. rachid" },
@@ -289,6 +294,19 @@ export const dict = {
   "rec.applyCodeRejected": { en: "Couldn't apply that code.", es: "No se pudo aplicar ese código." },
   "rec.applyCodeRetry": { en: "Couldn't check that right now — try again in a moment.", es: "Ahora mismo no se pudo comprobar — inténtalo de nuevo en un momento." },
   "rec.dismiss": { en: "No thanks", es: "No, gracias" },
+
+  // Referral welcome toast — the one place outside the Recruiters pages that names the half-price rate
+  "ref.welcomeWithCode": {
+    en: "You came in through @{code}'s code: you pay half the fee, for life.",
+    es: "Has entrado con el código de @{code}: pagas la mitad de comisión, de por vida.",
+  },
+  "ref.welcomeNoCode": {
+    en: "You came in through a recruiter's link: you pay half the fee, for life.",
+    es: "Has entrado con un enlace de reclutador: pagas la mitad de comisión, de por vida.",
+  },
+
+  // Trading panel — only shown when a wallet's fee is actually discounted, never as a pitch to get one
+  "trading.pricedWithCode": { en: " · priced with a code", es: " · precio con código" },
 
   // My Coins (creator dashboard)
   "mine.navLabel": { en: "My Coins", es: "Mis monedas" },
@@ -635,7 +653,7 @@ export const dict = {
   "bp.min": { en: "Minimum you'll receive", es: "Mínimo que recibirás" },
   "bp.impact": { en: "Price impact", es: "Impacto en el precio" },
   "bp.slippage": { en: "Slippage tolerance", es: "Tolerancia de slippage" },
-  "bp.pandaFee": { en: "PANDA fee ({pct}%)", es: "Comisión de PANDA ({pct}%)" },
+  "bp.pandaFee": { en: "PANDA fee: {pct}%", es: "Comisión PANDA: {pct}%" },
   "bp.total": { en: "Total from your wallet", es: "Total de tu wallet" },
   "bp.feesNote": {
     en: "PANDA's fee is added on top of the swap. You also pay the network fee (a fraction of a cent) and, if you don't hold $PANDA yet, about 0.002 SOL to open your token account. The swap fails instead of filling below the minimum.",
@@ -1632,7 +1650,7 @@ export const dict = {
   "trading.tokenBalance": { en: "{ticker} balance", es: "Saldo en {ticker}" },
   "trading.max": { en: "Max", es: "Máx" },
   "trading.amount": { en: "Amount", es: "Importe" },
-  "trading.pandaFee": { en: "PANDA fee ({pct}%)", es: "Comisión PANDA ({pct}%)" },
+  "trading.pandaFee": { en: "PANDA fee: {pct}%", es: "Comisión PANDA: {pct}%" },
   "trading.youPay": { en: "You pay", es: "Pagas" },
   "trading.youReceive": { en: "You receive", es: "Recibes" },
   "trading.receiveIn": { en: "Receive in", es: "Recibir en" },
@@ -1780,7 +1798,7 @@ export const dict = {
     en: "No live price for {symbol} right now — type the amount in {symbol}.",
     es: "Ahora mismo no hay precio real de {symbol} — escribe la cantidad en {symbol}.",
   },
-  "trading.pandaFeeSol": { en: "PANDA fee ({pct}%, paid in SOL)", es: "Comisión PANDA ({pct}%, pagada en SOL)" },
+  "trading.pandaFeeSol": { en: "PANDA fee: {pct}% (paid in SOL)", es: "Comisión PANDA: {pct}% (pagada en SOL)" },
   "trading.notEnoughToken": {
     en: "Not enough {symbol}: this buy needs {need} and the wallet has {have}.",
     es: "No tienes suficiente {symbol}: esta compra necesita {need} y la wallet tiene {have}.",

@@ -48,6 +48,7 @@ function LoggedOut() {
         <Panda pose="success" size={88} />
         <h1 className="mt-4 font-display text-3xl font-bold leading-tight sm:text-4xl">{t("rec.heroTitle")}</h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-panda-grey sm:text-base">{t("rec.heroSubtitle")}</p>
+        <p className="mx-auto mt-3 inline-block rounded-full bg-bamboo/[0.08] px-4 py-1.5 text-sm font-semibold text-bamboo">{t("rec.halfPriceBlock")}</p>
         <div className="mt-6">
           <WalletButton />
         </div>
@@ -168,6 +169,7 @@ function LoggedIn({ address }: { address: string }) {
       <section className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-xs text-panda-grey">{t("rec.yourLink")}</p>
         <CopyReferralLink wallet={address} className="mt-2" />
+        <p className="mt-2 text-xs font-medium text-bamboo">{t("rec.halfPriceNote")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <a
             href={`https://x.com/intent/tweet?text=${encodeURIComponent(shareText())}`}

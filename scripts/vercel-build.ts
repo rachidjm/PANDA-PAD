@@ -6,7 +6,10 @@
  * 2. Optional one-off tasks, only when PANDA_BUILD_TASKS is set for THAT deployment (`vercel deploy --build-env PANDA_BUILD_TASKS=…`,
  *    never stored in the project): they run where the "Sensitive" variables exist and print to the build log, which is how they are
  *    read. Tasks: verify-services, verify-audit, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run),
- *    purge-blob (deletes the frozen Blob copies of migrated data; a dry run unless PANDA_BUILD_PURGE=yes — see scripts/blob-purge.ts).
+ *    purge-blob (deletes the frozen Blob copies of migrated data; a dry run unless PANDA_BUILD_PURGE=yes — see scripts/blob-purge.ts),
+ *    backfill-legacy-fees (grandfathers every wallet that already traded onto the 0.5% fee; a dry run unless PANDA_BUILD_LEGACY_FEES=yes
+ *    — see scripts/backfill-legacy-fee-wallets.ts; PANDA_BUILD_WATCH_WALLETS="wallet1,wallet2" names specific wallets to confirm by name
+ *    in the log).
  *    A failing task is reported but does not block the deployment of the same code.
  * 3. `next build`.
  */
@@ -52,6 +55,9 @@ for (const t of tasks) {
     run(`db:backfill${process.env.PANDA_BUILD_BACKFILL === "yes" ? " --yes" : " (dry run)"}`, tsx("scripts/db-backfill.ts", ...args), false);
   } else if (t === "purge-blob") {
     run(`blob:purge${process.env.PANDA_BUILD_PURGE === "yes" ? " --yes (REAL DELETION)" : " (dry run)"}`, tsx("scripts/blob-purge.ts"), false);
+  } else if (t === "backfill-legacy-fees") {
+    const args = process.env.PANDA_BUILD_LEGACY_FEES === "yes" ? ["--yes"] : [];
+    run(`backfill-legacy-fee-wallets${args.length ? " --yes" : " (dry run)"}`, tsx("scripts/backfill-legacy-fee-wallets.ts", ...args), false);
   } else console.log(`(unknown build task "${t}" ignored)`);
 }
 

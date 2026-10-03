@@ -7,6 +7,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
+import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { dexLabel } from "@/lib/dex-labels";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
@@ -36,6 +37,9 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const { connected, publicKey, sendTransaction } = useWallet();
   const feeBps = useFeeBps(connected ? publicKey?.toBase58() : null);
   const { t } = useLanguage();
+  // The "· priced with a code" suffix only ever appears for a wallet that is ACTUALLY paying less — never as a
+  // pitch to someone who isn't, see src/lib/referrals/client.ts's ReferralWelcomeBanner for where that pitch belongs instead.
+  const feeLabel = (key: "trading.pandaFee" | "trading.pandaFeeSol") => `${t(key, { pct: feeBps / 100 })}${feeBps < PANDA_FEE_BPS ? t("trading.pricedWithCode") : ""}`;
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   // What is typed is either the paying asset itself, or a dollar/euro *view* of it, converted with the real rates.
@@ -426,7 +430,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
                 <span>{paidInSol ? amt.toFixed(4) : fmtAsset(amt)} {pay.symbol}</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
-                <span>{paidInSol ? t("trading.pandaFee", { pct: feeBps / 100 }) : t("trading.pandaFeeSol", { pct: feeBps / 100 })}</span>
+                <span>{paidInSol ? feeLabel("trading.pandaFee") : feeLabel("trading.pandaFeeSol")}</span>
                 <span>{paidInSol ? ((amt * feeBps) / 10_000).toFixed(4) : feeSol > 0 ? `≈ ${feeSol.toFixed(5)}` : "—"} SOL</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
@@ -502,7 +506,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
                 <span>{fmtAsset(amt)} ${coin.ticker}</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
-                <span>{t("trading.pandaFeeSol", { pct: feeBps / 100 })}</span>
+                <span>{feeLabel("trading.pandaFeeSol")}</span>
                 <span>{sellFeeInUnit !== null ? `≈ ${roundSellValue(sellUnit, sellFeeInUnit)}` : "—"} {sellUnit === "SOL" ? "SOL" : VIEW_SYMBOL[sellUnit]}</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
