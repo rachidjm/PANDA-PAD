@@ -62,3 +62,25 @@ test("perSection caps each section's size", () => {
   const sections = buildHomeSections(coins, 6);
   assert.equal(sections.trending.length, 6);
 });
+
+test("Lanzadas en PANDA claims PANDA-launched coins before any other section, even ones that would also lead Tendencia", () => {
+  const launched = coin({ ticker: "PLAUNCH", launchedOnPanda: true, pandaLaunchedAt: Date.now(), volume24h: 1_000_000, changePct: 999 });
+  const filler = Array.from({ length: 10 }, (_, i) => coin({ ticker: `F${i}`, volume24h: 10 + i }));
+  const sections = buildHomeSections([launched, ...filler], 6);
+  assert.deepEqual(sections.launched.map((c) => c.mint), [launched.mint]);
+  assert.ok(!sections.trending.some((c) => c.mint === launched.mint), "claimed by Lanzadas en PANDA, never repeated in Tendencia");
+});
+
+test("within Lanzadas en PANDA, a recent launch (inside the spotlight window) always sorts before an older one, regardless of launch order", () => {
+  const now = Date.parse("2026-03-10T12:00:00Z");
+  const old = coin({ ticker: "OLD", launchedOnPanda: true, pandaLaunchedAt: now - 100 * 3_600_000 }); // 100h ago — long outside any default spotlight window
+  const recent = coin({ ticker: "RECENT", launchedOnPanda: true, pandaLaunchedAt: now - 1 * 3_600_000 }); // 1h ago
+  const sections = buildHomeSections([old, recent], 6, now);
+  assert.deepEqual(sections.launched.map((c) => c.ticker), ["RECENT", "OLD"]);
+});
+
+test("a coin not launched through PANDA never appears in Lanzadas en PANDA, even with high volume/change%", () => {
+  const organic = coin({ ticker: "ORGANIC", volume24h: 999_999, changePct: 999 });
+  const sections = buildHomeSections([organic], 6);
+  assert.deepEqual(sections.launched, []);
+});

@@ -20,6 +20,8 @@ import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filte
 import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
 import { getRugSummaries } from "./rugcheck/server";
 import { getRedis } from "./rate-limit";
+import { getDb, DbNotConfiguredError } from "./db/client";
+import { pgGetPandaLaunch, pgGetPandaLaunchesForMints } from "./db/referrals";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -279,12 +281,40 @@ async function fetchFreshCoins(force?: boolean): Promise<{ coins: Coin[]; suspec
   if (coins.length === 0) return null;
 
   coins = (await fillMissingImages(coins)).map(withBestImage);
+  coins = await tagPandaLaunches(coins);
   // The data-quality gate (src/lib/quality): junk pools with absurd market caps are marked and set aside, never shown.
   const { ok, suspect } = partitionByQuality(coins);
   if (suspect.length > 0) {
     console.info("[PANDA quality] set aside", suspect.length, "of", coins.length, "coins:", suspect.map((c) => `${c.ticker}(${c.qualityReasons?.join("+")})`).join(", "));
   }
   return { coins: ok, suspect };
+}
+
+/** Marks which of `coins` were launched through PANDA's own Create flow — one bulk query for the whole list, a
+ *  no-op (coins unchanged) when Postgres isn't configured or the query fails. Powers the "Lanzada en PANDA"
+ *  badge on cards and the home showcase section (src/lib/home-sections.ts). */
+async function tagPandaLaunches(coins: Coin[]): Promise<Coin[]> {
+  try {
+    const launches = await pgGetPandaLaunchesForMints(getDb(), coins.map((c) => c.mint));
+    if (launches.size === 0) return coins;
+    return coins.map((c) => {
+      const launch = launches.get(c.mint);
+      return launch ? { ...c, launchedOnPanda: true, pandaLaunchedAt: launch.launchedAt } : c;
+    });
+  } catch (err) {
+    if (!(err instanceof DbNotConfiguredError)) console.error("[PANDA launches] tagging failed", err);
+    return coins;
+  }
+}
+
+/** Single-mint version for the coin detail page (enrichCoinDetail) — a no-op on any failure, same as above. */
+async function getPandaLaunch(mint: string): Promise<{ creator: string; launchedAt: number } | null> {
+  try {
+    return await pgGetPandaLaunch(getDb(), mint);
+  } catch (err) {
+    if (!(err instanceof DbNotConfiguredError)) console.error("[PANDA launches] lookup failed", mint, err);
+    return null;
+  }
 }
 
 /**
@@ -692,14 +722,16 @@ async function fetchLivePriceUsd(mint: string): Promise<number | null> {
  * each other, so they run together (one round trip) instead of one after another —
  * that's what made opening a coin page slow. */
 export async function enrichCoinDetail(coin: Coin): Promise<Coin> {
-  const [closes, socials, pumpInfo, livePriceUsd] = await Promise.all([
+  const [closes, socials, pumpInfo, livePriceUsd, pandaLaunch] = await Promise.all([
     coin.poolAddress ? fetchPoolHourlyCloses(coin.poolAddress).catch(() => [] as number[]) : Promise.resolve([] as number[]),
     enrichSocials(coin).catch(() => coin),
     fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>()),
     fetchLivePriceUsd(coin.mint),
+    getPandaLaunch(coin.mint),
   ]);
 
   let result = livePriceUsd !== null ? { ...socials, livePriceUsd } : socials;
+  if (pandaLaunch) result = { ...result, launchedOnPanda: true, pandaLaunchedAt: pandaLaunch.launchedAt };
   if (closes.length > 4) {
     result = { ...result, priceHistory: closes, range24h: { low: Math.min(...closes), high: Math.max(...closes) } };
   } else {

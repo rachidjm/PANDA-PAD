@@ -82,6 +82,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["REFERRAL_TIERS"], group: "referrals", required: never, valid: isReferralTiersJson, affects: "the Recruiters program's marginal commission tiers (FEATURE_REFERRALS): unset or invalid, the built-in default (30%/25%/20% at 500/1,500) is used" },
   { names: ["REFERRAL_MIN_DAILY_VOLUME_SOL"], group: "referrals", required: never, valid: isPositiveNumber, affects: "the daily volume an invitee needs to count a day toward their 3-day active streak (default 0.05 SOL)" },
   { names: ["PANDA_NFT_MINTER_SECRET_KEY"], group: "referrals", required: (e) => isEnabled("FOUNDER_NFT", e), valid: looksLikeSecretKey, affects: "minting the Founder NFT collection and its reserved slots (FEATURE_FOUNDER_NFT) — reservation itself needs no key, only the real mint does" },
+  { names: ["LAUNCHED_SPOTLIGHT_HOURS"], group: "referrals", required: never, valid: isPositiveNumber, affects: "how long a PANDA-launched coin stays pinned at the top of the \"Lanzadas en PANDA\" showcase (default 6 hours)" },
   {
     names: ["VANITY_STOCK_KEY"],
     group: "core",

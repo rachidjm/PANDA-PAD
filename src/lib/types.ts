@@ -39,6 +39,12 @@ export type Coin = {
   createdAt: string;
   /** True when `createdAt` is the coin's real Pump.fun launch time (otherwise it's when its pool was created). */
   launchVerified?: boolean;
+  /** True when this mint was created through PANDA's own Create flow (src/lib/db/schema.ts's pandaLaunches,
+   *  written only after the creation transaction is independently re-verified on-chain) — distinct from
+   *  `launchVerified`, which just means PANDA knows the coin's real Pump.fun launch time, Panda-created or not. */
+  launchedOnPanda?: boolean;
+  /** Epoch ms the PANDA launch was confirmed — only present alongside launchedOnPanda. */
+  pandaLaunchedAt?: number;
   source: CoinSource;
   /** Raw dex id from the data source (e.g. "raydium", "orca") when source is "other". */
   dex?: string;

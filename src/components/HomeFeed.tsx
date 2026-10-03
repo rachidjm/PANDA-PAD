@@ -13,7 +13,7 @@ import { ActivityEvent, Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const REFRESH_COOLDOWN_MS = 3000;
-const SECTION_ORDER: SectionId[] = ["trending", "topGainers", "recentlyActive", "new", "graduated"];
+const SECTION_ORDER: SectionId[] = ["launched", "trending", "topGainers", "recentlyActive", "new", "graduated"];
 
 export default function HomeFeed({
   coins: initialCoins,

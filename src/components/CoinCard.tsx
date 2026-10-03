@@ -25,6 +25,15 @@ export default function CoinCard({ coin, priority = false }: { coin: Coin; prior
         <span className="absolute right-1.5 top-1.5 rounded-full bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper/80 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />
         </span>
+        {coin.launchedOnPanda && (
+          <span
+            title={t("coinCard.launchedOnPanda")}
+            className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full border border-paper/20 bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper backdrop-blur sm:bottom-3 sm:left-3 sm:px-2 sm:text-[11px]"
+          >
+            <span aria-hidden>🐼</span>
+            {t("coinCard.launchedOnPanda")}
+          </span>
+        )}
       </div>
       <div className="p-2.5 sm:p-4">
         <div className="flex items-baseline justify-between gap-1.5 sm:gap-2">

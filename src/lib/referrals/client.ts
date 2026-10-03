@@ -21,6 +21,18 @@ export function captureReferralFromUrl(): void {
   }
 }
 
+/** A PANDA-launched coin's own page doubles as its creator's recruiter link — same "first wins, never
+ *  overwritten client-side" rule as an explicit `?ref=` link. Called from the coin page on mount
+ *  (src/components/coin/CoinClient.tsx) only when `coin.launchedOnPanda` is true. */
+export function capturePandaLaunchReferral(creator: string): void {
+  try {
+    if (!LOOKS_LIKE_ADDRESS.test(creator)) return;
+    if (!window.localStorage.getItem(KEY)) window.localStorage.setItem(KEY, creator);
+  } catch {
+    // Same as above — nothing to recover, just not remembered this visit.
+  }
+}
+
 export function pendingReferrer(): string | null {
   try {
     return window.localStorage.getItem(KEY);

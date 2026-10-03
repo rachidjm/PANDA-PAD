@@ -75,6 +75,7 @@ export const dict = {
     en: "— PANDA's own token",
     es: "— el token propio de PANDA",
   },
+  "home.section.launched": { en: "Launched on PANDA", es: "Lanzadas en PANDA" },
   "home.section.new": { en: "New", es: "Nuevas" },
   "home.section.trending": { en: "Trending", es: "Tendencia" },
   "home.section.topGainers": { en: "Top Gainers", es: "Mayores subidas" },
@@ -1405,6 +1406,10 @@ export const dict = {
     en: "This mints a real coin on Solana mainnet — you sign it in your own wallet, and you're the coin's creator.",
     es: "Esto acuña una moneda real en la mainnet de Solana — la firmas en tu propia wallet y tú eres el creador de la moneda.",
   },
+  "cr.recruiterNote": {
+    en: "Your coin will show up in PANDA's showcase, and its own page will be your recruiter link: you earn 30% of our fees for every trader you bring.",
+    es: "Tu moneda saldrá en el escaparate de PANDA, y el enlace de tu moneda será tu enlace de reclutador: te llevas el 30% de nuestras comisiones por cada trader que traigas.",
+  },
   "cr.launching": { en: "Launching ${ticker}…", es: "Lanzando ${ticker}…" },
   "cr.stageUploading": { en: "Uploading image…", es: "Subiendo imagen…" },
   "cr.stageBuilding": { en: "Preparing transaction…", es: "Preparando transacción…" },
@@ -1518,6 +1523,7 @@ export const dict = {
   // Coin card
   "coinCard.mc": { en: "MC", es: "Cap." },
   "coinCard.vol": { en: "Vol", es: "Vol" },
+  "coinCard.launchedOnPanda": { en: "Launched on PANDA", es: "Lanzada en PANDA" },
 
   // Search box
   "search.searching": { en: "Searching…", es: "Buscando…" },

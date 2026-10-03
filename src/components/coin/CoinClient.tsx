@@ -2,7 +2,8 @@
 
 import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { capturePandaLaunchReferral } from "@/lib/referrals/client";
 import { Coin, Trade } from "@/lib/types";
 import { formatCompact, formatNumber, formatPct } from "@/lib/format";
 import CoinAvatar from "@/components/CoinAvatar";
@@ -36,6 +37,12 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
   const { t } = useLanguage();
   const { strategies, holderRewards } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
   const positive = coin.changePct >= 0;
+
+  // A PANDA-launched coin's own page doubles as its creator's recruiter link — same first-wins rule as
+  // an explicit ?ref= link (src/lib/referrals/client.ts), captured once this page is actually visited.
+  useEffect(() => {
+    if (coin.launchedOnPanda && coin.creator) capturePandaLaunchReferral(coin.creator);
+  }, [coin.launchedOnPanda, coin.creator]);
 
   const stats: { label: string; value: string }[] = [
     { label: t("coin.marketCap"), value: formatCompact(coin.marketCap) },
@@ -72,6 +79,12 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
             {coin.twitter && <IconLink href={`https://x.com/${coin.twitter}`} label="X" icon="x" />}
             {coin.telegram && <IconLink href={`https://t.me/${coin.telegram}`} label="Telegram" icon="telegram" />}
             <RugBadge mint={coin.mint} variant="pill" className="ml-1" />
+            {coin.launchedOnPanda && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">
+                <span aria-hidden>🐼</span>
+                {t("coinCard.launchedOnPanda")}
+              </span>
+            )}
             {!live && <span className="text-xs text-panda-grey">{t("live.demo")}</span>}
           </div>
 

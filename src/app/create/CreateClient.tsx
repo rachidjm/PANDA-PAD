@@ -31,7 +31,7 @@ export default function CreateClient() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
-  const { otcRewards } = useFeatures();
+  const { otcRewards, referrals } = useFeatures();
   const { blocked: creationBlocked, singleTx } = useCreationStatus();
   const [chosenMode, setMode] = useState<LaunchMode>("standard");
   // The Rewards mode exists only when FEATURE_OTC_REWARDS is on; otherwise Create is exactly the Standard launch.
@@ -199,6 +199,14 @@ export default function CreateClient() {
       setFeeSummary(summary);
       setFeesPending(false);
       setFeeError("");
+
+      // Best-effort — the launch itself already succeeded either way; this only unlocks the "Lanzada en PANDA"
+      // showcase and the coin-page-as-recruiter-link feature (src/lib/referrals/client.ts), never the launch flow.
+      fetch("/api/launch/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mint: mint.publicKey.toBase58(), signature }),
+      }).catch(() => {});
 
       if (buildData.combined) {
         // One atomic transaction did both: the split can't be missing. Only let PANDA's registry know about the coin.
@@ -490,6 +498,10 @@ export default function CreateClient() {
             <p className="font-medium">{t("cr.feeDistribution")}</p>
             <p className="mt-1 text-sm text-panda-grey">{t("cr.feeConnect")}</p>
           </div>
+        )}
+
+        {referrals && (
+          <p className="text-center text-xs text-panda-grey">{t("cr.recruiterNote")}</p>
         )}
 
         <button

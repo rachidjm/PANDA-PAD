@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
 import type { Db } from "./client";
 import { founderAllocations, pandaLaunches, referralDailyVolume, referralPayouts, referrals } from "./schema";
 
@@ -183,4 +183,13 @@ export async function pgRecordPandaLaunch(db: Db, mint: string, creator: string,
 export async function pgGetPandaLaunch(db: Db, mint: string): Promise<{ creator: string; launchedAt: number } | null> {
   const [row] = await db.select({ creator: pandaLaunches.creator, launchedAt: pandaLaunches.launchedAt }).from(pandaLaunches).where(eq(pandaLaunches.mint, mint));
   return row ?? null;
+}
+
+/** Which of `mints` were launched through PANDA, keyed by mint — one query for a whole coin list (see
+ *  src/lib/live-coins.ts), never one query per coin. Empty input short-circuits (no query) — a list refresh with
+ *  no coins is already an edge case the callers handle themselves. */
+export async function pgGetPandaLaunchesForMints(db: Db, mints: string[]): Promise<Map<string, { creator: string; launchedAt: number }>> {
+  if (mints.length === 0) return new Map();
+  const rows = await db.select({ mint: pandaLaunches.mint, creator: pandaLaunches.creator, launchedAt: pandaLaunches.launchedAt }).from(pandaLaunches).where(inArray(pandaLaunches.mint, mints));
+  return new Map(rows.map((r) => [r.mint, { creator: r.creator, launchedAt: r.launchedAt }]));
 }
