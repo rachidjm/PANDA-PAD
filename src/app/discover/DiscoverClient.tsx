@@ -219,8 +219,8 @@ export default function DiscoverClient({ coins: initialCoins, live: initialLive 
         <EmptyState query={urlQuery} error={searchError} />
       ) : (
         <div className={`mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 transition-opacity ${searching ? "opacity-60" : ""}`}>
-          {list.map((coin) => (
-            <CoinCard key={coin.mint} coin={coin} />
+          {list.map((coin, i) => (
+            <CoinCard key={coin.mint} coin={coin} priority={i < 4} />
           ))}
         </div>
       )}

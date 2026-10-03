@@ -14,7 +14,7 @@ const MOBILE_VISIBLE = 6;
 
 /** Renders nothing when there are no real coins for this section — never
  * padded with placeholders just to avoid an empty look. */
-export default function HomeSection({ titleKey, coins }: { titleKey: DictKey; coins: Coin[] }) {
+export default function HomeSection({ titleKey, coins, priority = false }: { titleKey: DictKey; coins: Coin[]; priority?: boolean }) {
   const { t } = useLanguage();
   if (coins.length === 0) return null;
 
@@ -55,7 +55,7 @@ export default function HomeSection({ titleKey, coins }: { titleKey: DictKey; co
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: "easeOut", delay: Math.min(i, 8) * 0.04 }}
           >
-            <CoinCard coin={coin} />
+            <CoinCard coin={coin} priority={priority && i < 4} />
           </motion.div>
         ))}
       </div>

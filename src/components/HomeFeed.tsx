@@ -111,8 +111,8 @@ export default function HomeFeed({
           </p>
           {refreshError && <p className="mb-4 text-xs text-clay-red">{t("home.refreshError")}</p>}
 
-          {SECTION_ORDER.map((id) => (
-            <HomeSection key={id} titleKey={SECTION_TITLE_KEYS[id]} coins={sections[id]} />
+          {SECTION_ORDER.map((id, i) => (
+            <HomeSection key={id} titleKey={SECTION_TITLE_KEYS[id]} coins={sections[id]} priority={i === 0} />
           ))}
 
           <div className="mt-2">

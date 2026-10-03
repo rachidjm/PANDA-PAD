@@ -37,12 +37,17 @@ export default function CoinAvatar({
   ticker,
   size = "sm",
   mint,
+  priority = false,
 }: {
   image?: string | null;
   ticker: string;
   size?: "sm" | "lg";
   /** The coin's address, when known: used for the image-load retry, the initials fallback, and the fixed tile color. */
   mint?: string;
+  /** The first visible cards (a grid's first row) should load eagerly, at high priority — `loading="lazy"`
+   *  on an image that's already on screen at paint time only delays it, which is exactly backwards for
+   *  LCP (the metric is usually one of these cards' own logo). Every other card still lazy-loads. */
+  priority?: boolean;
 }) {
   const [failed, setFailed] = useState<string[]>([]);
   const backup = mint && isPumpCoin({ mint }) ? pumpImageUrl(mint) : null;
@@ -51,7 +56,16 @@ export default function CoinAvatar({
   if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img key={src} src={src} alt="" loading="lazy" onError={() => setFailed((f) => [...f, src])} className="h-full w-full object-cover" />
+      <img
+        key={src}
+        src={src}
+        alt=""
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+        decoding={priority ? "sync" : "async"}
+        onError={() => setFailed((f) => [...f, src])}
+        className="h-full w-full object-cover"
+      />
     );
   }
 

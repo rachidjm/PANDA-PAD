@@ -10,7 +10,7 @@ import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
-export default function CoinCard({ coin }: { coin: Coin }) {
+export default function CoinCard({ coin, priority = false }: { coin: Coin; priority?: boolean }) {
   const { t } = useLanguage();
   const positive = coin.changePct >= 0;
 
@@ -20,7 +20,7 @@ export default function CoinCard({ coin }: { coin: Coin }) {
       {/* Edge-to-edge, cropped and centered (object-cover in CoinAvatar) — never letterboxed with the
           background showing as bars down the sides, whatever the logo's own aspect ratio is. */}
       <div className="relative aspect-square overflow-hidden bg-[#171512] sm:aspect-[4/3]">
-        <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} />
+        <CoinAvatar image={coin.image} ticker={coin.ticker} size="lg" mint={coin.mint} priority={priority} />
         <RugBadge mint={coin.mint} className="absolute left-1.5 top-1.5 sm:left-3 sm:top-3" />
         <span className="absolute right-1.5 top-1.5 rounded-full bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper/80 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />
