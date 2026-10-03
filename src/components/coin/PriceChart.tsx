@@ -208,8 +208,13 @@ export default function PriceChart({
   useRegisterDrawTradeForAI(draw, coin?.mint ?? "", coin?.ticker ?? "", draw.currentUsd);
 
   const shown = hoverIndex !== null ? hoverIndex : closes.length - 1;
-  const shownPrice = closes[shown] ?? 0;
-  const shownMarketCap = supply !== undefined ? shownPrice * supply : undefined;
+  // The headline "right now" price never depends on the chart alone — a real, independent live price
+  // (coin.livePriceUsd, from Jupiter's Price API or Dexscreener — see enrichCoinDetail) wins whenever one's
+  // available and nothing is being hovered. Hovering a specific point on the chart always shows THAT point's
+  // own historical close, which is correctly chart-derived. undefined (never 0) means no price at all —
+  // every reader below falls back to "—", not a fabricated dollar amount.
+  const shownPrice: number | undefined = hoverIndex === null && coin?.livePriceUsd !== undefined ? coin.livePriceUsd : closes[shown];
+  const shownMarketCap = supply !== undefined && shownPrice !== undefined ? shownPrice * supply : undefined;
   const shownTime = hasRealTimes ? candles[shown]?.time : undefined;
 
   const windowChangePct = closes.length > 1 ? ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100 : changePct;
@@ -219,9 +224,9 @@ export default function PriceChart({
   const high = displayCloses.length ? Math.max(...displayCloses) : 0;
   const fmtDisplay = (n: number) => (unit === "mcap" ? formatCompact(n) : formatPrice(n));
 
-  const bigValue = unit === "mcap" ? (shownMarketCap !== undefined ? formatCompact(shownMarketCap) : "—") : formatPrice(shownPrice);
+  const bigValue = unit === "mcap" ? (shownMarketCap !== undefined ? formatCompact(shownMarketCap) : "—") : shownPrice !== undefined ? formatPrice(shownPrice) : "—";
   const otherLabel = unit === "mcap" ? t("chart.price") : t("chart.mc");
-  const otherValue = unit === "mcap" ? formatPrice(shownPrice) : shownMarketCap !== undefined ? formatCompact(shownMarketCap) : null;
+  const otherValue = unit === "mcap" ? (shownPrice !== undefined ? formatPrice(shownPrice) : null) : shownMarketCap !== undefined ? formatCompact(shownMarketCap) : null;
 
   return (
     <div className="rounded-[26px] border border-paper/10 bg-ink-raised p-4 sm:p-6">

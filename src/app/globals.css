@@ -10,8 +10,12 @@
   --bamboo: #c9d94c;
   --clay-red: #e8543e;
   --sun: #f2c94c;
-  --draw-buy: #ff4d6d;
-  --draw-sell: #5cc8ff;
+  /* Draw Your Trade's own 3 colors, the brand palette only — buy = the brand's lime green, sell = cream
+     white, stop = the brand's soft coral red. Used on the chart's lines/tags, the Compra·Venta·Stop
+     selector, and the panel's own rows; nothing else in Draw Your Trade uses any other color. */
+  --draw-buy: var(--bamboo);
+  --draw-sell: var(--paper);
+  --draw-stop: var(--clay-red);
   --font-display: var(--font-bricolage);
   --font-body: var(--font-inter);
 }

@@ -30,17 +30,17 @@ function sellSlotIndex(target: DrawTarget): number {
   return m ? Number(m[1]) - 1 : -1;
 }
 
-/** Buy = red (as asked) — a crimson, so it stays readable on the orange-red curve of a falling coin; every sell
- *  tranche is a shade of the same cool blue (so they read as "the sell family", never confused with the buy
- *  line or the stop's orange), spread across a lightness ramp so up to 10 of them stay tellable apart; stop =
- *  the site's orange. */
+/** Draw Your Trade's own 3 brand colors, nothing else: buy = lime green, sell = cream white, stop = soft
+ *  coral red (see globals.css's --draw-buy/--draw-sell/--draw-stop). A legacy multi-tranche strategy (from
+ *  before staggered selling was removed) can still have several saved sell legs to display — those extra
+ *  legs are shades of the same sell color instead of a 4th hue, so the palette never grows past the 3. */
 export function lineColor(kind: DrawTarget): string {
   if (kind === "buy") return "var(--draw-buy)";
-  if (kind === "stop") return "var(--meme-orange)";
+  if (kind === "stop") return "var(--draw-stop)";
   const idx = sellSlotIndex(kind);
-  if (idx <= 0) return "var(--draw-sell)"; // the plain, non-staggered case keeps the exact same color as before
-  const light = 42 + ((idx * 37) % 46); // a shuffled spread, not a plain ramp, so neighbours (#2/#3) read apart too
-  return `hsl(200 85% ${light}%)`;
+  if (idx <= 0) return "var(--draw-sell)";
+  const light = 60 + ((idx * 11) % 25); // legacy extra legs: the same cream hue, just a lightness ramp to tell them apart
+  return `hsl(42 35% ${light}%)`;
 }
 
 /** A small solid triangle pinned to the top/bottom edge, pointing further off-screen — stands in for a line or

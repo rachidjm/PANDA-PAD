@@ -115,11 +115,17 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
         )}
       </div>
 
-      {target && (
+      {target ? (
         <p className="mt-2 flex items-center gap-2 text-xs text-paper/80" role="status">
           <Dot kind={target} />
           {t(MODE_KEYS[target])}
         </p>
+      ) : (
+        !canSell && (
+          // A `title` tooltip never shows on a touch tap, so without this a phone gives zero explanation
+          // for why "Venta"/"Stop" look disabled — this is always visible instead, on every device.
+          <p className="mt-2 text-xs text-panda-grey">{t("draw.sellNeedsBuy")}</p>
+        )
       )}
 
       <div aria-live="polite" className="min-h-0">

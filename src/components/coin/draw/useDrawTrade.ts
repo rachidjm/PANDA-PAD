@@ -294,7 +294,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   }, [drafts, records, activeId]);
 
   // ── editing drafts ───────────────────────────────────────────────────────────────────────────────
-  const nextNumber = useCallback(() => Math.max(0, ...drafts.map((d) => d.n), ...records.map((r) => r.n)) + 1, [drafts, records]);
+  // Only what's actually visible right now (current drafts + live records) counts toward the next number —
+  // a cancelled/failed/completed strategy from earlier is gone from the list, so it must not make a brand
+  // new first draft show up labelled "#2" with no "#1" anywhere on screen.
+  const nextNumber = useCallback(
+    () => Math.max(0, ...drafts.map((d) => d.n), ...records.filter((r) => !TERMINAL.includes(r.state)).map((r) => r.n)) + 1,
+    [drafts, records]
+  );
 
   const patchDraft = useCallback((id: string, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))), []);
 
@@ -394,8 +400,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (phase === "move") return setMachine(move(s, p, { ...info, pressed: info.pressed }));
       if (phase === "down") return setMachine(down(s, p, info));
       const r = up(s, p, info);
-      setMachine(r.state);
-      if (r.picked !== null && activeId) applyPrice(activeId, s.target, r.picked);
+      if (r.picked !== null && activeId) {
+        applyPrice(activeId, s.target, r.picked);
+        // Placing buy moves straight into sell, then straight into stop — three clicks/taps in one flow
+        // instead of having to re-pick the tab after each one.
+        const next = s.target === "buy" ? "sell1" : s.target === "sell1" ? "stop" : null;
+        setMachine(next ? start(next) : r.state);
+      } else {
+        setMachine(r.state);
+      }
     },
     [activeId, applyPrice, setMachine]
   );

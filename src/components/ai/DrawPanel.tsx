@@ -12,21 +12,22 @@ type AiDrawTradeResult = { buyPrice: number; sellPrice: number; stopPrice: numbe
  *  never confirms it. Only usable from an actual coin page (the bridge is null everywhere else). */
 export default function DrawPanel() {
   const { t } = useLanguage();
-  const { draw, coin } = useDrawTradeAIBridge();
+  const { getDraw, coin } = useDrawTradeAIBridge();
   const { close } = useAIAssistant();
   const [description, setDescription] = useState("");
   const [applied, setApplied] = useState<string | null>(null);
   const { call, loading, error } = useAiCall<AiDrawTradeResult>("/api/ai/draw-trade");
 
-  if (!draw || !coin) {
+  if (!getDraw() || !coin) {
     return <p className="rounded-2xl border border-paper/10 bg-ink px-4 py-3 text-sm text-panda-grey">{t("ai.draw.needCoin")}</p>;
   }
 
   async function submit() {
-    if (!description.trim() || loading || !coin || coin.currentPriceUsd === null) return;
+    const draw = getDraw();
+    if (!description.trim() || loading || !coin || coin.currentPriceUsd === null || !draw) return;
     setApplied(null);
     const res = await call({ description: description.trim(), mint: coin.mint, ticker: coin.ticker, currentPriceUsd: coin.currentPriceUsd });
-    if (res && draw) {
+    if (res) {
       draw.applyAiDraft({ buy: res.buyPrice, sell: res.sellPrice, stop: res.stopPrice });
       setApplied(res.note);
     }

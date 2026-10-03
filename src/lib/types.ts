@@ -28,6 +28,10 @@ export type Coin = {
   twitter?: string | null;
   telegram?: string | null;
   marketCap: number;
+  /** Real-time USD price from a live price source (Jupiter Price API, Dexscreener as fallback) — set by
+   *  enrichCoinDetail, independent of any chart/OHLCV candle. Never a fallback-to-0: absent means no live
+   *  source had a reliable price for this mint right now, and callers must show "—", not "$0". */
+  livePriceUsd?: number;
   volume24h: number;
   changePct: number;
   priceHistory: number[];

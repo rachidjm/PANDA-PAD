@@ -41,7 +41,7 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
     { label: t("coin.marketCap"), value: formatCompact(coin.marketCap) },
     { label: t("coin.volume24h"), value: formatCompact(coin.volume24h) },
     ...(coin.liquidityUsd ? [{ label: t("coin.liquidity"), value: formatCompact(coin.liquidityUsd) }] : []),
-    ...(holderCount !== null ? [{ label: t("coin.holders"), value: formatNumber(holderCount) }] : []),
+    { label: t("coin.holders"), value: holderCount !== null ? formatNumber(holderCount) : "—" },
   ];
 
   return (
@@ -123,7 +123,7 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
 
         <div className="order-3 lg:order-none lg:col-start-1 lg:row-start-2">
           <div className="mt-2 flex gap-1 border-b border-paper/10 lg:mt-3">
-            {tabs.map((tb) => (
+            {tabs.filter((tb) => tb !== "Rewards" || holderRewards).map((tb) => (
               <button
                 key={tb}
                 onClick={() => setTab(tb)}

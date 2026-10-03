@@ -14,6 +14,7 @@ import { fetchPumpCoins, fetchPumpCoinPage, PumpCoin } from "./pump/frontend-api
 import { withoutPendingFeeLock } from "./pump/fee-lock";
 import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
+import { getLivePrice } from "./jupiter/price";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
 import { filterCreatorSeriesSpam, filterTemplateSpam, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
 import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
@@ -585,18 +586,33 @@ export async function getLiveCoinBase(mint: string): Promise<{ coin: Coin | unde
   return { coin: coin ? withQuality(coin) : coin, live };
 }
 
+/** The coin's own page's big price number — real-time, independent of any chart/candle source (see
+ * livePriceUsd on Coin). Jupiter's Price API first; when it has no reliable price for this mint (new,
+ * illiquid, or simply untraded recently — see src/lib/jupiter/price.ts), Dexscreener's own per-pair price
+ * is a real, independent second source rather than leaving the page with nothing. Returns null (never 0)
+ * when neither source has one — the caller must show "—", not a fabricated price. */
+async function fetchLivePriceUsd(mint: string): Promise<number | null> {
+  const jup = await getLivePrice(mint).catch(() => null);
+  if (jup) return jup.usdPrice;
+  const pairs = await fetchDexTokenPairs(mint).catch(() => [] as DexPair[]);
+  const best = [...pairs].sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+  const price = best ? Number(best.priceUsd) : NaN;
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
 /** Everything a list card never needs but a coin's own page does: real hourly closes,
  * description/socials, and Pump.fun's own launch info. The three are independent of
  * each other, so they run together (one round trip) instead of one after another —
  * that's what made opening a coin page slow. */
 export async function enrichCoinDetail(coin: Coin): Promise<Coin> {
-  const [closes, socials, pumpInfo] = await Promise.all([
+  const [closes, socials, pumpInfo, livePriceUsd] = await Promise.all([
     coin.poolAddress ? fetchPoolHourlyCloses(coin.poolAddress).catch(() => [] as number[]) : Promise.resolve([] as number[]),
     enrichSocials(coin).catch(() => coin),
     fetchPumpCoins([coin.mint]).catch(() => new Map<string, PumpCoin>()),
+    fetchLivePriceUsd(coin.mint),
   ]);
 
-  let result = socials;
+  let result = livePriceUsd !== null ? { ...socials, livePriceUsd } : socials;
   if (closes.length > 4) {
     result = { ...result, priceHistory: closes, range24h: { low: Math.min(...closes), high: Math.max(...closes) } };
   } else {
