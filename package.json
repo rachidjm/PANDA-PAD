@@ -23,6 +23,7 @@
     "db:compare": "tsx --env-file-if-exists=.env.local scripts/db-compare.ts",
     "vanity:import": "tsx --env-file-if-exists=.env.local scripts/vanity-import.ts",
     "chart:check": "tsx --env-file-if-exists=.env.local scripts/chart-check.ts",
+    "nft:create-collection": "tsx --env-file-if-exists=.env.local scripts/nft-create-collection.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
