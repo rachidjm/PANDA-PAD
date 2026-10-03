@@ -14,7 +14,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { TxFailedError } from "@/lib/solana/tx-errors";
 import { buyShortfall, maxBuyAmount, NETWORK_BUFFER_SOL, SELL_MIN_SOL } from "@/lib/trading/limits";
-import { assetFromUnit, maxInViewUnit, toBaseUnits, unitFromAsset, type ViewUnit } from "@/lib/trading/amount";
+import { assetFromUnit, maxInViewUnit, solToUnit, toBaseUnits, unitFromAsset, unitToSol, type BuyUnit, type ViewUnit } from "@/lib/trading/amount";
 import type { PayToken } from "@/lib/trading/pay-tokens";
 import { useRates } from "@/components/coin/useRates";
 import { usePriceImpact } from "@/components/coin/usePriceImpact";
@@ -26,7 +26,7 @@ const VIEW_SYMBOL: Record<Exclude<ViewUnit, "ASSET">, string> = { USD: "$", EUR:
 const VIEW_PRESETS = [10, 25, 50];
 const SOL_PRESETS = [0.1, 0.5, 1];
 const TOKEN_PCT_PRESETS = [25, 50, 75];
-const sellPresets = [25, 50, 100];
+const sellPresets = [25, 50, 75, 100];
 
 type Status = "idle" | "building" | "signing" | "sending" | "confirming" | "done" | "error";
 
@@ -39,6 +39,10 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const [amount, setAmount] = useState("");
   // What is typed is either the paying asset itself, or a dollar/euro *view* of it, converted with the real rates.
   const [unit, setUnit] = useState<ViewUnit>("ASSET");
+  // What a sell is denominated in — SOL/$/€ received, never the token itself: a sell always pays out
+  // in SOL (see `impact`'s outputMint below), so "how many tokens" alone doesn't tell you what you're
+  // getting; this answers that directly, the same way the Buy side already shows what you're spending.
+  const [sellUnit, setSellUnit] = useState<BuyUnit>("SOL");
   const [payMint, setPayMint] = useState(SOL_MINT);
   const [payTokens, setPayTokens] = useState<PayToken[]>([]);
   const [payLoading, setPayLoading] = useState(false);
@@ -49,6 +53,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
         // Shared with the strategy card, which stores "SOL" for "the asset itself".
         const u = localStorage.getItem("panda.buy.unit");
         if (u === "USD" || u === "EUR") setUnit(u);
+        const su = localStorage.getItem("panda.sell.unit");
+        if (su === "SOL" || su === "USD" || su === "EUR") setSellUnit(su);
       } catch {}
     });
   }, []);
@@ -133,7 +139,26 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const typed = parseFloat(amount) || 0;
   const payAmt = assetFromUnit(unit, typed, pay.priceUsd, rates.eurUsd, pay.decimals); // null: no live price for this view right now
   const buySol = paidInSol ? payAmt : null;
-  const amt = side === "buy" ? payAmt ?? 0 : typed;
+
+  // Sell is denominated in SOL/$/€ received, not the token: convert through the coin's own live USD
+  // price and the SOL/EUR rates (unitToSol already converts a SOL/USD/EUR figure to SOL; from there,
+  // 1 token = tokenPriceUsd USD and 1 SOL = rates.solUsd USD gives the real token amount to sell).
+  // Missing price/rate → null, same "can't be used yet" meaning as the Buy side's own noRate.
+  const tokenPriceUsd = coin.livePriceUsd ?? null;
+  function sellUnitToTokens(u: BuyUnit, value: number): number | null {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const sol = unitToSol(u, value, rates);
+    if (sol === null || !tokenPriceUsd || !rates.solUsd) return null;
+    return (sol * rates.solUsd) / tokenPriceUsd;
+  }
+  function tokensToSellUnit(u: BuyUnit, tokenAmt: number): number | null {
+    if (!tokenPriceUsd || !rates.solUsd) return null;
+    return solToUnit(u, (tokenAmt * tokenPriceUsd) / rates.solUsd, rates);
+  }
+  const sellTokenAmount = side === "sell" ? sellUnitToTokens(sellUnit, typed) : null;
+  const sellNoRate = side === "sell" && typed > 0 && sellTokenAmount === null;
+
+  const amt = side === "buy" ? payAmt ?? 0 : sellTokenAmount ?? 0;
   const noRate = side === "buy" && typed > 0 && payAmt === null;
   // Paid with a token, PANDA's fee is still a SOL transfer: a share of what the token is worth in SOL, on top of it.
   const feeSol = !paidInSol && pay.priceUsd && rates.solUsd ? (amt * pay.priceUsd * (PANDA_FEE_BPS / 10_000)) / rates.solUsd : 0;
@@ -143,11 +168,12 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const feeShort = side === "buy" && connected && !paidInSol && amt > 0 && displaySol !== null && displaySol < needSolForFee ? { need: needSolForFee, have: displaySol } : null;
   const sellNoTokens = side === "sell" && connected && displayTokens !== null && amt > displayTokens;
   const sellNoSol = side === "sell" && connected && displaySol !== null && amt > 0 && displaySol < SELL_MIN_SOL;
+  const sellFeeInUnit = side === "sell" && amt > 0 ? tokensToSellUnit(sellUnit, (amt * PANDA_FEE_BPS) / 10_000) : null;
 
   // How much this trade would move the price — on-curve (still on Pump.fun's own bonding curve) is computed
   // straight from the curve's real reserves; graduated/external uses Jupiter's own public quote instead.
   const onCurve = onlySol;
-  const sellTokenRaw = side === "sell" && typed > 0 ? Math.round(typed * 10 ** tokenDecimals).toString() : undefined;
+  const sellTokenRaw = side === "sell" && amt > 0 ? Math.round(amt * 10 ** tokenDecimals).toString() : undefined;
   const impact = usePriceImpact({
     mint: coin.mint,
     onCurve,
@@ -164,14 +190,28 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     Promise.resolve().then(() => setImpactAck(false));
   }, [amount, side, payMint]);
 
-  const blocked = !!buyShort || !!tokenShort || !!feeShort || sellNoTokens || sellNoSol || noRate || (impactHigh && !impactAck);
+  const blocked = !!buyShort || !!tokenShort || !!feeShort || sellNoTokens || sellNoSol || noRate || sellNoRate || (impactHigh && !impactAck);
   const fmtSol = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
   const fmtAsset = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: Math.min(pay.decimals, 6) });
+  const roundSellValue = (u: BuyUnit, v: number) => {
+    const places = u === "SOL" ? 6 : 2;
+    return Math.floor(v * 10 ** places + 1e-9) / 10 ** places;
+  };
 
   function rememberUnit(next: ViewUnit) {
     try {
       localStorage.setItem("panda.buy.unit", next === "ASSET" ? "SOL" : next);
     } catch {}
+  }
+
+  function pickSellUnit(next: BuyUnit) {
+    if (next === sellUnit) return;
+    const converted = sellTokenAmount !== null && sellTokenAmount > 0 ? tokensToSellUnit(next, sellTokenAmount) : null;
+    setSellUnit(next);
+    try {
+      localStorage.setItem("panda.sell.unit", next);
+    } catch {}
+    if (amount) setAmount(converted !== null ? String(roundSellValue(next, converted)) : "");
   }
 
   function pickUnit(next: ViewUnit) {
@@ -193,6 +233,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   async function submit() {
     if (!connected || !publicKey || !amount) return;
     if (side === "buy" && !(payAmt && payAmt > 0)) return;
+    if (side === "sell" && !(amt > 0)) return;
     setError("");
     setSignature("");
     try {
@@ -209,7 +250,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           : {
               mint: coin.mint,
               user: publicKey.toBase58(),
-              tokenAmount: Math.round(parseFloat(amount) * 10 ** tokenDecimals).toString(),
+              // `amt` is the real token count — amount/amountUnit above is denominated in SOL/$/€ received, not tokens.
+              tokenAmount: Math.round(amt * 10 ** tokenDecimals).toString(),
               poolAddress,
             };
 
@@ -404,26 +446,71 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
               disabled={busy}
               className="w-full bg-transparent text-xl font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
             />
-            <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">${coin.ticker}</span>
+            <span className="shrink-0 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">{sellUnit === "SOL" ? "SOL" : VIEW_SYMBOL[sellUnit]}</span>
           </div>
 
-          <div className="mt-2 grid grid-cols-3 gap-1.5">
-            {sellPresets.map((pct) => (
-              <button
-                key={pct}
-                onClick={() => displayTokens !== null && setAmount(String(Math.floor((displayTokens * pct) / 100)))}
-                disabled={busy}
-                className="rounded-xl bg-paper/5 py-2 text-xs font-semibold text-paper/70 transition-colors hover:bg-paper/10 hover:text-paper disabled:opacity-50"
-              >
-                {pct}%
-              </button>
-            ))}
+          {/* What the figure above means: how much you receive, in SOL or its dollar/euro value — a sell always pays
+              out in SOL (see `impact`'s outputMint), so this is what actually answers "how much do I get". */}
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-[11px] font-medium text-panda-grey">{t("trading.receiveIn")}</span>
+            <div className="flex gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={t("trading.receiveIn")}>
+              {(["SOL", "USD", "EUR"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => pickSellUnit(u)}
+                  disabled={busy}
+                  aria-pressed={sellUnit === u}
+                  className={`min-w-8 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${sellUnit === u ? "bg-paper text-ink" : "text-paper/60 hover:text-paper"}`}
+                >
+                  {u === "SOL" ? "SOL" : VIEW_SYMBOL[u]}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {!!parseFloat(amount) && (
-            <p className="mt-3 rounded-xl bg-ink px-3.5 py-3 text-xs text-panda-grey">
-              {t("trading.sellFeeNote", { pct: PANDA_FEE_BPS / 100 })}
-            </p>
+          <div className="mt-2 grid grid-cols-4 gap-1.5">
+            {sellPresets.map((pct) => {
+              const pctTokens = displayTokens !== null ? (displayTokens * pct) / 100 : null;
+              const value = pctTokens !== null ? tokensToSellUnit(sellUnit, pctTokens) : null;
+              const rounded = value !== null ? roundSellValue(sellUnit, value) : null;
+              return (
+                <button
+                  key={pct}
+                  onClick={() => rounded !== null && setAmount(String(rounded))}
+                  disabled={busy || rounded === null}
+                  className={`rounded-xl py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                    rounded !== null && amount === String(rounded) ? "bg-clay-red/15 text-clay-red" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"
+                  }`}
+                >
+                  {pct}%
+                </button>
+              );
+            })}
+          </div>
+
+          {typed > 0 && !sellNoRate && (
+            <p className="mt-2 text-xs text-panda-grey">≈ {fmtAsset(amt)} ${coin.ticker}</p>
+          )}
+          {sellNoRate && <p className="mt-2 text-xs text-clay-red">{t("trading.noRate")}</p>}
+
+          {amt > 0 && (
+            <div className="mt-3 space-y-1 rounded-xl bg-ink px-3.5 py-3 text-xs">
+              <div className="flex items-center justify-between text-panda-grey">
+                <span>{t("trading.amount")}</span>
+                <span>{fmtAsset(amt)} ${coin.ticker}</span>
+              </div>
+              <div className="flex items-center justify-between text-panda-grey">
+                <span>{t("trading.pandaFeeSol", { pct: PANDA_FEE_BPS / 100 })}</span>
+                <span>{sellFeeInUnit !== null ? `≈ ${roundSellValue(sellUnit, sellFeeInUnit)}` : "—"} {sellUnit === "SOL" ? "SOL" : VIEW_SYMBOL[sellUnit]}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
+                <span>{t("trading.youReceive")}</span>
+                <span>
+                  {sellFeeInUnit !== null ? roundSellValue(sellUnit, Math.max(0, typed - sellFeeInUnit)) : typed} {sellUnit === "SOL" ? "SOL" : VIEW_SYMBOL[sellUnit]}
+                </span>
+              </div>
+            </div>
           )}
         </div>
       )}

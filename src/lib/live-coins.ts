@@ -16,8 +16,10 @@ import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 import { getLivePrice } from "./jupiter/price";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
-import { filterCreatorSeriesSpam, filterTemplateSpam, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
+import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
 import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
+import { getRugSummaries } from "./rugcheck/server";
+import { getRedis } from "./rate-limit";
 
 const CARD_COLORS = ["#FFD23F", "#7FE0A0", "#FF9AD5", "#B8B4FF", "#FFC85C", "#8FD3FF", "#6FD8D0", "#FF8A5C"];
 const CARD_DOODLES: DoodleKind[] = ["cat", "frog", "donut", "ghost", "egg", "cloud", "fish", "worm"];
@@ -180,20 +182,64 @@ let lastFetchAt = 0;
 // serve that instead of piling on more upstream calls.
 const MIN_FORCE_INTERVAL_MS = 10_000;
 
-/**
- * Live PANDA data always comes straight from chain (via GeckoTerminal's Pump.fun
- * / PumpSwap indexing) — there is no demo/mock fallback. If the feed is
- * genuinely empty or unreachable and there's no prior data to fall back on,
- * callers get `coins: []` and show an honest empty state instead of fabricated coins.
- */
-async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
-  if (!opts.force && cache && cache.expires > Date.now()) return { coins: cache.coins, suspect: cache.suspect, live: true };
-  if (opts.force && cache && Date.now() - lastFetchAt < MIN_FORCE_INTERVAL_MS) {
-    return { coins: cache.coins, suspect: cache.suspect, live: true };
-  }
+// ── stale-while-revalidate, shared across every serverless instance via Upstash ──────────────────────
+// `cache` above is per-instance memory: on Vercel that's near-useless across requests (many short-lived
+// instances, scaled horizontally), so most visits were hitting a COLD cache and blocking on the full
+// upstream fetch pipeline below — that's the real cause of home/Discover sitting in skeletons for
+// seconds. Upstash fixes that: every instance reads the same cached list in a few ms. A list under
+// COINS_FRESH_MS old is served as-is; older (but under COINS_MAX_STALE_MS) is still served immediately,
+// with a real refresh kicked off in the background (never awaited by the request that triggered it) —
+// only a list older than COINS_MAX_STALE_MS (or a totally cold cache) makes a request actually wait.
+const COINS_CACHE_KEY = "panda:coins:v1";
+const COINS_FRESH_MS = 25_000;
+const COINS_MAX_STALE_MS = 5 * 60_000;
 
+async function persistCoins(ok: Coin[], suspect: Coin[]): Promise<void> {
+  cache = { coins: ok, suspect, expires: Date.now() + COINS_FRESH_MS };
+  lastGood = [...ok, ...suspect];
+  const r = getRedis();
+  if (r) await r.set(COINS_CACHE_KEY, { coins: ok, suspect, fetchedAt: Date.now() }, { ex: Math.ceil(COINS_MAX_STALE_MS / 1000) }).catch(() => {});
+  // See warmRugCheckCache below — same fire-and-forget, never-block-the-request idea.
+  void warmRugCheckCache(ok.map((c) => c.mint)).catch(() => {});
+}
+
+let refreshingCoins = false;
+/** The background half of stale-while-revalidate — single-flight, so overlapping stale reads from
+ *  several concurrent requests can't pile up more than one real refresh at a time. */
+async function refreshCoinsInBackground(force?: boolean): Promise<void> {
+  if (refreshingCoins) return;
+  refreshingCoins = true;
   lastFetchAt = Date.now();
+  try {
+    const fresh = await fetchFreshCoins(force);
+    if (fresh) await persistCoins(fresh.coins, fresh.suspect);
+  } catch {
+    // best-effort: the stale value already served stays in Redis until its own TTL; nothing to recover here
+  } finally {
+    refreshingCoins = false;
+  }
+}
 
+let warmingRugCheck = false;
+/** See the call site above — never awaited by a request, and single-flight so an overlapping
+ *  list refresh can't pile up a second full-list warm on top of one already running. */
+async function warmRugCheckCache(mints: string[]): Promise<void> {
+  if (warmingRugCheck || mints.length === 0) return;
+  warmingRugCheck = true;
+  try {
+    await getRugSummaries(mints);
+  } finally {
+    warmingRugCheck = false;
+  }
+}
+
+/**
+ * The real upstream fetch pipeline — GeckoTerminal/Pump.fun/Dexscreener, every filter pass, image
+ * fill-in, quality gate. Pulled out of loadLiveCoins so both a normal cache-miss AND a background
+ * stale-while-revalidate refresh can call the exact same logic. `null` means every source came back
+ * empty (never a fabricated/empty coin list — the caller decides what to fall back to).
+ */
+async function fetchFreshCoins(force?: boolean): Promise<{ coins: Coin[]; suspect: Coin[] } | null> {
   // Primary source: coins launched on Pump.fun in the last day that have real
   // traction. Only if that comes back thin do we fall back to the older
   // "biggest pools by volume" lists below.
@@ -201,7 +247,7 @@ async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: C
   if (coins.length < MIN_HOT_LIST) coins = [];
 
   if (coins.length === 0 && Date.now() >= geckoCooldownUntil) {
-    coins = await fetchListFromGecko(opts.force);
+    coins = await fetchListFromGecko(force);
     // A rate-limited GeckoTerminal returns nothing (or only a stray page) —
     // stop hammering it for a minute instead of burning more of its budget.
     if (coins.length < MIN_HEALTHY_LIST) {
@@ -226,19 +272,54 @@ async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: C
   // perceptual match) the same logo — keep only the most-traded one of each group.
   coins = filterCreatorSeriesSpam(coins);
   coins = filterTemplateSpam(coins);
+  coins = filterStatsOnlyRing(coins);
   coins = filterExactDuplicateImages(coins);
   coins = await filterImageClones(coins).catch(() => coins);
 
-  if (coins.length > 0) {
-    coins = (await fillMissingImages(coins)).map(withBestImage);
-    // The data-quality gate (src/lib/quality): junk pools with absurd market caps are marked and set aside, never shown.
-    const { ok, suspect } = partitionByQuality(coins);
-    if (suspect.length > 0) {
-      console.info("[PANDA quality] set aside", suspect.length, "of", coins.length, "coins:", suspect.map((c) => `${c.ticker}(${c.qualityReasons?.join("+")})`).join(", "));
+  if (coins.length === 0) return null;
+
+  coins = (await fillMissingImages(coins)).map(withBestImage);
+  // The data-quality gate (src/lib/quality): junk pools with absurd market caps are marked and set aside, never shown.
+  const { ok, suspect } = partitionByQuality(coins);
+  if (suspect.length > 0) {
+    console.info("[PANDA quality] set aside", suspect.length, "of", coins.length, "coins:", suspect.map((c) => `${c.ticker}(${c.qualityReasons?.join("+")})`).join(", "));
+  }
+  return { coins: ok, suspect };
+}
+
+/**
+ * Live PANDA data always comes straight from chain (via GeckoTerminal's Pump.fun
+ * / PumpSwap indexing) — there is no demo/mock fallback. If the feed is
+ * genuinely empty or unreachable and there's no prior data to fall back on,
+ * callers get `coins: []` and show an honest empty state instead of fabricated coins.
+ */
+async function loadLiveCoins(opts: { force?: boolean } = {}): Promise<{ coins: Coin[]; suspect: Coin[]; live: boolean }> {
+  if (!opts.force) {
+    if (cache && cache.expires > Date.now()) return { coins: cache.coins, suspect: cache.suspect, live: true };
+
+    // Upstash, shared across every instance — see the stale-while-revalidate comment above.
+    const r = getRedis();
+    const stored = r ? await r.get<{ coins: Coin[]; suspect: Coin[]; fetchedAt: number }>(COINS_CACHE_KEY).catch(() => null) : null;
+    if (stored) {
+      const age = Date.now() - stored.fetchedAt;
+      if (age < COINS_MAX_STALE_MS) {
+        cache = { coins: stored.coins, suspect: stored.suspect, expires: stored.fetchedAt + COINS_FRESH_MS };
+        lastGood = [...stored.coins, ...stored.suspect];
+        if (age >= COINS_FRESH_MS) void refreshCoinsInBackground();
+        return { coins: stored.coins, suspect: stored.suspect, live: true };
+      }
+      // Older than the hard ceiling: too stale to serve as "live" — fall through to a real, blocking fetch.
     }
-    cache = { coins: ok, suspect, expires: Date.now() + 60_000 };
-    lastGood = [...ok, ...suspect];
-    return { coins: ok, suspect, live: true };
+  }
+  if (opts.force && cache && Date.now() - lastFetchAt < MIN_FORCE_INTERVAL_MS) {
+    return { coins: cache.coins, suspect: cache.suspect, live: true };
+  }
+
+  lastFetchAt = Date.now();
+  const fresh = await fetchFreshCoins(opts.force);
+  if (fresh) {
+    await persistCoins(fresh.coins, fresh.suspect);
+    return { coins: fresh.coins, suspect: fresh.suspect, live: true };
   }
 
   // Every source failed — serve the last known-good list rather than an empty
@@ -545,6 +626,12 @@ async function searchLiveCoinsUnfiltered(query: string): Promise<{ coins: Coin[]
   }
 
   coins = coins.sort((a, b) => (b.liquidityUsd || 0) - (a.liquidityUsd || 0)).slice(0, 40).map(withBestImage);
+  // Same spam/clone pass the main list gets (src/lib/live-coins.ts's loadLiveCoins) — a search box is
+  // still a way to land on a clone/spam ring's page, so it can't skip this just because it's a smaller list.
+  coins = filterCreatorSeriesSpam(coins);
+  coins = filterTemplateSpam(coins);
+  coins = filterStatsOnlyRing(coins);
+  coins = filterExactDuplicateImages(coins);
   const { ok, suspect } = partitionByQuality(coins);
   searchCache.set(q, { coins: ok, suspect, expires: Date.now() + 15_000 });
   return { coins: ok, suspect, live: true };

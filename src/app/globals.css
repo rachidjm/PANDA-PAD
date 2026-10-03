@@ -71,6 +71,19 @@ main:focus {
   outline: none;
 }
 
+/* Everything clickable shows the hand cursor by default — Tailwind's own preflight doesn't set this on
+   buttons, so without it every button/tab/custom "role=button" control (icon buttons, "+ Añadir estrategia",
+   the Compra/Venta/Stop selector...) shows the plain text-cursor until a component remembers to add
+   cursor-pointer itself. A component's own `disabled:cursor-*` utility class still wins (same specificity,
+   declared later in its own stylesheet layer) — this is only the site-wide default. */
+:where(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], a[href], select, summary, label[for]) {
+  cursor: pointer;
+}
+:where(button, [role="button"], select):disabled,
+:where([aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
 /* The NFT "coming soon" band: one transform on one layer, so it runs on the GPU and stays smooth on phones. The row is drawn twice; moving by half of it loops without a seam. */
 .nft-marquee-track {
   --nft-secs: 65;

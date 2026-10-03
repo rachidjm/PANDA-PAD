@@ -46,17 +46,26 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
   }
 
   const tone = TONE[summary.level];
-  const title = t("rc.title", { n: summary.score ?? "—" });
+  // Same disclaimer wording everywhere RugCheck shows up (compact/pill tooltips, the full-page card) —
+  // never mixed with the old per-score "RugCheck risk score: N..." phrasing, so it reads identically in
+  // every spot a user might see it, in both languages.
+  const disclaimer = t("rc.disclaimer");
+  const levelLabel = t(LABEL[summary.level]);
   if (variant === "compact") {
     // No `relative` on this element on purpose: the caller's own className (CoinCard.tsx) is what positions
     // this badge with `absolute` over the card's image — `position: absolute` already establishes the
     // containing block the tooltip below needs, and Tailwind's core plugin order would otherwise have a
     // same-element `relative` win over that `absolute` (relative is defined after absolute in its generated
     // CSS), silently breaking the overlay position.
+    // Dark, semi-opaque + blurred, with a thin border and light text — not the tone's own tinted
+    // background: a badge over a coin's own image has to stay legible against ANY image behind it
+    // (a lime-green coin on a lime "good" badge would nearly disappear), so only the dot carries the
+    // level's color here. The tone.pill coloring is still used by the "pill"/"full" variants below,
+    // which never sit on top of an image.
     return (
-      <span title={title} aria-label={`${t(LABEL[summary.level])}${summary.score !== null ? ` ${summary.score}/100` : ""}`} className={`group/rug inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur sm:px-2 sm:text-[11px] ${tone.pill} ${className}`}>
+      <span aria-label={`${levelLabel}${summary.score !== null ? ` ${summary.score}/100` : ""} — ${disclaimer}`} className={`group/rug inline-flex items-center gap-1 rounded-full border border-paper/20 bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper backdrop-blur sm:px-2 sm:text-[11px] ${className}`}>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
-        {summary.score !== null ? `${summary.score}/100` : t(LABEL[summary.level])}
+        {summary.score !== null ? `${summary.score}/100` : levelLabel}
         <button
           type="button"
           onClick={(e) => {
@@ -64,18 +73,19 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
             e.stopPropagation();
             setMobileTipOpen((v) => !v);
           }}
-          aria-label={title}
+          aria-label={disclaimer}
           className="-my-0.5 -mr-0.5 ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold opacity-80 sm:hidden"
         >
           i
         </button>
-        {/* Desktop: hover tooltip (same text as the title attribute, styled). Mobile: the same box, toggled by
-            the (i) button above instead of hover. Left-aligned, not centered: the badge sits at the card's own
-            left edge, so a centered tooltip would overflow past it and get clipped by the image's overflow-hidden. */}
+        {/* Desktop: hover tooltip, no native `title` alongside it (that was showing the browser's own
+            tooltip AND this one at once). Mobile: the same box, toggled by the (i) button instead of hover.
+            Left-aligned, not centered: the badge sits at the card's own left edge, so a centered tooltip
+            would overflow past it and get clipped by the image's overflow-hidden. */}
         <span
-          className={`pointer-events-none absolute left-0 top-full z-20 mt-1 w-max max-w-[160px] rounded-lg bg-ink px-2 py-1 text-[10px] font-medium normal-case text-paper opacity-0 shadow-lg transition-opacity group-hover/rug:sm:opacity-100 ${mobileTipOpen ? "opacity-100" : ""}`}
+          className={`pointer-events-none absolute left-0 top-full z-20 mt-1 w-max max-w-[200px] rounded-lg bg-ink px-2 py-1 text-[10px] font-medium normal-case leading-snug text-paper opacity-0 shadow-lg transition-opacity group-hover/rug:sm:opacity-100 ${mobileTipOpen ? "opacity-100" : ""}`}
         >
-          {title}
+          {disclaimer}
         </span>
       </span>
     );
@@ -83,7 +93,7 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
   if (variant === "pill") {
     const risksText = summary.risks.slice(0, 3).map((r) => r.name).join(", ");
     return (
-      <span title={`${title} ${risksText ? `(${risksText}) ` : ""}— ${t("rc.disclaimer")}`} className={`group/rug relative inline-block ${className}`}>
+      <span aria-label={`${levelLabel}${risksText ? ` (${risksText})` : ""} — ${disclaimer}`} className={`group/rug relative inline-block ${className}`}>
         <a
           href={rugcheckPageUrl(mint)}
           target="_blank"
@@ -91,16 +101,16 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors hover:brightness-110 ${tone.pill}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
-          RugCheck {summary.score !== null ? `${summary.score}/100` : t(LABEL[summary.level])}
+          RugCheck {summary.score !== null ? `${summary.score}/100` : levelLabel}
         </a>
         <span
           className={`pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-max max-w-[260px] -translate-x-0 rounded-xl border border-paper/10 bg-ink px-3 py-2 text-xs leading-relaxed text-paper/85 opacity-0 shadow-xl transition-opacity group-hover/rug:block group-hover/rug:opacity-100 ${mobileTipOpen ? "!block !opacity-100" : ""}`}
         >
           <span className="font-semibold text-paper">
-            {t(LABEL[summary.level])}
+            {levelLabel}
             {risksText && ` · ${risksText}`}
           </span>
-          <span className="mt-1 block text-panda-grey">{t("rc.disclaimer")}</span>
+          <span className="mt-1 block text-panda-grey">{disclaimer}</span>
         </span>
         <button
           type="button"
@@ -109,7 +119,7 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
             e.stopPropagation();
             setMobileTipOpen((v) => !v);
           }}
-          aria-label={title}
+          aria-label={disclaimer}
           className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-paper/20 align-middle text-[9px] font-bold text-paper/60 sm:hidden"
         >
           i
@@ -120,9 +130,9 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
   return (
     <div className={`rounded-2xl border border-paper/10 bg-ink-raised p-3.5 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span title={title} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${tone.pill}`}>
+        <span aria-label={`${levelLabel} — ${disclaimer}`} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${tone.pill}`}>
           <span className={`h-2 w-2 rounded-full ${tone.dot}`} aria-hidden />
-          RugCheck · {t(LABEL[summary.level])}
+          RugCheck · {levelLabel}
           {summary.score !== null && <span className="opacity-80">· {summary.score}/100</span>}
         </span>
         <a href={rugcheckPageUrl(mint)} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-meme-orange hover:brightness-110">
@@ -139,7 +149,7 @@ export default function RugBadge({ mint, variant = "compact", className = "" }: 
           ))}
         </ul>
       )}
-      <p className="mt-2.5 text-[11px] leading-snug text-panda-grey">{t("rc.disclaimer")}</p>
+      <p className="mt-2.5 text-[11px] leading-snug text-panda-grey">{disclaimer}</p>
     </div>
   );
 }

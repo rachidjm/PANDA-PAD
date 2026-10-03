@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Coin } from "@/lib/types";
-import { filterCreatorSeriesSpam, filterTemplateSpam, filterExactDuplicateImages, filterByImageHash, looksLikeCloneSeries, looksLikeTemplateSpam } from "./clone-filter";
+import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filterExactDuplicateImages, filterByImageHash, looksLikeCloneSeries, looksLikeTemplateSpam } from "./clone-filter";
 
 const coin = (over: Partial<Coin> & { ticker: string }): Coin => ({
   mint: `mint-${over.ticker}`,
@@ -75,6 +75,57 @@ test("looksLikeTemplateSpam requires no creator match, but does require a close 
   assert.equal(looksLikeTemplateSpam(a, b), true, "different creators, but name template + all three stats close");
   assert.equal(looksLikeTemplateSpam(a, { ...b, mint: "m2", marketCap: 500_000 }), false, "market cap 10x apart");
   assert.equal(looksLikeTemplateSpam(a, { ...b, mint: "m2", name: "Totally Different" }), false, "no shared name token");
+});
+
+// ── real production data (panda-pad.vercel.app/discover, 2026-10-03): the same ring as REAL_TEMPLATE_SPAM
+// above, relaunched under names that share no word at all — filterTemplateSpam's name-token requirement
+// can't key off anything here, so only the stats themselves (same shape: +1369%, ~49K cap, ~10.1K volume)
+// give it away. ──────────────────────────────────────────────────────────────────────────────────────
+const REAL_STATS_RING = [
+  coin({ ticker: "CHILLMASK", name: "Chill Mask", creator: "creatorD", changePct: 1369, marketCap: 49_200, volume24h: 10_180 }),
+  coin({ ticker: "HOOKEDGUY", name: "Hooked Guy", creator: "creatorE", changePct: 1369, marketCap: 49_050, volume24h: 10_140 }),
+  coin({ ticker: "SKI", name: "Ski", creator: "creatorF", changePct: 1369, marketCap: 48_990, volume24h: 10_120 }),
+  coin({ ticker: "VRAXWEEN", name: "Vraxween", creator: "creatorG", changePct: 1369, marketCap: 48_900, volume24h: 10_095 }),
+  coin({ ticker: "HULKINU", name: "Hulk Inu", creator: "creatorH", changePct: 1369, marketCap: 48_850, volume24h: 10_070 }),
+];
+
+test("real data: filterTemplateSpam misses a renamed ring with no shared name token", () => {
+  const out = filterTemplateSpam(REAL_STATS_RING);
+  assert.equal(out.length, REAL_STATS_RING.length, "no two coins share a name token, so the name-gated check can't cluster them");
+});
+
+test("filterStatsOnlyRing collapses a 3+ cluster with near-identical change%, market cap and volume to the top-volume coin, even with unrelated names and creators", () => {
+  const out = filterStatsOnlyRing(REAL_STATS_RING);
+  assert.deepEqual(out.map((c) => c.ticker), ["CHILLMASK"]);
+});
+
+// ── real production data (panda-pad.vercel.app/discover, Tendencia sort, 2026-10-03): a live instance
+// of the same ring, caught live-testing the fix above — HULKINU/PMASK/SEAPUG and LP/PM/MONAWEEN, each
+// trio spanning MORE than 3 absolute percentage points pairwise (e.g. HULKINU 1363% vs SEAPUG 1354%, a
+// 9-point gap), which a pure absolute tolerance missed even though they're under 1% apart in RELATIVE
+// terms — exactly what closeEnoughPct's ratio fallback exists for. ─────────────────────────────────────
+const REAL_DISCOVER_RING_A = [
+  coin({ ticker: "HULKINU", name: "HULKINU", creator: "creatorI", changePct: 1363, marketCap: 49_100, volume24h: 10_100 }),
+  coin({ ticker: "PMASK", name: "Ponsmask", creator: "creatorJ", changePct: 1357, marketCap: 49_000, volume24h: 10_100 }),
+  coin({ ticker: "SEAPUG", name: "SEAPUG", creator: "creatorK", changePct: 1354, marketCap: 49_000, volume24h: 10_100 }),
+];
+const REAL_DISCOVER_RING_B = [
+  coin({ ticker: "LP", name: "Laser Purr", creator: "creatorL", changePct: 403, marketCap: 49_100, volume24h: 10_100 }),
+  coin({ ticker: "PM", name: "PUMPMASK", creator: "creatorM", changePct: 401, marketCap: 49_000, volume24h: 10_100 }),
+  coin({ ticker: "MONAWEEN", name: "Mona Pepe Ween", creator: "creatorN", changePct: 397, marketCap: 49_100, volume24h: 10_200 }),
+];
+
+test("real data: filterStatsOnlyRing catches a ring even when its change% spans more than the absolute tolerance, via the relative fallback", () => {
+  assert.deepEqual(filterStatsOnlyRing(REAL_DISCOVER_RING_A).map((c) => c.ticker), ["HULKINU"]);
+  assert.deepEqual(filterStatsOnlyRing(REAL_DISCOVER_RING_B).map((c) => c.ticker), ["MONAWEEN"]); // highest volume of the three ($10.2K vs $10.1K)
+});
+
+test("filterStatsOnlyRing never drops a lone pair (minClusterSize gate) or coins whose stats are genuinely apart", () => {
+  const a = coin({ ticker: "A", changePct: 50, marketCap: 50_000, volume24h: 10_000 });
+  const b = coin({ ticker: "B", changePct: 50.5, marketCap: 50_200, volume24h: 10_100 }); // close enough to match A alone
+  const c = coin({ ticker: "C", changePct: 900, marketCap: 1_000_000, volume24h: 500_000 }); // far apart
+  const out = filterStatsOnlyRing([a, b, c]);
+  assert.deepEqual(out.map((x) => x.ticker).sort(), ["A", "B", "C"], "a 2-coin match alone isn't enough to drop anything");
 });
 
 test("filterExactDuplicateImages keeps only the highest-volume coin per exact image URL, and never touches coins without an image", () => {
