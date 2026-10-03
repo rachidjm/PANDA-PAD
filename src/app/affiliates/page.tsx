@@ -1,9 +1,6 @@
-import AffiliatesClient from "@/components/affiliates/AffiliatesClient";
+import { redirect } from "next/navigation";
 
+// The old affiliate campaign is gone — the Recruiters program replaces it. Existing links/bookmarks still work.
 export default function AffiliatesPage() {
-  return (
-    <div className="mx-auto max-w-2xl px-5 py-12">
-      <AffiliatesClient />
-    </div>
-  );
+  redirect("/recruiters");
 }

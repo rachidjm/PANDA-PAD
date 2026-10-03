@@ -9,6 +9,7 @@ import { awardTradePoints } from "@/lib/points/trade-award";
 import { recordActivity } from "@/lib/activity/record";
 import { findPandaFee } from "@/lib/points/trade-award";
 import { recordReferralPayoutIfAny } from "@/lib/referrals/payout";
+import { recordReferralVolumeAndStreak } from "@/lib/referrals/streak";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -97,9 +98,11 @@ export async function POST(req: Request) {
       tradeFeeLamports: findPandaFee(tx, wallet)?.lamports ?? 0,
     });
 
-    // Affiliate campaign (feature-flagged, off by default): logs the referral share paid in THIS transaction,
-    // if any, for the Affiliates page's stats. A logging failure must never fail the trade record.
+    // Recruiters program (feature-flagged, off by default): logs the commission paid in THIS transaction, if
+    // any, for the /recruiters page's stats, and updates this wallet's own daily volume / 3-day active streak
+    // (which decides the recruiter's tier on the NEXT trade — never this one). Neither can fail the trade record.
     await recordReferralPayoutIfAny(tx, wallet, mint, signature).catch((err) => console.error("[PANDA referrals] payout logging failed", signature, err));
+    await recordReferralVolumeAndStreak(wallet, Math.abs(postLamports - preLamports)).catch((err) => console.error("[PANDA referrals] streak update failed", signature, err));
 
     // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.
     let points: { outcome: string; awarded: number } | undefined;

@@ -1,11 +1,17 @@
-import { count, eq, sum } from "drizzle-orm";
+import { and, count, eq, gte, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
 import type { Db } from "./client";
-import { referralPayouts, referrals } from "./schema";
+import { founderAllocations, pandaLaunches, referralDailyVolume, referralPayouts, referrals } from "./schema";
 
-/** This wallet's referrer, or null if it was never bound (came in without a link, campaign was closed, failed anti-abuse, ...). */
+/** This wallet's referrer, or null if it was never bound (came in without a link, failed anti-abuse, ...). */
 export async function pgGetReferrer(db: Db, wallet: string): Promise<string | null> {
   const [row] = await db.select({ referrer: referrals.referrer }).from(referrals).where(eq(referrals.wallet, wallet));
   return row?.referrer ?? null;
+}
+
+/** How many invitees `referrer` has ever bound — used to detect "this is their very first", the trigger for a Founder slot. */
+export async function pgCountBoundInvitees(db: Db, referrer: string): Promise<number> {
+  const [{ n }] = await db.select({ n: count() }).from(referrals).where(eq(referrals.referrer, referrer));
+  return n;
 }
 
 /**
@@ -37,4 +43,144 @@ export async function pgReferralStats(db: Db, referrer: string): Promise<Referra
     db.select({ total: sum(referralPayouts.lamports) }).from(referralPayouts).where(eq(referralPayouts.referrer, referrer)),
   ]);
   return { referredCount: n, earnedLamports: Number(total ?? 0) };
+}
+
+// ── Trader-active streak (src/lib/referrals/streak.ts is the orchestrator; these are the raw reads/writes) ─────────
+
+export type StreakState = { lastQualifyingDay: string | null; streakAtLastQualifyingDay: number; firstActivatedAt: number | null };
+
+export async function pgGetReferralStreak(db: Db, wallet: string): Promise<StreakState | null> {
+  const [row] = await db
+    .select({ lastQualifyingDay: referrals.lastQualifyingDay, streakAtLastQualifyingDay: referrals.streakAtLastQualifyingDay, firstActivatedAt: referrals.firstActivatedAt })
+    .from(referrals)
+    .where(eq(referrals.wallet, wallet));
+  return row ?? null;
+}
+
+export async function pgSetReferralStreak(db: Db, wallet: string, state: StreakState): Promise<void> {
+  await db.update(referrals).set(state).where(eq(referrals.wallet, wallet));
+}
+
+/** Adds `addLamports` to `wallet`'s volume for UTC day `day` (inserted at 0 first if today has no row yet) and
+ *  returns the new running total for that day, so the caller can tell whether THIS trade is what crossed the
+ *  daily-qualifying threshold. Only ever called for a wallet that has a referrer — see streak.ts. */
+export async function pgAddDailyVolume(db: Db, wallet: string, day: string, addLamports: number): Promise<number> {
+  const [row] = await db
+    .insert(referralDailyVolume)
+    .values({ wallet, day, volumeLamports: addLamports })
+    .onConflictDoUpdate({ target: [referralDailyVolume.wallet, referralDailyVolume.day], set: { volumeLamports: sql`${referralDailyVolume.volumeLamports} + ${addLamports}` } })
+    .returning({ volumeLamports: referralDailyVolume.volumeLamports });
+  return row.volumeLamports;
+}
+
+export type InviteeRow = { wallet: string; boundAt: number; lastQualifyingDay: string | null; streakAtLastQualifyingDay: number; firstActivatedAt: number | null };
+
+/** Every invitee `referrer` has ever bound, newest first — the raw rows the Recruiters page turns into a live
+ *  active/inactive/"n of 3 days" status (src/lib/referrals/tiers.ts's `isCurrentlyActive`, applied per row). */
+export async function pgListInvitees(db: Db, referrer: string): Promise<InviteeRow[]> {
+  return db
+    .select({
+      wallet: referrals.wallet,
+      boundAt: referrals.boundAt,
+      lastQualifyingDay: referrals.lastQualifyingDay,
+      streakAtLastQualifyingDay: referrals.streakAtLastQualifyingDay,
+      firstActivatedAt: referrals.firstActivatedAt,
+    })
+    .from(referrals)
+    .where(eq(referrals.referrer, referrer))
+    .orderBy(sql`${referrals.boundAt} desc`);
+}
+
+/** How much PANDA has verified was paid to `referrer`, broken down by WHICH invitee's trades earned it. */
+export async function pgInviteeEarnings(db: Db, referrer: string): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ referred: referralPayouts.referred, total: sum(referralPayouts.lamports) })
+    .from(referralPayouts)
+    .where(eq(referralPayouts.referrer, referrer))
+    .groupBy(referralPayouts.referred);
+  return Object.fromEntries(rows.map((r) => [r.referred, Number(r.total ?? 0)]));
+}
+
+// ── Marginal tiers (live-computed rank — see src/lib/referrals/tiers.ts for the full reasoning) ────────────────────
+
+/** Exists (reserved or minted, either counts) = Founder: a flat share, no rank computation needed. */
+export async function pgIsFounder(db: Db, wallet: string): Promise<boolean> {
+  const [row] = await db.select({ wallet: founderAllocations.wallet }).from(founderAllocations).where(eq(founderAllocations.wallet, wallet));
+  return !!row;
+}
+
+/**
+ * `invitee`'s live rank among `referrer`'s invitees: 1 + how many of the OTHER invitees are active right now
+ * (`cutoffDay` is the earliest `lastQualifyingDay` that still counts as active — today minus 2 UTC days, computed
+ * by the caller so this function stays pure/testable) and first activated earlier than `invitee` did — or, if
+ * `invitee` has never activated, than ALL of `referrer`'s currently-active invitees (they'd join at the back of
+ * the queue). See src/lib/referrals/tiers.ts for why this has to be a live count, not a stored number.
+ */
+export async function pgLiveRankOfInvitee(db: Db, referrer: string, invitee: string, cutoffDay: string): Promise<number> {
+  const invStreak = await pgGetReferralStreak(db, invitee);
+  const invFirstActivatedAt = invStreak?.firstActivatedAt ?? null;
+  const activeNow = and(eq(referrals.referrer, referrer), ne(referrals.wallet, invitee), sql`${referrals.streakAtLastQualifyingDay} >= 3`, gte(referrals.lastQualifyingDay, cutoffDay));
+  const arrivedBefore = invFirstActivatedAt === null ? sql`true` : or(lt(referrals.firstActivatedAt, invFirstActivatedAt), isNull(referrals.firstActivatedAt));
+  const [{ n }] = await db.select({ n: count() }).from(referrals).where(and(activeNow, arrivedBefore));
+  return n + 1;
+}
+
+/** How many of `referrer`'s invitees are active right now — used only to detect crossing the 500/1,500 alert thresholds. */
+export async function pgCountLiveActive(db: Db, referrer: string, cutoffDay: string): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(referrals)
+    .where(and(eq(referrals.referrer, referrer), sql`${referrals.streakAtLastQualifyingDay} >= 3`, gte(referrals.lastQualifyingDay, cutoffDay)));
+  return n;
+}
+
+// ── Founder slots ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Reserves the next Founder slot for `wallet` unless all 1,000 are already taken or it already has one — same
+ *  hard-cap-under-advisory-lock shape as pgRegisterPending (src/lib/db/launch.ts), so concurrent first-invitee
+ *  binds can never both reserve the same rank or push past 1,000. Returns the reserved rank, or null if none left
+ *  or `wallet` already had one. */
+export async function pgReserveFounderSlot(db: Db, wallet: string, reservedAt: number, maxSlots = 1000): Promise<number | null> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('panda_founder_allocations'))`);
+    const [existing] = await tx.select({ rank: founderAllocations.rank }).from(founderAllocations).where(eq(founderAllocations.wallet, wallet));
+    if (existing) return null;
+    const [{ n }] = await tx.select({ n: count() }).from(founderAllocations);
+    if (n >= maxSlots) return null;
+    const [{ next }] = await tx.select({ next: sql<number>`coalesce(max(${founderAllocations.rank}), 0)::int + 1` }).from(founderAllocations);
+    await tx.insert(founderAllocations).values({ wallet, rank: next, reservedAt });
+    return next;
+  });
+}
+
+export async function pgFounderSlotsTaken(db: Db): Promise<number> {
+  const [{ n }] = await db.select({ n: count() }).from(founderAllocations);
+  return n;
+}
+
+export async function pgFounderAllocation(db: Db, wallet: string): Promise<{ rank: number; reservedAt: number; mintedAt: number | null; assetId: string | null } | null> {
+  const [row] = await db.select().from(founderAllocations).where(eq(founderAllocations.wallet, wallet));
+  return row ?? null;
+}
+
+/** Founder slots still waiting for a real mint (collection not created yet, or created after they reserved). */
+export async function pgUnmintedFounderAllocations(db: Db): Promise<{ wallet: string; rank: number }[]> {
+  return db.select({ wallet: founderAllocations.wallet, rank: founderAllocations.rank }).from(founderAllocations).where(isNull(founderAllocations.mintedAt));
+}
+
+export async function pgMarkFounderMinted(db: Db, wallet: string, mintedAt: number, assetId: string): Promise<void> {
+  await db.update(founderAllocations).set({ mintedAt, assetId }).where(eq(founderAllocations.wallet, wallet));
+}
+
+// ── Coins launched through PANDA's own /create flow ──────────────────────────────────────────────────────────────
+
+/** Written once, only after the creation transaction is confirmed on-chain (never from the client's say-so alone). */
+export async function pgRecordPandaLaunch(db: Db, mint: string, creator: string, launchedAt: number): Promise<boolean> {
+  const rows = await db.insert(pandaLaunches).values({ mint, creator, launchedAt }).onConflictDoNothing().returning({ mint: pandaLaunches.mint });
+  return rows.length > 0;
+}
+
+export async function pgGetPandaLaunch(db: Db, mint: string): Promise<{ creator: string; launchedAt: number } | null> {
+  const [row] = await db.select({ creator: pandaLaunches.creator, launchedAt: pandaLaunches.launchedAt }).from(pandaLaunches).where(eq(pandaLaunches.mint, mint));
+  return row ?? null;
 }

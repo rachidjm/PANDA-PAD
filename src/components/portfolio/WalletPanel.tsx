@@ -167,7 +167,7 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
         {[
           { href: "/mine", label: t("mine.navLabel"), show: true },
           { href: "/rewards", label: t("nav.rewards"), show: holderRewards },
-          { href: "/affiliates", label: t("nav.affiliates"), show: referrals },
+          { href: "/recruiters", label: t("nav.recruiters"), show: referrals },
           { href: "/points", label: t("nav.points"), show: points },
           { href: "/airdrops", label: t("nav.airdrops"), show: airdrops },
         ]

@@ -1,8 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgBindReferral, pgGetReferrer } from "@/lib/db/referrals";
-import { campaignActive } from "./constants";
+import { pgBindReferral, pgCountBoundInvitees, pgGetReferrer, pgReserveFounderSlot } from "@/lib/db/referrals";
 import { firstFunderCheck } from "./anti-abuse";
 
 /**
@@ -39,7 +38,6 @@ export async function tryBindReferral(
 ): Promise<BindOutcome> {
   if (!isEnabled("REFERRALS")) return "rejected";
   if (!referrerCandidate || !isRealAddress(referrerCandidate) || referrerCandidate === wallet) return "rejected";
-  if (!campaignActive()) return "rejected"; // "Solo se pueden vincular invitados dentro de la campaña"
 
   let db;
   try {
@@ -56,5 +54,20 @@ export async function tryBindReferral(
   if (funder === "self_funded") return "rejected";
 
   const bound = await pgBindReferral(db, wallet, referrerCandidate, Date.now());
-  return bound ? "bound" : "already_bound"; // lost a race to a concurrent sign-in
+  if (!bound) return "already_bound"; // lost a race to a concurrent sign-in
+
+  // Founder slots (src/lib/db/schema.ts's founderAllocations): the first 1,000 recruiters to land their very
+  // first-ever bound invitee get one, for free, for life. Best-effort — a failure here must never undo or fail
+  // the bind itself (the invitee is already real and permanent regardless of whether a Founder slot exists).
+  if (isEnabled("FOUNDER_NFT")) {
+    try {
+      if ((await pgCountBoundInvitees(db, referrerCandidate)) === 1) {
+        await pgReserveFounderSlot(db, referrerCandidate, Date.now());
+      }
+    } catch (err) {
+      console.error("[PANDA founder] slot reservation failed", referrerCandidate, err);
+    }
+  }
+
+  return "bound";
 }

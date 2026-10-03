@@ -28,7 +28,7 @@ type CoinsResponse = { coins: CreatorCoin[]; truncated: boolean; solUsd: number 
 type LoadState = "loading" | "ready" | "error";
 type CollectState = "idle" | "building" | "signing" | "confirming" | "done" | "error";
 
-type AffStats = { referredCount: number; earnedLamports: number; solUsd: number | null; daysLeft: number | null };
+type AffStats = { referredCount: number; earnedLamports: number; solUsd: number | null; founder: { rank: number } | null };
 
 function collectButtonLabel(cs: CollectState, t: ReturnType<typeof useLanguage>["t"]): string {
   switch (cs) {
@@ -171,21 +171,22 @@ export default function MyCoinsClient() {
 
       {referrals && (
         <section className="mt-4 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
-          <p className="text-xs text-panda-grey">{t("aff.earned")}</p>
+          <p className="text-xs text-panda-grey">{t("rec.earned")}</p>
           {aff === "loading" || aff === null ? (
             <p className="mt-1.5 font-display text-xl font-bold text-panda-grey">…</p>
           ) : aff === "error" ? (
-            <p className="mt-1.5 text-sm text-panda-grey">{t("aff.readError")}</p>
+            <p className="mt-1.5 text-sm text-panda-grey">{t("rec.readError")}</p>
           ) : (
             <>
               <p className="mt-1.5 font-display text-xl font-bold">{(aff.earnedLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL</p>
               <p className="mt-1 text-xs text-panda-grey">
-                {t("aff.referred")}: {aff.referredCount} · {aff.daysLeft !== null ? t("aff.daysLeft", { n: aff.daysLeft }) : t("aff.campaignClosed")}
+                {t("rec.referred")}: {aff.referredCount}
+                {aff.founder && ` · ${t("rec.founderBadge", { n: aff.founder.rank })}`}
               </p>
             </>
           )}
-          <Link href="/affiliates" className="mt-2 inline-block text-xs font-medium text-meme-orange hover:underline">
-            {t("aff.shareCoinLink")}
+          <Link href="/recruiters" className="mt-2 inline-block text-xs font-medium text-meme-orange hover:underline">
+            {t("rec.shareCoinLink")}
           </Link>
         </section>
       )}

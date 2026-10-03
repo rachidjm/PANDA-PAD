@@ -4,7 +4,7 @@ import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
 import type { Db } from "@/lib/db/client";
 import { setDbForTests } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
-import { pgBindReferral } from "@/lib/db/referrals";
+import { pgBindReferral, pgReserveFounderSlot } from "@/lib/db/referrals";
 import { feeTransferInstructions, MIN_SYSTEM_ACCOUNT_LAMPORTS } from "./fee-transfer";
 import { PANDA_TREASURY } from "./constants";
 
@@ -31,9 +31,6 @@ after(() => {
 });
 beforeEach(() => {
   process.env.FEATURE_REFERRALS = "true";
-  process.env.REFERRAL_START = "2020-01-01T00:00:00Z";
-  process.env.REFERRAL_END = "2099-01-01T00:00:00Z";
-  process.env.REFERRAL_SHARE_BPS = "3000"; // 30%
 });
 
 const FEE = 1_000_000; // an arbitrary but realistic fee, in lamports
@@ -51,13 +48,6 @@ test("REFERRALS flag off: split never happens even with a bound referrer", async
   await pgBindReferral(db, TRADER.toBase58(), REFERRER.toBase58(), Date.now());
   const ixs = await feeTransferInstructions(fakeConnection({}), TRADER, FEE);
   assert.equal(ixs.length, 1, "still one instruction — no split");
-});
-
-test("outside the campaign window: split never happens", async () => {
-  process.env.REFERRAL_START = "2099-01-01T00:00:00Z";
-  process.env.REFERRAL_END = "2099-02-01T00:00:00Z";
-  const ixs = await feeTransferInstructions(fakeConnection({}), TRADER, FEE);
-  assert.equal(ixs.length, 1);
 });
 
 test("a bound, well-funded referrer: two instructions — 30% to the referrer, 70% to the treasury, summing to the exact fee", async () => {
@@ -88,11 +78,23 @@ test("the referrer's OWN balance is below the rent-exempt minimum even after the
   assert.equal(lamports, FEE, "the full fee, not just the treasury's usual share");
 });
 
-test("REFERRAL_SHARE_BPS is configurable", async () => {
-  process.env.REFERRAL_SHARE_BPS = "5000"; // 50%
+test("REFERRAL_TIERS is configurable: a non-Founder's first invitee (rank 1) gets whatever the first tier says", async () => {
+  process.env.REFERRAL_TIERS = JSON.stringify([{ upTo: null, bps: 5000 }]); // single tier, 50%, for simplicity
+  const referrer = Keypair.generate().publicKey;
   const trader = Keypair.generate().publicKey;
-  await pgBindReferral(db, trader.toBase58(), REFERRER.toBase58(), Date.now());
-  const ixs = await feeTransferInstructions(fakeConnection({ [REFERRER.toBase58()]: WELL_FUNDED }), trader, FEE);
+  await pgBindReferral(db, trader.toBase58(), referrer.toBase58(), Date.now());
+  const ixs = await feeTransferInstructions(fakeConnection({ [referrer.toBase58()]: WELL_FUNDED }), trader, FEE);
   const toReferrer = Number(ixs[0].data.readBigUInt64LE(ixs[0].data.length - 8));
   assert.equal(toReferrer, FEE / 2);
+});
+
+test("a Founder gets the flat Founder share regardless of REFERRAL_TIERS or rank", async () => {
+  process.env.REFERRAL_TIERS = JSON.stringify([{ upTo: null, bps: 100 }]); // deliberately far from the Founder's 30%
+  const founder = Keypair.generate().publicKey;
+  const trader = Keypair.generate().publicKey;
+  await pgReserveFounderSlot(db, founder.toBase58(), Date.now());
+  await pgBindReferral(db, trader.toBase58(), founder.toBase58(), Date.now());
+  const ixs = await feeTransferInstructions(fakeConnection({ [founder.toBase58()]: WELL_FUNDED }), trader, FEE);
+  const toFounder = Number(ixs[0].data.readBigUInt64LE(ixs[0].data.length - 8));
+  assert.equal(toFounder, Math.floor((FEE * 3000) / 10_000), "30% flat, not the 1% REFERRAL_TIERS override");
 });

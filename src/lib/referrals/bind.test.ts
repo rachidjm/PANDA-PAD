@@ -1,9 +1,10 @@
 import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { Keypair } from "@solana/web3.js";
 import type { Db } from "@/lib/db/client";
 import { setDbForTests } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
-import { pgGetReferrer } from "@/lib/db/referrals";
+import { pgFounderAllocation, pgGetReferrer } from "@/lib/db/referrals";
 import { tryBindReferral } from "./bind";
 
 const REFERRED = "35gHwjqiTsPPCzLpQhCcJZBGiUR9TSDYNPuxUdvERVkh";
@@ -22,8 +23,6 @@ after(() => {
 });
 beforeEach(() => {
   process.env.FEATURE_REFERRALS = "true";
-  process.env.REFERRAL_START = "2020-01-01T00:00:00Z";
-  process.env.REFERRAL_END = "2099-01-01T00:00:00Z";
   process.env.SOLANA_RPC_URL = "https://mainnet.helius-rpc.com/?api-key=test-key";
 });
 
@@ -44,13 +43,6 @@ test("tryBindReferral: the flag off rejects outright, even with everything else 
 test("tryBindReferral: rejects an invalid address, and self-referral, before ever touching the chain or the database", async () => {
   assert.equal(await tryBindReferral(OTHER, "not an address", cleanFunder(OTHER)), "rejected");
   assert.equal(await tryBindReferral(OTHER, OTHER, cleanFunder(OTHER)), "rejected", "a wallet cannot refer itself");
-});
-
-test("tryBindReferral: rejects outside the campaign window", async () => {
-  process.env.REFERRAL_START = "2099-01-01T00:00:00Z";
-  process.env.REFERRAL_END = "2099-02-01T00:00:00Z";
-  const w = `W${Math.random()}`;
-  assert.equal(await tryBindReferral(w, REFERRER, cleanFunder(w)), "rejected");
 });
 
 test("tryBindReferral: 'bound' on a real, clean, first-time link — and it really is in the database", async () => {
@@ -76,4 +68,28 @@ test("tryBindReferral: 'retry_later' (not terminal) when the anti-abuse check is
   const w = `W${Math.random()}`;
   assert.equal(await tryBindReferral(w, REFERRER, unknownFunder), "retry_later");
   assert.equal(await pgGetReferrer(db, w), null, "not bound yet — a later sign-in may still succeed");
+});
+
+test("tryBindReferral: a referrer's first-ever bound invitee reserves them a Founder slot when FEATURE_FOUNDER_NFT is on", async () => {
+  process.env.FEATURE_FOUNDER_NFT = "true";
+  const founder = Keypair.generate().publicKey.toBase58();
+  const first = `W${Math.random()}`;
+  assert.equal(await tryBindReferral(first, founder, cleanFunder(first)), "bound");
+  const allocation = await pgFounderAllocation(db, founder);
+  assert.ok(allocation, "a slot was reserved");
+  assert.ok(allocation!.rank >= 1 && allocation!.rank <= 1000);
+  assert.equal(allocation!.mintedAt, null, "reserved, not minted — the collection doesn't exist yet");
+
+  const second = `W${Math.random()}`;
+  assert.equal(await tryBindReferral(second, founder, cleanFunder(second)), "bound");
+  const stillOne = await pgFounderAllocation(db, founder);
+  assert.deepEqual(stillOne, allocation, "a SECOND invitee never reserves a second slot or changes the first");
+});
+
+test("tryBindReferral: no Founder slot is reserved when FEATURE_FOUNDER_NFT is off", async () => {
+  process.env.FEATURE_FOUNDER_NFT = "false";
+  const founder = Keypair.generate().publicKey.toBase58();
+  const w = `W${Math.random()}`;
+  assert.equal(await tryBindReferral(w, founder, cleanFunder(w)), "bound");
+  assert.equal(await pgFounderAllocation(db, founder), null);
 });

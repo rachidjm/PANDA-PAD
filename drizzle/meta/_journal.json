@@ -50,6 +50,13 @@
       "when": 1790546783730,
       "tag": "0006_misty_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791035867797,
+      "tag": "0007_pale_magdalene",
+      "breakpoints": true
     }
   ]
 }

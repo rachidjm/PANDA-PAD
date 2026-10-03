@@ -3,7 +3,7 @@ import { PANDA_TREASURY } from "./constants";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb } from "@/lib/db/client";
 import { pgGetReferrer } from "@/lib/db/referrals";
-import { campaignActive, referralShareBps } from "@/lib/referrals/constants";
+import { commissionBpsFor } from "@/lib/referrals/tiers";
 
 /**
  * PANDA's fee is a plain SOL transfer to the treasury inside the same transaction as the trade. A system account that
@@ -46,24 +46,26 @@ export async function feeTransferInstruction(connection: Connection, from: Publi
 }
 
 /**
- * The affiliate campaign (phase: referrals): if `from` was referred, the campaign is currently running, and the
- * referrer's own wallet can actually receive its share without going below the same rent-exempt minimum as
- * above, this is that referrer and their cut of `feeLamports` (basis points of the FEE, not of the trade —
- * REFERRAL_SHARE_BPS). Otherwise null, and the whole fee goes to the treasury as usual. Never throws: any
- * failure along the way (no DB configured, an RPC hiccup reading the referrer's balance, ...) is treated the
- * same as "no referrer" — a referral is a bonus on top of the trade, never a reason the trade could fail or
- * behave differently.
+ * The Recruiters program: if `from` was referred and their recruiter's own wallet can actually receive its share
+ * without going below the same rent-exempt minimum as above, this is that recruiter and their cut of
+ * `feeLamports` — basis points of the FEE, not of the trade, from `commissionBpsFor` (Founder flat 30%, or the
+ * invitee's live marginal tier — see src/lib/referrals/tiers.ts). Otherwise null, and the whole fee goes to the
+ * treasury as usual. Never throws: any failure along the way (no DB configured, an RPC hiccup reading the
+ * recruiter's balance, ...) is treated the same as "no recruiter" — this is a bonus on top of the trade, never a
+ * reason the trade could fail or behave differently.
  */
-async function referrerShare(connection: Connection, from: PublicKey, feeLamports: number): Promise<{ pubkey: PublicKey; lamports: number } | null> {
-  if (!isEnabled("REFERRALS") || !campaignActive()) return null;
+async function recruiterShare(connection: Connection, from: PublicKey, feeLamports: number): Promise<{ pubkey: PublicKey; lamports: number } | null> {
+  if (!isEnabled("REFERRALS")) return null;
   try {
-    const referrerAddr = await pgGetReferrer(getDb(), from.toBase58());
+    const fromAddr = from.toBase58();
+    const referrerAddr = await pgGetReferrer(getDb(), fromAddr);
     if (!referrerAddr) return null;
     const referrerPubkey = new PublicKey(referrerAddr); // stored addresses are only ever written after PublicKey validation (see bind.ts)
-    const share = Math.floor((feeLamports * referralShareBps()) / 10_000);
+    const bps = await commissionBpsFor(referrerAddr, fromAddr);
+    const share = Math.floor((feeLamports * bps) / 10_000);
     if (share <= 0) return null;
     const referrerBalance = await connection.getBalance(referrerPubkey, "confirmed");
-    if (!feeIsReceivable(share, referrerBalance)) return null; // "Si la wallet del invitador no tiene el mínimo de renta, esa parte va a la tesorería"
+    if (!feeIsReceivable(share, referrerBalance)) return null; // "Si la wallet del reclutador no tiene el mínimo de renta, esa parte va a la tesorería"
     return { pubkey: referrerPubkey, lamports: share };
   } catch {
     return null;
@@ -71,17 +73,16 @@ async function referrerShare(connection: Connection, from: PublicKey, feeLamport
 }
 
 /**
- * The real fee instruction(s) for this trade: one transfer to the treasury, OR — during the affiliate
- * campaign, for a referred trader, when the referrer can receive it — two transfers in the SAME transaction:
- * the referrer's cut straight to their own wallet, the rest to the treasury. PANDA never holds the referral
- * share even for an instant. An empty array when there's nothing to charge or the treasury itself can't
- * receive it (see feeTransferInstruction).
+ * The real fee instruction(s) for this trade: one transfer to the treasury, OR — for a referred trader, when
+ * their recruiter can receive it — two transfers in the SAME transaction: the recruiter's cut straight to their
+ * own wallet, the rest to the treasury. PANDA never holds the recruiter's share even for an instant. An empty
+ * array when there's nothing to charge or the treasury itself can't receive it (see feeTransferInstruction).
  */
 export async function feeTransferInstructions(connection: Connection, from: PublicKey, feeLamports: number | bigint): Promise<TransactionInstruction[]> {
   const fee = Number(feeLamports);
   if (!(fee > 0)) return [];
 
-  const referrer = await referrerShare(connection, from, fee);
+  const referrer = await recruiterShare(connection, from, fee);
   if (!referrer) {
     const ix = await feeTransferInstruction(connection, from, fee);
     return ix ? [ix] : [];

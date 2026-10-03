@@ -37,14 +37,14 @@ export default function Navbar() {
     { href: "/create", label: t("nav.create") },
     ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
     ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
-    ...(referrals ? [{ href: "/affiliates", label: t("nav.affiliates") }] : []),
+    ...(referrals ? [{ href: "/recruiters", label: t("nav.recruiters") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
   ];
 
   // Phone: Home / Discover / Create / Rewards / Portfolio live in the bottom bar; the rest is here, short enough not to scroll.
   const more = [
     ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
-    ...(referrals ? [{ href: "/affiliates", label: t("nav.affiliates") }] : []),
+    ...(referrals ? [{ href: "/recruiters", label: t("nav.recruiters") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
     { href: "/activity", label: t("act.title") },
   ];

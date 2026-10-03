@@ -255,17 +255,94 @@ export const pendingFeeLocks = pgTable("pending_fee_locks", {
   auditedAt: bigint("audited_at", { mode: "number" }),
 });
 
-// ── Affiliate campaign (referrals) ──────────────────────────────────────────────────────────────────────────────
+// ── Recruiters (referrals) ──────────────────────────────────────────────────────────────────────────────────────
 /** First-touch, permanent: the wallet credited with having brought `wallet` in. One row per referred wallet, ever
- *  (never overwritten — see src/lib/db/referrals.ts). */
+ *  (never overwritten — see src/lib/db/referrals.ts). The 3 "trader active" columns track a live, 3-UTC-day streak:
+ *  see src/lib/referrals/streak.ts for exactly how they're read and written. `isActive` is deliberately NOT a
+ *  stored column — it's computed from `lastQualifyingDay`/`streakAtLastQualifyingDay` at read time, so going
+ *  inactive after 3 quiet days needs no cron sweep (this project's Vercel crons only run daily). `firstActivatedAt`
+ *  is set exactly once, the first time the streak reaches 3, and never touched again — a reactivation after a gap
+ *  reuses it, which is what gives a long-standing invitee their original place in the recruiter's marginal-tier
+ *  ordering (src/lib/referrals/tiers.ts) instead of losing it to a quiet week. */
 export const referrals = pgTable(
   "referrals",
   {
     wallet: text("wallet").primaryKey(), // the REFERRED wallet
     referrer: text("referrer").notNull(),
     boundAt: bigint("bound_at", { mode: "number" }).notNull(),
+    lastQualifyingDay: date("last_qualifying_day", { mode: "string" }),
+    streakAtLastQualifyingDay: smallint("streak_at_last_qualifying_day").notNull().default(0),
+    firstActivatedAt: bigint("first_activated_at", { mode: "number" }),
   },
-  (t) => [check("referrals_no_self", sql`${t.wallet} <> ${t.referrer}`), index("referrals_referrer").on(t.referrer)]
+  (t) => [
+    check("referrals_no_self", sql`${t.wallet} <> ${t.referrer}`),
+    check("referrals_streak_nonneg", sql`${t.streakAtLastQualifyingDay} >= 0`),
+    index("referrals_referrer").on(t.referrer),
+    index("referrals_referrer_first_activated").on(t.referrer, t.firstActivatedAt),
+  ]
+);
+
+/** One row per (referred wallet, UTC day) with any volume — only kept for wallets that have a referrer, so this
+ *  never grows for the whole user base. Accumulated from src/app/api/portfolio/record-trade's own already-verified
+ *  SOL-equivalent trade amount (never a separate, re-derived figure). Read by src/lib/referrals/streak.ts to decide
+ *  whether a day crossed REFERRAL_MIN_DAILY_VOLUME_SOL and should extend or reset the streak above. */
+export const referralDailyVolume = pgTable(
+  "referral_daily_volume",
+  {
+    wallet: text("wallet").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    volumeLamports: lamports("volume_lamports").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.wallet, t.day] }), check("referral_daily_volume_nonneg", sql`${t.volumeLamports} >= 0`)]
+);
+
+/** One row per mint ever created through PANDA's own /create flow, written only after the creation transaction is
+ *  confirmed on-chain (never from the client's say-so alone — same discipline as `trades`). Two things read this:
+ *  the "Lanzadas en PANDA" showcase (src/components/home/HomeSection.tsx and friends), and a coin page's own
+ *  landing-as-recruiter-link capture (src/lib/referrals/client.ts) — a PANDA-launched coin's `/coin/<mint>` page
+ *  doubles as its creator's recruiter link. */
+export const pandaLaunches = pgTable("panda_launches", {
+  mint: text("mint").primaryKey(),
+  creator: text("creator").notNull(),
+  launchedAt: bigint("launched_at", { mode: "number" }).notNull(),
+});
+
+/** The 1,000 "Founder" slots: reserved the moment a recruiter lands their first-ever bound invitee (see
+ *  tryBindReferral in src/lib/referrals/bind.ts), long before the Founder NFT collection exists to mint into. A row
+ *  existing here — reserved or minted, doesn't matter which — is what src/lib/referrals/tiers.ts's `isFounder()`
+ *  checks for the permanent flat 30% share; `mintedAt`/`assetId` fill in once the collection is created and the
+ *  reserved slots are minted (see scripts/nft-create-collection.ts). */
+export const founderAllocations = pgTable(
+  "founder_allocations",
+  {
+    wallet: text("wallet").primaryKey(),
+    rank: smallint("rank").notNull(),
+    reservedAt: bigint("reserved_at", { mode: "number" }).notNull(),
+    mintedAt: bigint("minted_at", { mode: "number" }),
+    assetId: text("asset_id"),
+  },
+  (t) => [unique("founder_allocations_rank").on(t.rank), check("founder_allocations_rank_range", sql`${t.rank} >= 1 AND ${t.rank} <= 1000`)]
+);
+
+/** Prepared, not wired to a live job yet (FEATURE_FOUNDER_PANDA_REWARDS is off, and there is no $PANDA mint to buy
+ *  until the token launches) — see docs in src/lib/founder/panda-accrual.ts for what turns this on. Amounts are
+ *  base units of $PANDA (like lamports are base units of SOL), not a float, so no token-decimals assumption is
+ *  baked in before the token's real decimals are known. */
+export const founderPandaAccrual = pgTable(
+  "founder_panda_accrual",
+  {
+    wallet: text("wallet").primaryKey(),
+    pendingBaseUnits: bigint("pending_base_units", { mode: "number" }).notNull().default(0),
+    totalAccruedBaseUnits: bigint("total_accrued_base_units", { mode: "number" }).notNull().default(0),
+    totalClaimedBaseUnits: bigint("total_claimed_base_units", { mode: "number" }).notNull().default(0),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    check(
+      "founder_panda_accrual_nonneg",
+      sql`${t.pendingBaseUnits} >= 0 AND ${t.totalAccruedBaseUnits} >= 0 AND ${t.totalClaimedBaseUnits} >= 0 AND ${t.totalClaimedBaseUnits} <= ${t.totalAccruedBaseUnits}`
+    ),
+  ]
 );
 
 /** One row per referral fee payment PANDA verified on-chain — informational only (a record for the Affiliates
@@ -304,5 +381,5 @@ export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
-  referrals, referralPayouts, vanityMintKeys,
+  referrals, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
 };

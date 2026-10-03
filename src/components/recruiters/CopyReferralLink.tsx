@@ -16,7 +16,7 @@ const CheckIcon = () => (
   </svg>
 );
 
-/** A wallet's affiliate link (`<origin>/?ref=<wallet>`), shown and copyable — used on the Affiliates page and on a creator's own coin page. */
+/** A wallet's recruiter link (`<origin>/?ref=<wallet>`), shown and copyable — used on the Recruiters page and on a creator's own coin page. */
 export default function CopyReferralLink({ wallet, className = "" }: { wallet: string; className?: string }) {
   const { t } = useLanguage();
   const [link, setLink] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export default function CopyReferralLink({ wallet, className = "" }: { wallet: s
   }
 
   const copied = state === "copied";
-  const label = copied ? t("aff.copied") : state === "failed" ? t("aff.copyFailed") : t("aff.copy");
+  const label = copied ? t("rec.copied") : state === "failed" ? t("rec.copyFailed") : t("rec.copy");
 
   return (
     <div className={`flex flex-wrap items-center gap-2 rounded-2xl border border-paper/10 bg-paper/[0.04] p-3 ${className}`}>

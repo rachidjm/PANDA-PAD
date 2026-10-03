@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "./flags";
 import { needsDatabase, parseStorageModes } from "@/lib/db/mode";
+import { isValidReferralTiersJson } from "@/lib/referrals/tiers-config";
 
 /**
  * Every environment variable PANDA reads, validated by a small schema (no new dependency): for each one, whether it is
@@ -44,9 +45,7 @@ const isHttpUrl = (v: string) => {
 /** A base58 secret key or a JSON byte array — shape only; the value is never inspected further or printed. */
 const looksLikeSecretKey = (v: string) => /^\[\s*\d+(\s*,\s*\d+){31,}\s*\]$/.test(v.trim()) || /^[1-9A-HJ-NP-Za-km-z]{60,100}$/.test(v.trim());
 const isPositiveNumber = (v: string) => Number.isFinite(Number(v)) && Number(v) > 0;
-/** An ISO-8601 timestamp that round-trips exactly (rejects "2026-10-26" alone — a bare date is ambiguous about UTC midnight vs local). */
-const isIsoUtcInstant = (v: string) => !Number.isNaN(Date.parse(v)) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/.test(v.trim());
-const isBps = (v: string) => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 10_000;
+const isReferralTiersJson = (v: string) => isValidReferralTiersJson(v);
 
 const always = () => true;
 const never = () => false;
@@ -80,9 +79,9 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["ALERT_WEBHOOK_URL"], group: "alerts", required: never, valid: isHttpUrl, affects: "operator alerts (failed payouts, low pool, cron failures); alerts still go to the logs" },
   { names: ["REWARDS_MAX_CLAIM_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the per-claim payout cap (default applies)" },
   { names: ["REWARDS_DAILY_CAP_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the daily payout cap (default applies)" },
-  { names: ["REFERRAL_START"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): unset or invalid, no referral is ever paid — the whole fee goes to the treasury" },
-  { names: ["REFERRAL_END"], group: "referrals", required: (e) => isEnabled("REFERRALS", e), valid: isIsoUtcInstant, affects: "the affiliate campaign (FEATURE_REFERRALS): see REFERRAL_START" },
-  { names: ["REFERRAL_SHARE_BPS"], group: "referrals", required: never, valid: isBps, affects: "the referrer's share of PANDA's trade fee during the campaign (default 3000 = 30%)" },
+  { names: ["REFERRAL_TIERS"], group: "referrals", required: never, valid: isReferralTiersJson, affects: "the Recruiters program's marginal commission tiers (FEATURE_REFERRALS): unset or invalid, the built-in default (30%/25%/20% at 500/1,500) is used" },
+  { names: ["REFERRAL_MIN_DAILY_VOLUME_SOL"], group: "referrals", required: never, valid: isPositiveNumber, affects: "the daily volume an invitee needs to count a day toward their 3-day active streak (default 0.05 SOL)" },
+  { names: ["PANDA_NFT_MINTER_SECRET_KEY"], group: "referrals", required: (e) => isEnabled("FOUNDER_NFT", e), valid: looksLikeSecretKey, affects: "minting the Founder NFT collection and its reserved slots (FEATURE_FOUNDER_NFT) — reservation itself needs no key, only the real mint does" },
   {
     names: ["VANITY_STOCK_KEY"],
     group: "core",
