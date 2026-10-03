@@ -44,7 +44,7 @@ test("every fee in the texts is the one the code charges: 1% default / 0.5% refe
   assert.equal(MARKET_CONFIG.feeBps, 200);
   // The Buy $PANDA widget charges the same per-wallet rate as a trade (src/components/BuyPandaWidget.tsx) — the text says "the same".
   const widget = readFileSync(path.join(process.cwd(), "src", "components", "BuyPandaWidget.tsx"), "utf8");
-  assert.match(widget, /PANDA_FEE_BPS|feeBpsForWallet/);
+  assert.match(widget, /PANDA_FEE_BPS|feeBpsForWallet|useFeeBps/);
 });
 
 test("with every optional flag OFF no text presents a switched-off feature: no vault, rewards, airdrops, points, NFTs, OTC", () => {

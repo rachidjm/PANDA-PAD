@@ -7,7 +7,8 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { getJupiterQuote, SOL_MINT } from "@/lib/jupiter/client";
 import { base64ToVersionedTransaction } from "@/lib/pump/wire";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS } from "@/lib/pump/constants";
+import { DEFAULT_SLIPPAGE_PCT } from "@/lib/pump/constants";
+import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { TxFailedError } from "@/lib/solana/tx-errors";
@@ -28,6 +29,7 @@ type Quote = { out: number; min: number; impactPct: number };
 export default function BuyPandaWidget() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
+  const feeBps = useFeeBps(connected ? publicKey?.toBase58() : null);
   const { t, lang } = useLanguage();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -150,7 +152,7 @@ export default function BuyPandaWidget() {
 
   const busy = status === "building" || status === "signing" || status === "confirming";
   const sol = parseFloat(amount) || 0;
-  const feeSol = (sol * PANDA_FEE_BPS) / 10_000;
+  const feeSol = (sol * feeBps) / 10_000;
   const fmt = (n: number, max = 2) => n.toLocaleString(lang, { maximumFractionDigits: max });
   const impact = quote?.impactPct ?? 0;
   const shortfall = connected ? buyShortfall(sol, balance) : null;
@@ -204,7 +206,7 @@ export default function BuyPandaWidget() {
           <Row label={t("bp.min")} value={`${fmt(quote.min)} $PANDA`} />
           <Row label={t("bp.impact")} value={<span className={impactTone}>{impact < 0.01 ? "<0.01%" : `${fmt(impact)}%`}</span>} />
           <Row label={t("bp.slippage")} value={`${DEFAULT_SLIPPAGE_PCT}%`} />
-          <Row label={t("bp.pandaFee", { pct: PANDA_FEE_BPS / 100 })} value={`${fmt(feeSol, 6)} SOL`} />
+          <Row label={t("bp.pandaFee", { pct: feeBps / 100 })} value={`${fmt(feeSol, 6)} SOL`} />
           <Row label={t("bp.total")} value={<span className="font-semibold">{`${fmt(sol + feeSol, 6)} SOL`}</span>} />
           <p className="pt-1 text-[11px] leading-relaxed text-panda-grey">{t("bp.feesNote")}</p>
         </dl>

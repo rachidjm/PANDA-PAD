@@ -5,6 +5,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import WalletButton from "@/components/WalletButton";
 import CopyReferralLink from "./CopyReferralLink";
+import SetRecruiterCode from "./SetRecruiterCode";
+import ApplyRecruiterCode from "./ApplyRecruiterCode";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import { formatMoney } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -184,7 +186,10 @@ function LoggedIn({ address }: { address: string }) {
             {t("rec.shareTelegram")}
           </a>
         </div>
+        <SetRecruiterCode wallet={address} />
       </section>
+
+      <ApplyRecruiterCode wallet={address} className="mt-4 rounded-[24px] border border-paper/10 bg-ink-raised p-6" />
 
       {state === "error" && <p className="mt-4 text-sm text-clay-red">{t("rec.readError")}</p>}
 

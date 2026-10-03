@@ -13,6 +13,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { clipLabel, looksLikeSpam } from "@/lib/portfolio/spam";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
+import ApplyRecruiterCode from "@/components/recruiters/ApplyRecruiterCode";
 
 type State = "loading" | "ready" | "error";
 
@@ -118,6 +119,8 @@ export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: Pu
           </p>
         )}
       </div>
+
+      {referrals && <ApplyRecruiterCode wallet={publicKey.toBase58()} dismissible className="mb-2 rounded-xl bg-paper/5 px-3 py-2.5" />}
 
       {state === "error" && (
         <p className="rounded-xl bg-paper/5 px-3 py-2.5 text-xs text-panda-grey">

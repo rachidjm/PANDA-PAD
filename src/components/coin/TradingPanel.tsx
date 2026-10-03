@@ -6,8 +6,8 @@ import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { Coin } from "@/lib/types";
-import { PANDA_FEE_BPS } from "@/lib/pump/constants";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
+import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { dexLabel } from "@/lib/dex-labels";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -34,6 +34,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const { connection } = useConnection();
   const readConnection = useReadConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
+  const feeBps = useFeeBps(connected ? publicKey?.toBase58() : null);
   const { t } = useLanguage();
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
@@ -161,14 +162,14 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const amt = side === "buy" ? payAmt ?? 0 : sellTokenAmount ?? 0;
   const noRate = side === "buy" && typed > 0 && payAmt === null;
   // Paid with a token, PANDA's fee is still a SOL transfer: a share of what the token is worth in SOL, on top of it.
-  const feeSol = !paidInSol && pay.priceUsd && rates.solUsd ? (amt * pay.priceUsd * (PANDA_FEE_BPS / 10_000)) / rates.solUsd : 0;
+  const feeSol = !paidInSol && pay.priceUsd && rates.solUsd ? (amt * pay.priceUsd * (feeBps / 10_000)) / rates.solUsd : 0;
   const buyShort = side === "buy" && connected && paidInSol ? buyShortfall(amt, displaySol) : null;
   const tokenShort = side === "buy" && connected && !paidInSol && pay.balance !== null && amt > pay.balance ? { need: amt, have: pay.balance } : null;
   const needSolForFee = !paidInSol && amt > 0 ? feeSol + NETWORK_BUFFER_SOL : 0;
   const feeShort = side === "buy" && connected && !paidInSol && amt > 0 && displaySol !== null && displaySol < needSolForFee ? { need: needSolForFee, have: displaySol } : null;
   const sellNoTokens = side === "sell" && connected && displayTokens !== null && amt > displayTokens;
   const sellNoSol = side === "sell" && connected && displaySol !== null && amt > 0 && displaySol < SELL_MIN_SOL;
-  const sellFeeInUnit = side === "sell" && amt > 0 ? tokensToSellUnit(sellUnit, (amt * PANDA_FEE_BPS) / 10_000) : null;
+  const sellFeeInUnit = side === "sell" && amt > 0 ? tokensToSellUnit(sellUnit, (amt * feeBps) / 10_000) : null;
 
   // How much this trade would move the price — on-curve (still on Pump.fun's own bonding curve) is computed
   // straight from the curve's real reserves; graduated/external uses Jupiter's own public quote instead.
@@ -425,12 +426,12 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
                 <span>{paidInSol ? amt.toFixed(4) : fmtAsset(amt)} {pay.symbol}</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
-                <span>{paidInSol ? t("trading.pandaFee", { pct: PANDA_FEE_BPS / 100 }) : t("trading.pandaFeeSol", { pct: PANDA_FEE_BPS / 100 })}</span>
-                <span>{paidInSol ? ((amt * PANDA_FEE_BPS) / 10_000).toFixed(4) : feeSol > 0 ? `≈ ${feeSol.toFixed(5)}` : "—"} SOL</span>
+                <span>{paidInSol ? t("trading.pandaFee", { pct: feeBps / 100 }) : t("trading.pandaFeeSol", { pct: feeBps / 100 })}</span>
+                <span>{paidInSol ? ((amt * feeBps) / 10_000).toFixed(4) : feeSol > 0 ? `≈ ${feeSol.toFixed(5)}` : "—"} SOL</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">
                 <span>{t("trading.youPay")}</span>
-                <span>{paidInSol ? (amt * (1 + PANDA_FEE_BPS / 10_000)).toFixed(4) : fmtAsset(amt)} {pay.symbol}</span>
+                <span>{paidInSol ? (amt * (1 + feeBps / 10_000)).toFixed(4) : fmtAsset(amt)} {pay.symbol}</span>
               </div>
             </div>
           )}
@@ -501,7 +502,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
                 <span>{fmtAsset(amt)} ${coin.ticker}</span>
               </div>
               <div className="flex items-center justify-between text-panda-grey">
-                <span>{t("trading.pandaFeeSol", { pct: PANDA_FEE_BPS / 100 })}</span>
+                <span>{t("trading.pandaFeeSol", { pct: feeBps / 100 })}</span>
                 <span>{sellFeeInUnit !== null ? `≈ ${roundSellValue(sellUnit, sellFeeInUnit)}` : "—"} {sellUnit === "SOL" ? "SOL" : VIEW_SYMBOL[sellUnit]}</span>
               </div>
               <div className="flex items-center justify-between border-t border-paper/10 pt-1 font-semibold text-paper">

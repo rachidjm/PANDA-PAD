@@ -2,6 +2,9 @@ import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
 import { pgBindReferral, pgCountBoundInvitees, pgGetReferrer, pgReserveFounderSlot } from "@/lib/db/referrals";
+import { pgGetWalletByCode } from "@/lib/db/fee-tier";
+import { pgHasAnyTrade } from "@/lib/db/trades";
+import { normalizeRecruiterCode } from "./codes";
 import { firstFunderCheck } from "./anti-abuse";
 
 /**
@@ -70,4 +73,56 @@ export async function tryBindReferral(
   }
 
   return "bound";
+}
+
+/**
+ * "invalid_code"    no recruiter owns that short code.
+ * "already_traded"  this wallet already has at least one trade — a code can only be applied before the first one.
+ * (every other outcome is exactly tryBindReferral's own — see above.)
+ */
+export type ApplyCodeOutcome = BindOutcome | "invalid_code" | "already_traded";
+
+/** Whether `wallet` could still apply a recruiter code right now — no referrer yet AND no trade yet. Used to
+ *  decide whether to even show the "have a code?" field/nudge, without exposing WHY if it can't (see route). */
+export async function canApplyRecruiterCode(wallet: string): Promise<boolean> {
+  if (!isEnabled("REFERRALS")) return false;
+  let db;
+  try {
+    db = getDb();
+  } catch (err) {
+    if (err instanceof DbNotConfiguredError) return false;
+    throw err;
+  }
+  const [referrer, traded] = await Promise.all([pgGetReferrer(db, wallet), pgHasAnyTrade(db, wallet)]);
+  return !referrer && !traded;
+}
+
+/** The manual "I have a code" flow (as opposed to a `?ref=` link): resolves the short code to its owner's wallet,
+ *  then goes through the exact same binding rules as a link (self-referral, anti-abuse, Founder slot) via
+ *  tryBindReferral — plus the one rule unique to this flow: a wallet that has already made a trade can never
+ *  apply a code afterwards (it would retroactively change its fee rate and someone else's commission on trades
+ *  that already happened). That check happens here, before resolving the code, so "already_traded" never
+ *  depends on whether the typed code was even real. */
+export async function tryApplyRecruiterCode(
+  wallet: string,
+  rawCode: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<ApplyCodeOutcome> {
+  if (!isEnabled("REFERRALS")) return "rejected";
+
+  let db;
+  try {
+    db = getDb();
+  } catch (err) {
+    if (err instanceof DbNotConfiguredError) return "retry_later";
+    throw err;
+  }
+
+  if (await pgGetReferrer(db, wallet)) return "already_bound";
+  if (await pgHasAnyTrade(db, wallet)) return "already_traded";
+
+  const referrer = await pgGetWalletByCode(db, normalizeRecruiterCode(rawCode));
+  if (!referrer) return "invalid_code";
+
+  return tryBindReferral(wallet, referrer, fetchImpl);
 }
