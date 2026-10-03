@@ -255,6 +255,26 @@ export const pendingFeeLocks = pgTable("pending_fee_locks", {
   auditedAt: bigint("audited_at", { mode: "number" }),
 });
 
+// ── Two-tier trading fee ────────────────────────────────────────────────────────────────────────────────────────
+/** Wallets that were already trading on PANDA before the two-tier fee shipped, grandfathered onto the lower
+ *  rate (PANDA_REFERRED_FEE_BPS) forever, exactly as if they had a recruiter — see src/lib/pump/fee-tier.ts.
+ *  Populated ONCE by scripts/backfill-legacy-fee-wallets.ts as a frozen snapshot: nothing ever adds to this
+ *  table afterward, so a wallet's first trade AFTER that snapshot correctly pays the new default rate unless it
+ *  has its own recruiter. */
+export const legacyFeeWallets = pgTable("legacy_fee_wallets", {
+  wallet: text("wallet").primaryKey(),
+  markedAt: bigint("marked_at", { mode: "number" }).notNull(),
+});
+
+/** A recruiter's own short code (`panda-pad.vercel.app/r/<code>`, and applicable by hand on the Recruiters page
+ *  or at sign-in) — one per wallet, chosen once, permanent (so an already-shared link never breaks). Validated
+ *  by src/lib/referrals/codes.ts before it ever reaches here; the DB only enforces uniqueness. */
+export const recruiterCodes = pgTable("recruiter_codes", {
+  code: text("code").primaryKey(),
+  wallet: text("wallet").notNull().unique(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 // ── Recruiters (referrals) ──────────────────────────────────────────────────────────────────────────────────────
 /** First-touch, permanent: the wallet credited with having brought `wallet` in. One row per referred wallet, ever
  *  (never overwritten — see src/lib/db/referrals.ts). The 3 "trader active" columns track a live, 3-UTC-day streak:
@@ -382,4 +402,5 @@ export const schema = {
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
+  legacyFeeWallets, recruiterCodes,
 };

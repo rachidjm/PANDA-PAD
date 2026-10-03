@@ -14,16 +14,22 @@ export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 /**
- * PANDA's fee on a strategy: 0.5% for its buy and 0.5% for its sell, so 1% of the amount invested, paid up front when
- * the strategy is confirmed. A strategy's sale happens later and by itself, so there is no moment to take a cut of the
- * proceeds: it is charged on the amount invested instead, and added to what the user pays. Always paid in SOL.
+ * PANDA's fee on a strategy: the wallet's own per-trade rate (src/lib/pump/fee-tier.ts's feeBpsForWallet —
+ * 1% default, 0.5% referred/legacy) for its buy AND its sell, both paid up front when the strategy is
+ * confirmed — so `strategyFeeBps(tradeBps)` is double whatever a single trade would pay. A strategy's sale
+ * happens later and by itself, so there is no moment to take a cut of the proceeds: it is charged on the
+ * amount invested instead, and added to what the user pays. Always paid in SOL.
  */
+export function strategyFeeBps(tradeBps: number): number {
+  return tradeBps * 2;
+}
+/** @deprecated kept only for the legal-content computed strings (the DEFAULT rate's strategy fee, for display) — real strategy fees use strategyFeeBps(feeBpsForWallet(wallet)). */
 export const STRATEGY_FEE_BPS = PANDA_FEE_BPS * 2;
 
-/** The fee for investing `amountUsd`, in USD and in lamports of SOL. null when the SOL rate isn't known. */
-export function strategyFee(amountUsd: number, solUsd: number | null): { feeUsd: number; feeLamports: number } | null {
+/** The fee for investing `amountUsd` at `feeBps` (the wallet's own trade rate — see strategyFeeBps), in USD and in lamports of SOL. null when the SOL rate isn't known. */
+export function strategyFee(amountUsd: number, solUsd: number | null, feeBps: number): { feeUsd: number; feeLamports: number } | null {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0 || !solUsd || solUsd <= 0) return null;
-  const feeUsd = (amountUsd * STRATEGY_FEE_BPS) / 10_000;
+  const feeUsd = (amountUsd * strategyFeeBps(feeBps)) / 10_000;
   return { feeUsd, feeLamports: Math.floor((feeUsd / solUsd) * 1e9) };
 }
 

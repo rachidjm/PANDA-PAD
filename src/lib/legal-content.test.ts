@@ -4,10 +4,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { getLegalPage, LEGAL_LAST_UPDATED, LEGAL_PAGES, LEGAL_SLUGS, type LegalOptions, type LegalSlug } from "./legal-content";
 import { dict } from "@/lib/i18n/translations";
-import { PANDA_FEE_BPS } from "@/lib/pump/constants";
+import { PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS } from "@/lib/pump/constants";
 import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { MARKET_CONFIG } from "@/lib/market/config";
-import { STRATEGY_FEE_BPS } from "@/lib/strategy/plan";
+import { strategyFeeBps } from "@/lib/strategy/plan";
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { SESSION_TTL_MS } from "@/lib/auth/wallet-auth";
 
@@ -24,24 +24,27 @@ const everything = (opts: LegalOptions, lang: "en" | "es") => LEGAL_SLUGS.map((s
 
 const fmt = (bps: number, lang: "en" | "es") => `${lang === "es" ? String(bps / 100).replace(".", ",") : String(bps / 100)}%`;
 
-test("every fee in the texts is the one the code charges: 0.5% trade, 5% of creator fees (95% to the creator), 1% strategies, 2% NFT market", () => {
-  assert.equal(PANDA_FEE_BPS, 50);
+test("every fee in the texts is the one the code charges: 1% default / 0.5% referred trade, 5% of creator fees (95% to the creator), 2%/1% strategies, 2% NFT market", () => {
+  assert.equal(PANDA_FEE_BPS, 100);
+  assert.equal(PANDA_REFERRED_FEE_BPS, 50);
   assert.equal(PANDA_SHARE_BPS, 500);
   for (const lang of LANGS) {
     const terms = text("terms-of-service", lang, OFF);
-    assert.ok(terms.includes(fmt(PANDA_FEE_BPS, lang)), `${lang}: trading fee ${fmt(PANDA_FEE_BPS, lang)}`);
+    assert.ok(terms.includes(fmt(PANDA_FEE_BPS, lang)), `${lang}: default trading fee ${fmt(PANDA_FEE_BPS, lang)}`);
+    assert.ok(terms.includes(fmt(PANDA_REFERRED_FEE_BPS, lang)), `${lang}: referred/legacy trading fee ${fmt(PANDA_REFERRED_FEE_BPS, lang)}`);
     assert.ok(terms.includes(fmt(PANDA_SHARE_BPS, lang)), `${lang}: share of creator fees`);
     assert.ok(terms.includes(fmt(10_000 - PANDA_SHARE_BPS, lang)), `${lang}: what remains for the creator`);
-    assert.ok(text("risk-disclosure", lang, OFF).includes(fmt(PANDA_FEE_BPS, lang)));
-    assert.ok(text("terms-of-service", lang, { custody: true }).includes(fmt(STRATEGY_FEE_BPS, lang)), `${lang}: strategies`);
+    const strategyTerms = text("terms-of-service", lang, { custody: true });
+    assert.ok(strategyTerms.includes(fmt(strategyFeeBps(PANDA_FEE_BPS), lang)), `${lang}: strategies, default rate`);
+    assert.ok(strategyTerms.includes(fmt(strategyFeeBps(PANDA_REFERRED_FEE_BPS), lang)), `${lang}: strategies, referred/legacy rate`);
     assert.ok(text("terms-of-service", lang, { custody: false, nft: true, market: true }).includes(fmt(MARKET_CONFIG.feeBps, lang)), `${lang}: NFT market`);
   }
-  assert.equal(STRATEGY_FEE_BPS, 100);
+  assert.equal(strategyFeeBps(PANDA_FEE_BPS), 200);
+  assert.equal(strategyFeeBps(PANDA_REFERRED_FEE_BPS), 100);
   assert.equal(MARKET_CONFIG.feeBps, 200);
-  // The Buy $PANDA widget charges the same PANDA_FEE_BPS as a trade (src/components/BuyPandaWidget.tsx) — the text says "the same".
+  // The Buy $PANDA widget charges the same per-wallet rate as a trade (src/components/BuyPandaWidget.tsx) — the text says "the same".
   const widget = readFileSync(path.join(process.cwd(), "src", "components", "BuyPandaWidget.tsx"), "utf8");
-  assert.match(widget, /PANDA_FEE_BPS/);
-  assert.doesNotMatch(widget, /STRATEGY_FEE_BPS/);
+  assert.match(widget, /PANDA_FEE_BPS|feeBpsForWallet/);
 });
 
 test("with every optional flag OFF no text presents a switched-off feature: no vault, rewards, airdrops, points, NFTs, OTC", () => {

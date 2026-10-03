@@ -3,9 +3,10 @@ import BN from "bn.js";
 import { getSellSolAmountFromTokenAmount } from "@pump-fun/pump-sdk";
 import { getPumpSdk, getOnlinePumpSdk } from "./client";
 import { buildAmmSellTransaction, graduatedPoolFor } from "./amm-trade";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { DEFAULT_SLIPPAGE_PCT, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
 import { tokenProgramOf } from "./token-program";
 import { feeTransferInstructions } from "./fee-transfer";
+import { feeBpsForWallet } from "./fee-tier";
 
 /**
  * Builds a real, unsigned Pump.fun sell transaction. `tokenAmount` is in the
@@ -71,7 +72,8 @@ export async function buildSellTransaction({
     cashback: bondingCurve.isCashbackCoin,
   });
 
-  const feeLamports = solAmount.muln(PANDA_FEE_BPS).divn(10_000);
+  const feeBps = await feeBpsForWallet(user.toBase58());
+  const feeLamports = solAmount.muln(feeBps).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));

@@ -3,8 +3,9 @@ import BN from "bn.js";
 import { PUMP_AMM_PROGRAM_ID } from "@pump-fun/pump-sdk";
 import { canonicalPumpPoolPda } from "@pump-fun/pump-swap-sdk";
 import { getPumpAmmSdk, getOnlinePumpAmmSdk } from "./amm-client";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { DEFAULT_SLIPPAGE_PCT, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
 import { feeTransferInstructions } from "./fee-transfer";
+import { feeBpsForWallet } from "./fee-tier";
 import { ammPoolProblem, poolOrientation, POOL_NOT_TRADABLE } from "./pool-check";
 
 /**
@@ -79,7 +80,8 @@ export async function buildAmmBuyTransaction({
       ? await offline.sellBaseInput(state, solAmountLamports, slippagePct)
       : await offline.buyQuoteInput(state, solAmountLamports, slippagePct);
 
-  const feeLamports = solAmountLamports.muln(PANDA_FEE_BPS).divn(10_000);
+  const feeBps = await feeBpsForWallet(user.toBase58());
+  const feeLamports = solAmountLamports.muln(feeBps).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
@@ -129,7 +131,8 @@ export async function buildAmmSellTransaction({
   // of what the precise on-chain proceeds will be.
   const [tokenReserve, solReserve] = inverted ? [state.poolQuoteAmount, state.poolBaseAmount] : [state.poolBaseAmount, state.poolQuoteAmount];
   const spotSolOut = tokenAmount.mul(solReserve).div(tokenReserve.add(tokenAmount));
-  const feeLamports = spotSolOut.muln(PANDA_FEE_BPS).divn(10_000);
+  const feeBps = await feeBpsForWallet(user.toBase58());
+  const feeLamports = spotSolOut.muln(feeBps).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));

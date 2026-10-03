@@ -3,9 +3,10 @@ import BN from "bn.js";
 import { getBuyTokenAmountFromSolAmount } from "@pump-fun/pump-sdk";
 import { getPumpSdk, getOnlinePumpSdk } from "./client";
 import { buildAmmBuyTransaction, graduatedPoolFor } from "./amm-trade";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
+import { DEFAULT_SLIPPAGE_PCT, PRIORITY_FEE_MICRO_LAMPORTS } from "./constants";
 import { tokenProgramOf } from "./token-program";
 import { feeTransferInstructions } from "./fee-transfer";
+import { feeBpsForWallet } from "./fee-tier";
 
 /**
  * Builds a real, unsigned Pump.fun buy transaction. The caller (TradingPanel)
@@ -77,7 +78,8 @@ export async function buildBuyTransaction({
     tokenProgram,
   });
 
-  const feeLamports = solAmountLamports.muln(PANDA_FEE_BPS).divn(10_000);
+  const feeBps = await feeBpsForWallet(user.toBase58());
+  const feeLamports = solAmountLamports.muln(feeBps).divn(10_000);
 
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));

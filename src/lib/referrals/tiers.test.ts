@@ -71,6 +71,8 @@ after(() => {
 });
 beforeEach(() => {
   process.env.FEATURE_REFERRALS = "true";
+  // A couple of tests below set this — reset it so it can never leak into a later one just by file order.
+  delete process.env.REFERRAL_TIERS;
 });
 
 const NOW = Date.parse("2026-03-10T12:00:00Z");

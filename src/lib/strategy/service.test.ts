@@ -21,6 +21,10 @@ function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () =>
     now: () => clock.t,
     engineConfigured: () => true,
     quote: async () => ({ tokenUsd: 1, solUsd: 200, usdcUsd: 1, eurUsd: 1.1, liquidityUsd: 200_000, priceChangeH1Pct: null }),
+    // 50 = the referred/legacy per-trade rate — strategyFeeBps(50) = 100 = 1% total, matching every dollar-amount
+    // assertion in this file (written before the two-tier fee existed, when the fee was always a flat 1% total).
+    // The two-tier-specific behavior itself is covered by its own tests further down, which override this via `over`.
+    feeBps: async () => 50,
     jupiter: {
       craftDeposit: async () => {
         calls.craft++;
@@ -395,9 +399,9 @@ test("several strategies on one wallet are kept apart", async () => {
 
 // ---- PANDA's fee: added to what the user pays, collected when the strategy is confirmed --------------------------------
 
-test("fee: prepare works out 1% (0.5% buy + 0.5% sell) of the amount in SOL from the server's rate and hands back the fee transaction", async () => {
+test("fee: prepare works out 1% (0.5% buy + 0.5% sell, the referred/legacy per-trade rate doubled) of the amount in SOL from the server's rate and hands back the fee transaction", async () => {
   const w = wallet();
-  const { deps } = fakeDeps();
+  const { deps } = fakeDeps(); // fakeDeps' own default feeBps is 50 (referred/legacy) — see its own comment
   const r = await prepareStrategy(deps, input(w)); // 100 USD at 200 USD per SOL
   assert.ok(r.ok);
   if (!r.ok) return;
@@ -405,6 +409,15 @@ test("fee: prepare works out 1% (0.5% buy + 0.5% sell) of the amount in SOL from
   assert.equal(r.record.feeState, "prepared");
   assert.ok(r.feeTransaction && r.feeTransaction.length > 100);
   assert.equal(r.record.inputAmountRaw, "500000000"); // the deposit is still the full amount: the fee is on top, not taken out of it
+});
+
+test("fee: a wallet on the default rate (not referred, not legacy) pays double — 2% (1% buy + 1% sell)", async () => {
+  const w = wallet();
+  const { deps } = fakeDeps({ feeBps: async () => 100 });
+  const r = await prepareStrategy(deps, input(w)); // 100 USD at 200 USD per SOL
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.record.feeLamports, 10_000_000); // $2 = 0.01 SOL — double the referred/legacy case above
 });
 
 test("fee: no fee payment, or a wrong one, and Jupiter is never called", async () => {

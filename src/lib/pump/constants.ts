@@ -24,7 +24,16 @@ export const DEFAULT_SLIPPAGE_PCT = 5;
  */
 export const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
 
-export const PANDA_FEE_BPS = 50; // 0.5% on each buy and each sell (1% for a round trip)
+/**
+ * PANDA's two trading-fee tiers — which one applies to a given wallet is never guessed here, only
+ * `src/lib/pump/fee-tier.ts`'s `feeBpsForWallet()` decides, and every fee calculation in this codebase
+ * (buy.ts, sell.ts, amm-trade.ts, jupiter/swap.ts, strategy/plan.ts) takes its bps from that, not from
+ * either constant directly.
+ */
+export const PANDA_FEE_BPS = 100; // 1% default, on each buy and each sell (2% for a round trip)
+/** Half price, for life, once a wallet is bound to a recruiter OR was already trading on PANDA before this
+ *  two-tier system shipped (see legacy_fee_wallets in src/lib/db/schema.ts). */
+export const PANDA_REFERRED_FEE_BPS = 50; // 0.5%
 
 const DEFAULT_TREASURY = "DCZaeTXLDwkwE4a8xayS3o9hCiPwgH1deotvyS5VEE6n"; // PANDA's Squads vault (2-of-3 multisig)
 
@@ -43,7 +52,7 @@ export const PANDA_TREASURY = (() => {
 
 /**
  * PANDA's fixed cut of every coin's Fee Distribution — not configurable by
- * the creator, not skippable. Paid to PANDA_TREASURY, same wallet as the 0.5%
+ * the creator, not skippable. Paid to PANDA_TREASURY, same wallet as the
  * trading fee above (a second, distinct real revenue stream into it). See
  * FeeDistributionStep.tsx: the creator only ever chooses how the *remaining*
  * 9500 bps is split (Creator vs Holders).

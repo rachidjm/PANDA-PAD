@@ -4,6 +4,7 @@ import { serverRpcUrl } from "@/lib/solana/rpc";
 import { PANDA_TREASURY } from "@/lib/pump/constants";
 import { buildFeeTransaction, checkSignedFeeTx } from "./fee";
 import { feeIsReceivable, treasuryLamports } from "@/lib/pump/fee-transfer";
+import { feeBpsForWallet } from "@/lib/pump/fee-tier";
 import { strategyQuote } from "./market";
 import type { Deps } from "./service";
 
@@ -13,6 +14,7 @@ export function realDeps(): Deps {
     now: () => Date.now(),
     engineConfigured: () => !!process.env.JUPITER_API_KEY,
     quote: strategyQuote,
+    feeBps: feeBpsForWallet,
     jupiter: { craftDeposit, createOrder, listOrders },
     fee: {
       treasury: PANDA_TREASURY.toBase58(),

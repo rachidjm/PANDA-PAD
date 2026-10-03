@@ -6,15 +6,16 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import BN from "bn.js";
-import { DEFAULT_SLIPPAGE_PCT, PANDA_FEE_BPS } from "@/lib/pump/constants";
+import { DEFAULT_SLIPPAGE_PCT } from "@/lib/pump/constants";
 import { feeTransferInstructions } from "@/lib/pump/fee-transfer";
+import { feeBpsForWallet } from "@/lib/pump/fee-tier";
 import { getJupiterQuote, getJupiterSwapTransaction, SOL_MINT } from "./client";
 
 const COMPUTE_BUDGET_PROGRAM_ID = new PublicKey("ComputeBudget111111111111111111111111111111");
 
 /**
  * Builds a real Jupiter-routed swap (any Solana DEX — Raydium, Orca,
- * Meteora, etc.) with PANDA's fee (0.5%) bundled into the same transaction,
+ * Meteora, etc.) with PANDA's fee bundled into the same transaction,
  * the same way the Pump.fun buy/sell builders do it. Jupiter returns a
  * versioned transaction with its own address lookup tables, so the fee
  * instruction has to be spliced into the decompiled message rather than
@@ -75,9 +76,10 @@ export async function buildJupiterSwapTransaction({
 
   // PANDA's fee is always a plain SOL transfer. Paid with SOL it is a share of the amount; paid with a token it is
   // a share of what that token is worth in SOL right now (Jupiter's own quote of it), still added on top.
+  const feeBps = await feeBpsForWallet(user.toBase58());
   let feeLamports: BN;
-  if (side === "sell") feeLamports = new BN(quote.outAmount).muln(PANDA_FEE_BPS).divn(10_000);
-  else if (!payWithToken) feeLamports = new BN(amount).muln(PANDA_FEE_BPS).divn(10_000);
+  if (side === "sell") feeLamports = new BN(quote.outAmount).muln(feeBps).divn(10_000);
+  else if (!payWithToken) feeLamports = new BN(amount).muln(feeBps).divn(10_000);
   else {
     let inSol: string;
     try {
@@ -85,7 +87,7 @@ export async function buildJupiterSwapTransaction({
     } catch {
       throw new Error("Can't value this token in SOL right now — pay with SOL instead.");
     }
-    feeLamports = new BN(inSol).muln(PANDA_FEE_BPS).divn(10_000);
+    feeLamports = new BN(inSol).muln(feeBps).divn(10_000);
   }
 
   const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));

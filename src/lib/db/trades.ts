@@ -51,3 +51,17 @@ export async function pgGetBackfillMark(db: Db, wallet: string): Promise<{ at: n
 export async function pgSetBackfillMark(db: Db, wallet: string, at: number): Promise<void> {
   await db.insert(backfillMarks).values({ wallet, at }).onConflictDoUpdate({ target: backfillMarks.wallet, set: { at } });
 }
+
+/** Cheap existence check (uses the `trades_wallet_seq` index) — used by the "apply a code before your first
+ *  trade" rule (src/lib/referrals/bind.ts's `tryApplyRecruiterCode`), never fetches the trade rows themselves. */
+export async function pgHasAnyTrade(db: Db, wallet: string): Promise<boolean> {
+  const [row] = await db.select({ seq: trades.seq }).from(trades).where(eq(trades.wallet, wallet)).limit(1);
+  return !!row;
+}
+
+/** Every distinct wallet with at least one trade, right now — used ONLY by scripts/backfill-legacy-fee-wallets.ts
+ *  for its one-time snapshot (see legacy_fee_wallets in schema.ts). Never called from request-serving code. */
+export async function pgDistinctTradeWallets(db: Db): Promise<string[]> {
+  const rows = await db.selectDistinct({ wallet: trades.wallet }).from(trades);
+  return rows.map((r) => r.wallet);
+}

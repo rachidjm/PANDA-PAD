@@ -24,6 +24,8 @@ after(() => {
 beforeEach(() => {
   process.env.FEATURE_REFERRALS = "true";
   process.env.SOLANA_RPC_URL = "https://mainnet.helius-rpc.com/?api-key=test-key";
+  // A couple of tests below set this — reset it so it can never leak into a later one just by file order.
+  delete process.env.FEATURE_FOUNDER_NFT;
 });
 
 // The mock has to echo back whichever wallet is actually under test (`firstFunderCheck` only trusts a

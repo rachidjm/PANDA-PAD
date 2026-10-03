@@ -57,6 +57,13 @@
       "when": 1791035867797,
       "tag": "0007_pale_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791038383109,
+      "tag": "0008_calm_miss_america",
+      "breakpoints": true
     }
   ]
 }

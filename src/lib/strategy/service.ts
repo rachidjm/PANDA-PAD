@@ -5,8 +5,8 @@ import {
   BUY_SLIPPAGE_BPS,
   chooseFunding,
   SL_SLIPPAGE_BPS,
-  STRATEGY_FEE_BPS,
   strategyFee,
+  strategyFeeBps,
   STRATEGY_TTL_MS,
   TP_SLIPPAGE_BPS,
   triggerConditionFor,
@@ -41,6 +41,9 @@ export type Deps = {
   };
   /** True only for a signature that is confirmed on-chain and did not fail. */
   verifyTx: (signature: string) => Promise<boolean>;
+  /** This wallet's own per-trade fee bps right now (src/lib/pump/fee-tier.ts's feeBpsForWallet) — the strategy's
+   *  own fee is double this (one buy leg, one sell leg; see strategyFeeBps in ./plan). */
+  feeBps: (wallet: string) => Promise<number>;
   /** PANDA's fee: a SOL transfer to the treasury, built here, signed by the wallet, checked here and only then sent. */
   fee: {
     treasury: string;
@@ -111,11 +114,12 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   const legCount = Number.isInteger(i.legCount) && (i.legCount as number) >= 1 && (i.legCount as number) <= 10 ? (i.legCount as number) : undefined;
   const legPct = typeof i.legPct === "number" && Number.isFinite(i.legPct) && i.legPct > 0 && i.legPct <= 100 ? i.legPct : undefined;
 
-  // Every number that matters is re-read here; nothing the browser computed is trusted.
-  const quote = await deps.quote(mint as string);
+  // Every number that matters is re-read here; nothing the browser computed is trusted — including the fee
+  // rate itself: it's this wallet's own (src/lib/pump/fee-tier.ts), never a flat constant.
+  const [quote, tradeFeeBps] = await Promise.all([deps.quote(mint as string), deps.feeBps(i.wallet)]);
   if (!quote.tokenUsd) return fail(503, "price_unavailable", "No live price for this token right now.");
   const amountUsd = amountToUsd(unit, value, quote);
-  const funding = chooseFunding({ unit, value, rates: quote, balances: { sol: null, usdc: null }, preferred });
+  const funding = chooseFunding({ unit, value, rates: quote, balances: { sol: null, usdc: null }, preferred, feeBps: strategyFeeBps(tradeFeeBps) });
   if (!funding.ok) {
     return fail(funding.reason === "invalid_amount" ? 400 : 503, funding.reason === "invalid_amount" ? "invalid" : "price_unavailable", "That amount can't be converted right now.");
   }
@@ -130,9 +134,9 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   if (issues.length) return fail(422, "issues", "This strategy can't be placed as drawn.", issues);
 
   // PANDA's fee is worked out here from the server's own rates and added on top of what is invested.
-  let fee = strategyFee(funding.funding.usd, quote.solUsd);
+  let fee = strategyFee(funding.funding.usd, quote.solUsd, tradeFeeBps);
   if (!fee) return fail(503, "price_unavailable", "No live SOL rate to work out the fee right now.");
-  if (STRATEGY_FEE_BPS > 0 && fee.feeLamports <= 0) return fail(400, "invalid", "That amount is too small.");
+  if (fee.feeLamports <= 0) return fail(400, "invalid", "That amount is too small.");
   // A fee the treasury can't receive would make the fee transaction fail after the order exists: better none than that.
   if (!(await deps.fee.canReceive(fee.feeLamports))) fee = { feeUsd: 0, feeLamports: 0 };
 

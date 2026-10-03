@@ -9,7 +9,7 @@ import {
   preferredFunding,
   roundPrice,
   strategyFee,
-  STRATEGY_FEE_BPS,
+  strategyFeeBps,
   strategyMetrics,
   triggerConditionFor,
   validateStrategy,
@@ -157,11 +157,16 @@ test("an amount can be shown in another unit with the real rates, and not at all
   assert.equal(convertAmount("USD", 0, "SOL", rates), null);
 });
 
-test("PANDA's strategy fee is 1% of the amount (0.5% buy + 0.5% sell), worked out in SOL", () => {
-  assert.equal(STRATEGY_FEE_BPS, 100);
-  assert.deepEqual(strategyFee(100, 200), { feeUsd: 1, feeLamports: 5_000_000 });
-  assert.equal(strategyFee(100, null), null);
-  assert.equal(strategyFee(0, 200), null);
+test("strategyFeeBps doubles the wallet's own per-trade rate — one buy leg, one sell leg", () => {
+  assert.equal(strategyFeeBps(100), 200); // default rate (1%): 2% of the amount
+  assert.equal(strategyFeeBps(50), 100); // referred/legacy rate (0.5%): 1% of the amount
+});
+
+test("strategyFee: the amount's worth in USD and lamports of SOL at a given fee rate", () => {
+  assert.deepEqual(strategyFee(100, 200, 100), { feeUsd: 2, feeLamports: 10_000_000 }); // default rate: 2% of 100 USD = $2 = 0.01 SOL at 200 USD/SOL = 10,000,000 lamports
+  assert.deepEqual(strategyFee(100, 200, 50), { feeUsd: 1, feeLamports: 5_000_000 }); // referred/legacy rate: 1% of 100 USD = $1
+  assert.equal(strategyFee(100, null, 100), null);
+  assert.equal(strategyFee(0, 200, 100), null);
 });
 
 test("the fee is paid in SOL on top of the amount: the wallet has to cover both", () => {

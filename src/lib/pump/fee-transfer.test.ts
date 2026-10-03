@@ -5,8 +5,10 @@ import type { Db } from "@/lib/db/client";
 import { setDbForTests } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
 import { pgBindReferral, pgReserveFounderSlot } from "@/lib/db/referrals";
+import { pgMarkLegacyFeeWallet } from "@/lib/db/fee-tier";
 import { feeTransferInstructions, MIN_SYSTEM_ACCOUNT_LAMPORTS } from "./fee-transfer";
-import { PANDA_TREASURY } from "./constants";
+import { feeBpsForWallet } from "./fee-tier";
+import { PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS, PANDA_TREASURY } from "./constants";
 
 // Freshly generated keypairs, not real addresses — guaranteed distinct from each other and from PANDA_TREASURY,
 // so a test can never accidentally alias the referrer with the treasury (or with another test's trader).
@@ -31,6 +33,10 @@ after(() => {
 });
 beforeEach(() => {
   process.env.FEATURE_REFERRALS = "true";
+  // A couple of tests below override this (and FEATURE_FOUNDER_NFT) to exercise a specific tier config —
+  // reset both before every test so that override can never leak into a later one just by file order.
+  delete process.env.REFERRAL_TIERS;
+  delete process.env.FEATURE_FOUNDER_NFT;
 });
 
 const FEE = 1_000_000; // an arbitrary but realistic fee, in lamports
@@ -86,6 +92,62 @@ test("REFERRAL_TIERS is configurable: a non-Founder's first invitee (rank 1) get
   const ixs = await feeTransferInstructions(fakeConnection({ [referrer.toBase58()]: WELL_FUNDED }), trader, FEE);
   const toReferrer = Number(ixs[0].data.readBigUInt64LE(ixs[0].data.length - 8));
   assert.equal(toReferrer, FEE / 2);
+});
+
+// ── End-to-end: a trade's real fee amount (feeBpsForWallet, as buy.ts/sell.ts/amm-trade.ts/jupiter/swap.ts
+// actually compute it) flowing into the recruiter split — "comisión con y sin código", "usuarios existentes
+// al 0.5%" and "reparto con el reclutador sobre el 0.5%" (the recruiter's cut is of what the invitee ACTUALLY
+// paid, the referred rate — never the default rate a non-referred trader would have paid). ────────────────────
+
+const TRADE_SOL_AMOUNT = 10_000_000_000; // 10 SOL, in lamports — an arbitrary but realistic trade size
+
+test("a wallet WITHOUT a code/referrer pays the full default fee, entirely to the treasury — no recruiter to split with", async () => {
+  const trader = Keypair.generate().publicKey; // never bound to anyone
+  const feeBps = await feeBpsForWallet(trader.toBase58());
+  assert.equal(feeBps, PANDA_FEE_BPS, "the default rate — no discount");
+  const feeLamports = Math.floor((TRADE_SOL_AMOUNT * feeBps) / 10_000);
+
+  const ixs = await feeTransferInstructions(fakeConnection({}), trader, feeLamports);
+  assert.equal(ixs.length, 1);
+  const lamports = Number(ixs[0].data.readBigUInt64LE(ixs[0].data.length - 8));
+  assert.equal(lamports, feeLamports, "the whole (default-rate) fee goes to the treasury");
+});
+
+test("a wallet bound via a code/link pays half the fee, and the recruiter's cut is computed on THAT half — never on the default rate", async () => {
+  const referrer = Keypair.generate().publicKey;
+  const trader = Keypair.generate().publicKey;
+  await pgBindReferral(db, trader.toBase58(), referrer.toBase58(), Date.now());
+
+  const feeBps = await feeBpsForWallet(trader.toBase58());
+  assert.equal(feeBps, PANDA_REFERRED_FEE_BPS, "half the default rate");
+  const feeLamports = Math.floor((TRADE_SOL_AMOUNT * feeBps) / 10_000);
+  assert.equal(feeLamports, Math.floor((TRADE_SOL_AMOUNT * PANDA_FEE_BPS) / 10_000) / 2, "exactly half of what the default-rate fee would have been");
+
+  const ixs = await feeTransferInstructions(fakeConnection({ [referrer.toBase58()]: WELL_FUNDED }), trader, feeLamports);
+  const lamportsTo = (pubkey: PublicKey) => {
+    const ix = ixs.find((i) => i.keys.some((k) => k.pubkey.equals(pubkey)));
+    return ix ? Number(ix.data.readBigUInt64LE(ix.data.length - 8)) : 0;
+  };
+  const toRecruiter = lamportsTo(referrer);
+  // 30% (the default tier-1 share) of the REFERRED fee — not 30% of the default-rate fee, which would be double this.
+  const onReferredFee = Math.floor((feeLamports * 3000) / 10_000);
+  const onDefaultRateFeeInstead = Math.floor((Math.floor((TRADE_SOL_AMOUNT * PANDA_FEE_BPS) / 10_000) * 3000) / 10_000);
+  assert.equal(toRecruiter, onReferredFee);
+  assert.equal(toRecruiter, onDefaultRateFeeInstead / 2, "half of what it would be if (wrongly) based on the default rate");
+});
+
+test("a wallet grandfathered as legacy (pre-two-tier) pays half the fee too, even with no recruiter — but nobody earns a commission from it (full fee to treasury)", async () => {
+  const trader = Keypair.generate().publicKey;
+  await pgMarkLegacyFeeWallet(db, trader.toBase58(), Date.now());
+
+  const feeBps = await feeBpsForWallet(trader.toBase58());
+  assert.equal(feeBps, PANDA_REFERRED_FEE_BPS);
+  const feeLamports = Math.floor((TRADE_SOL_AMOUNT * feeBps) / 10_000);
+
+  const ixs = await feeTransferInstructions(fakeConnection({}), trader, feeLamports);
+  assert.equal(ixs.length, 1, "no referrer bound — nothing to split, the whole (already-halved) fee goes to the treasury");
+  const lamports = Number(ixs[0].data.readBigUInt64LE(ixs[0].data.length - 8));
+  assert.equal(lamports, feeLamports);
 });
 
 test("a Founder gets the flat Founder share regardless of REFERRAL_TIERS or rank", async () => {
