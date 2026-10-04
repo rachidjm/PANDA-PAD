@@ -81,6 +81,7 @@ export async function POST(req: Request) {
       ];
 
       const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      const creatorLamports = await connection.getBalance(user, "confirmed").catch(() => null);
       const lookupTable = await getLaunchLookupTable(connection);
       let combined = false;
       let simResult;
@@ -103,6 +104,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mint: keypair.publicKey.toBase58(),
         endsInPanda: keypair.publicKey.toBase58().toLowerCase().endsWith("panda"),
+        creator: user.toBase58(),
+        creatorLamports,
         combined,
         ok: !simResult.value.err,
         err: simResult.value.err ?? null,

@@ -4,7 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type Status = { configured: boolean; imported: boolean; pubkey: string | null; used: boolean };
-type SimResult = { mint: string; endsInPanda: boolean; combined: boolean; ok: boolean; err: unknown; logs: string[]; unitsConsumed: number | null };
+type SimResult = {
+  mint: string;
+  endsInPanda: boolean;
+  creator: string;
+  creatorLamports: number | null;
+  combined: boolean;
+  ok: boolean;
+  err: unknown;
+  logs: string[];
+  unitsConsumed: number | null;
+};
 
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`;
 
@@ -126,8 +136,14 @@ export default function ReservedMintPanel({ sessionTick = 0 }: { sessionTick?: n
                 {sim.ok ? t("admin.reserved.simOk", { ok: String(sim.endsInPanda), combined: String(sim.combined) }) : t("admin.reserved.simFailed")}
               </p>
               <p className="mt-1 font-mono text-xs text-panda-grey">{short(sim.mint)}</p>
-              {sim.logs.length > 0 && (
-                <pre className="mt-2 max-h-48 overflow-y-auto rounded-xl bg-ink p-3 text-[10px] leading-relaxed text-panda-grey">{sim.logs.join("\n")}</pre>
+              <p className="mt-1 font-mono text-xs text-panda-grey">
+                {t("admin.reserved.simCreator", { wallet: short(sim.creator), sol: sim.creatorLamports !== null ? (sim.creatorLamports / 1e9).toFixed(4) : "?" })}
+              </p>
+              {sim.creatorLamports === 0 && <p className="mt-1 text-xs text-meme-orange">{t("admin.reserved.simNoFunds")}</p>}
+              {!sim.ok && (
+                <pre className="mt-2 max-h-48 overflow-y-auto rounded-xl bg-ink p-3 text-[10px] leading-relaxed text-panda-grey">
+                  {sim.logs.length > 0 ? sim.logs.join("\n") : JSON.stringify(sim.err, null, 2)}
+                </pre>
               )}
             </div>
           )}

@@ -1894,7 +1894,12 @@ export const dict = {
   "admin.reserved.simulate": { en: "Simulate a launch (no signing, nothing on-chain)", es: "Simular un lanzamiento (sin firmar, nada on-chain)" },
   "admin.reserved.simulating": { en: "Simulating…", es: "Simulando…" },
   "admin.reserved.simOk": { en: "Simulation succeeded — mint ends in \"panda\": {ok}, one-transaction launch: {combined}.", es: "Simulación correcta — el mint termina en \"panda\": {ok}, lanzamiento de una transacción: {combined}." },
-  "admin.reserved.simFailed": { en: "Simulation failed — see the log below.", es: "La simulación falló — mira el registro de abajo." },
+  "admin.reserved.simFailed": { en: "Simulation failed — see the error below.", es: "La simulación falló — mira el error de abajo." },
+  "admin.reserved.simCreator": { en: "Creator/payer (Account 1): {wallet} — {sol} SOL", es: "Creador/pagador (Cuenta 1): {wallet} — {sol} SOL" },
+  "admin.reserved.simNoFunds": {
+    en: "This wallet has 0 SOL — it can't pay the transaction fee or rent yet, so any launch (real or simulated) fails for this reason alone. Fund it before the real launch.",
+    es: "Esta wallet tiene 0 SOL — todavía no puede pagar la comisión de red ni la renta, así que cualquier lanzamiento (real o simulado) falla solo por esto. Fondéala antes del lanzamiento real.",
+  },
   "admin.alt.title": { en: "Launch lookup table (one signature per launch)", es: "Lookup table de lanzamientos (una firma por lanzamiento)" },
   "admin.alt.intro": {
     en: "Creating a coin and setting its fee split doesn't fit one normal transaction. With PANDA's own Address Lookup Table it does, atomically. You create it here with your wallet (two signatures: create, then freeze so nobody can change it). No key file is involved.",
