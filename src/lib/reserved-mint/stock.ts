@@ -6,7 +6,7 @@ import { alertOps } from "@/lib/alerts";
 import { claimMintKeypair, type MintKeypairResult } from "@/lib/vanity/stock";
 
 /** The one wallet this reservation exists for — nobody else, ever, regardless of ticker. */
-export const RESERVED_PANDA_CREATOR = "35gHwjqiTsPPCzLpQhCcJZBGiUR9TSDYNPuxUdvERVkh";
+export const RESERVED_PANDA_CREATOR = "35gHkr4E2NuvemMqMLSjRXx2jsqaVf6FnuBjs7yqRVkh";
 /** The row's `purpose` key in reserved_mint_keys — a name, not a secret. */
 export const PANDA_TOKEN_RESERVED_PURPOSE = "panda_token";
 
