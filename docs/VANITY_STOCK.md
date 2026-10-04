@@ -69,6 +69,32 @@ public key from its own secret (never trusts the filename), skips anything that 
 plaintext private key has no reason to keep sitting on disk afterward. Files that were already in the stock
 (re-running on the same folder) are left alone, not deleted twice.
 
+## Reserving a single address for one specific launch (e.g. $PANDA itself)
+
+Sometimes one particular coin — not the general stock — needs its own "…panda" address, used only when a
+specific wallet launches a specific ticker (never handed to anyone else, never drawn from by the stock above).
+This is `src/lib/reserved-mint/*` + the `reserved_mint_keys` table — a separate, one-row-at-a-time mechanism
+from the stock, with its own encryption key (`RESERVED_MINT_KEY`, same AES-256-GCM scheme, generated the same
+way as step 2 above but set as its OWN Vercel env var — deliberately different from `VANITY_STOCK_KEY` so a
+leak of one can never expose the other).
+
+1. Grind exactly one address (`solana-keygen grind --ends-with panda:1 --num-threads <cores>`), same as step 1
+   above.
+2. Set `RESERVED_MINT_KEY` in Vercel (Production) — same discipline as `VANITY_STOCK_KEY`.
+3. **Import it from the admin console** (`/admin`, "Reserved $PANDA mint" panel) — not `vanity:import` and not
+   a local script. Sign in as an admin wallet, choose the keypair `.json` file; the browser reads it and POSTs
+   the raw secret key once, over HTTPS, straight to `/api/admin/reserved-mint`, which encrypts and stores it.
+   This is deliberately a browser-upload flow rather than a `DATABASE_URL`/`RESERVED_MINT_KEY`-on-your-laptop
+   script: when either of those is a Vercel **Sensitive** variable, `vercel env pull` cannot read it back at
+   all, so the admin console (where both already live, server-side, in production) is the only place this can
+   happen. Delete the local `.json` file once the panel confirms the import.
+4. The same panel can **simulate** the real create transaction against the reserved address (never signs,
+   never sends anything) to confirm the mint, the fee split and the lookup table all still work before the
+   real launch.
+5. The actual gate — which wallet, which ticker — lives in `src/lib/reserved-mint/stock.ts`
+   (`isReservedPandaLaunch`), read by `/api/pump/create`. Every other wallet or ticker is completely unaffected
+   and never even queries the reserved table.
+
 ## How big a stock to keep
 
 There's no way to know your real launch volume in advance, so don't front-load hours of grinding on a guess.

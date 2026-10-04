@@ -64,6 +64,13 @@
       "when": 1791038383109,
       "tag": "0008_calm_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791120880016,
+      "tag": "0009_hot_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }

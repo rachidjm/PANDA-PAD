@@ -9,8 +9,9 @@ import { FeeShareholderInput } from "./fee-shares-validation";
  * `@pump-fun/pump-sdk` isn't browser-bundle friendly, so this never runs in
  * the client — see /api/pump/create, which the client calls instead.
  *
- * `mint` is generated client-side (Keypair.generate()) and only its public
- * key is sent here; the client keeps the secret key in memory to co-sign
+ * `mint` is a server-assigned keypair (a reserved or stocked "…panda" address when one applies, otherwise a
+ * plain random one — see /api/pump/create and src/lib/reserved-mint/stock.ts, src/lib/vanity/stock.ts); only
+ * its public key is a parameter here, and the caller sends the secret key back to the client so it can co-sign
  * the transaction itself once this comes back.
  *
  * The creator-fee split (Fee Distribution) is NOT in THIS (legacy) transaction: bundled with create_v2 it never fit — create_v2

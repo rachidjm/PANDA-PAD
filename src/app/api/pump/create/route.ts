@@ -12,7 +12,7 @@ import { isEnabled } from "@/lib/config/flags";
 import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import { holderShareIssue } from "@/lib/pump/holder-rewards";
 import { recordAudit } from "@/lib/audit/log";
-import { claimMintKeypair } from "@/lib/vanity/stock";
+import { claimLaunchMintKeypair } from "@/lib/reserved-mint/stock";
 
 export async function POST(req: Request) {
   const moneyBlocked = await moneyFlowGuardResponse();
@@ -62,17 +62,19 @@ export async function POST(req: Request) {
     const connection = new Connection(serverRpcUrl(), "confirmed");
     const userKey = new PublicKey(user);
 
-    // The "create" step's mint: a pre-generated "…panda" address from the stock when one is available, a plain
-    // random keypair otherwise — never a reason the launch is blocked (see src/lib/vanity/stock.ts). Only its
-    // PUBLIC key is used to build the transaction below; the secret goes back to the client in the response so
-    // it can sign as a co-signer of its own creation, exactly as it did when it generated the keypair itself.
+    // The "create" step's mint: the one reserved "…panda" address when this exact wallet+ticker launches $PANDA
+    // itself (src/lib/reserved-mint/stock.ts), otherwise a pre-generated "…panda" address from the generic
+    // stock when one is available, a plain random keypair otherwise — never a reason the launch is blocked
+    // (src/lib/vanity/stock.ts). Only its PUBLIC key is used to build the transaction below; the secret goes
+    // back to the client in the response so it can sign as a co-signer of its own creation, exactly as it did
+    // when it generated the keypair itself.
     let mintKeypair: Keypair | null = null;
     let vanity = false;
     let mint: string;
     if (forFees) {
       mint = clientMint;
     } else {
-      const claimed = await claimMintKeypair();
+      const claimed = await claimLaunchMintKeypair(user, String(symbol));
       mintKeypair = claimed.keypair;
       vanity = claimed.vanity;
       mint = mintKeypair.publicKey.toBase58();

@@ -1877,6 +1877,24 @@ export const dict = {
   "otc.err.badAsset": { en: "That reward asset isn't offered by OTC.", es: "Ese activo de recompensa no está disponible en OTC." },
 
   // Admin: launch lookup table
+  "admin.reserved.title": { en: "Reserved $PANDA mint", es: "Mint reservado de $PANDA" },
+  "admin.reserved.intro": {
+    en: "The one address ending in \"panda\" reserved for the real $PANDA token — used ONLY when this exact wallet launches ticker PANDA. Every other launch is unaffected.",
+    es: "La única dirección terminada en \"panda\" reservada para el token $PANDA real — se usa SOLO cuando esta wallet exacta lanza el ticker PANDA. El resto de lanzamientos no se ven afectados.",
+  },
+  "admin.reserved.notConfigured": { en: "RESERVED_MINT_KEY isn't set — nothing can be imported yet.", es: "RESERVED_MINT_KEY no está puesta — todavía no se puede importar nada." },
+  "admin.reserved.notImported": { en: "Not imported yet. Upload the keypair file solana-keygen grind produced.", es: "Todavía no se ha importado. Sube el archivo de keypair que generó solana-keygen grind." },
+  "admin.reserved.imported": { en: "Imported: {pubkey}", es: "Importado: {pubkey}" },
+  "admin.reserved.used": { en: "Already used by a real launch.", es: "Ya se usó en un lanzamiento real." },
+  "admin.reserved.notUsed": { en: "Not used yet — still reserved.", es: "Todavía sin usar — sigue reservado." },
+  "admin.reserved.upload": { en: "Upload keypair .json", es: "Subir el .json del keypair" },
+  "admin.reserved.importing": { en: "Importing…", es: "Importando…" },
+  "admin.reserved.importDone": { en: "Imported. You can delete the local .json file now — it's encrypted in the database.", es: "Importado. Ya puedes borrar el .json local — está cifrado en la base de datos." },
+  "admin.reserved.badFile": { en: "That doesn't look like a Solana keypair .json file.", es: "Eso no parece un archivo .json de keypair de Solana." },
+  "admin.reserved.simulate": { en: "Simulate a launch (no signing, nothing on-chain)", es: "Simular un lanzamiento (sin firmar, nada on-chain)" },
+  "admin.reserved.simulating": { en: "Simulating…", es: "Simulando…" },
+  "admin.reserved.simOk": { en: "Simulation succeeded — mint ends in \"panda\": {ok}, one-transaction launch: {combined}.", es: "Simulación correcta — el mint termina en \"panda\": {ok}, lanzamiento de una transacción: {combined}." },
+  "admin.reserved.simFailed": { en: "Simulation failed — see the log below.", es: "La simulación falló — mira el registro de abajo." },
   "admin.alt.title": { en: "Launch lookup table (one signature per launch)", es: "Lookup table de lanzamientos (una firma por lanzamiento)" },
   "admin.alt.intro": {
     en: "Creating a coin and setting its fee split doesn't fit one normal transaction. With PANDA's own Address Lookup Table it does, atomically. You create it here with your wallet (two signatures: create, then freeze so nobody can change it). No key file is involved.",

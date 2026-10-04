@@ -397,10 +397,26 @@ export const vanityMintKeys = pgTable(
   (t) => [index("vanity_mint_keys_available").on(t.suffix, t.claimedAt)]
 );
 
+// ── Reserved mint keypairs (one-off addresses reserved for a specific creator+ticker — NOT the shared vanity stock above) ──
+/** One row per reserved keypair, keyed by a human `purpose` (e.g. "panda_token"). Never drawn from by the
+ *  generic vanity stock (src/lib/vanity/*) — only src/lib/reserved-mint/stock.ts reads these, and only for the
+ *  exact wallet+ticker match it's configured for. `usedAt` set = already handed to a real creation; claimed
+ *  exactly once, ever (see pgClaimReservedMintKey). Secret key encrypted at rest with its OWN key
+ *  (RESERVED_MINT_KEY, src/lib/reserved-mint/crypto.ts) — deliberately separate from VANITY_STOCK_KEY so a
+ *  leak of one never exposes the other. */
+export const reservedMintKeys = pgTable("reserved_mint_keys", {
+  purpose: text("purpose").primaryKey(),
+  pubkey: text("pubkey").notNull().unique(),
+  ciphertext: text("ciphertext").notNull(), // base64: AES-256-GCM(secretKey) || authTag
+  nonce: text("nonce").notNull(), // base64, 12-byte GCM IV
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  usedAt: bigint("used_at", { mode: "number" }),
+});
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
-  legacyFeeWallets, recruiterCodes,
+  legacyFeeWallets, recruiterCodes, reservedMintKeys,
 };

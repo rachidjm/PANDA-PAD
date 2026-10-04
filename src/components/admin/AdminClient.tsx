@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
 import LookupTablePanel from "@/components/admin/LookupTablePanel";
+import ReservedMintPanel from "@/components/admin/ReservedMintPanel";
 import AuditChainPanel from "@/components/admin/AuditChainPanel";
 import SessionsPanel from "@/components/admin/SessionsPanel";
 import CspPanel from "@/components/admin/CspPanel";
@@ -145,6 +146,8 @@ export default function AdminClient() {
       </section>
 
       <LookupTablePanel sessionTick={sessionTick} />
+
+      <ReservedMintPanel sessionTick={sessionTick} />
 
       <SessionsPanel />
 
