@@ -10,10 +10,26 @@ import ApplyRecruiterCode from "./ApplyRecruiterCode";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import { formatMoney } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
-import { DEFAULT_REFERRAL_MIN_DAILY_VOLUME_SOL, DEFAULT_REFERRAL_TIERS, FOUNDER_SHARE_BPS } from "@/lib/referrals/tiers-config";
+import {
+  DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD,
+  DEFAULT_FOUNDER_REQUIRED_TRADERS,
+  DEFAULT_REFERRAL_MIN_DAILY_VOLUME_SOL,
+  DEFAULT_REFERRAL_TIERS,
+  FOUNDER_SHARE_BPS,
+} from "@/lib/referrals/tiers-config";
 
-type Stats = { referredCount: number; earnedLamports: number; solUsd: number | null; eurUsd: number | null; founder: { rank: number } | null; founderSlotsLeft: number };
-type Invitee = { wallet: string; boundAt: number; active: boolean; everActivated: boolean; streakDays: number; earnedLamports: number };
+type Stats = {
+  referredCount: number;
+  earnedLamports: number;
+  solUsd: number | null;
+  eurUsd: number | null;
+  founder: { rank: number } | null;
+  founderSlotsLeft: number;
+  validInviteeCount: number;
+  founderRequiredTraders: number;
+  founderMinTraderVolumeUsd: number;
+};
+type Invitee = { wallet: string; boundAt: number; active: boolean; everActivated: boolean; streakDays: number; earnedLamports: number; tradedVolumeUsd: number };
 type LoadState = "loading" | "ready" | "error";
 
 const pct = (bps: number) => `${(bps / 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
@@ -69,7 +85,9 @@ function LoggedOut() {
       <section className="mt-6 rounded-[24px] border border-bamboo/30 bg-bamboo/[0.06] p-6">
         <h2 className="font-display text-lg font-bold text-bamboo">{t("rec.foundersTitle")}</h2>
         <p className="mt-1.5 font-display text-2xl font-bold">{slotsLeft !== null ? t("rec.foundersLeft", { n: slotsLeft }) : "…"}</p>
-        <p className="mt-2 text-sm text-panda-grey">{t("rec.foundersNote")}</p>
+        <p className="mt-2 text-sm text-panda-grey">
+          {t("rec.foundersNote", { n: DEFAULT_FOUNDER_REQUIRED_TRADERS, min: DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD })}
+        </p>
       </section>
 
       <section className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
@@ -104,6 +122,12 @@ function LoggedOut() {
           <div>
             <p className="text-sm font-semibold">{t("rec.faqAbuseQ")}</p>
             <p className="mt-1 text-sm text-panda-grey">{t("rec.faqAbuseA")}</p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{t("rec.faqFounderQ")}</p>
+            <p className="mt-1 text-sm text-panda-grey">
+              {t("rec.faqFounderA", { n: DEFAULT_FOUNDER_REQUIRED_TRADERS, min: DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD })}
+            </p>
           </div>
         </div>
       </section>
@@ -236,6 +260,14 @@ function LoggedIn({ address }: { address: string }) {
             </section>
           )}
 
+          {state === "ready" && stats && !stats.founder && (
+            <section className="mt-4 rounded-2xl bg-paper/[0.04] p-4">
+              <p className="text-xs text-panda-grey">
+                {t("rec.founderProgress", { n: stats.validInviteeCount, total: stats.founderRequiredTraders, min: stats.founderMinTraderVolumeUsd })}
+              </p>
+            </section>
+          )}
+
           <section className="mt-6">
             <h2 className="font-display text-lg font-bold">{t("rec.inviteesTitle")}</h2>
             {state === "loading" ? (
@@ -244,17 +276,24 @@ function LoggedIn({ address }: { address: string }) {
               <p className="mt-3 text-sm text-panda-grey">{t("rec.inviteesEmpty")}</p>
             ) : (
               <ul className="mt-3 divide-y divide-paper/10 overflow-hidden rounded-2xl border border-paper/10">
-                {invitees.map((inv) => (
-                  <li key={inv.wallet} className="flex items-center justify-between gap-3 bg-ink-raised px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-xs text-paper/80">{short(inv.wallet)}</p>
-                      <p className="mt-0.5 text-[11px] text-panda-grey">
-                        {inv.active ? t("rec.statusActive") : inv.everActivated ? t("rec.statusInactive") : t("rec.statusProgress", { n: Math.min(2, inv.streakDays) })}
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-xs font-semibold text-paper/80">{(inv.earnedLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL</p>
-                  </li>
-                ))}
+                {invitees.map((inv) => {
+                  const founderMin = stats?.founderMinTraderVolumeUsd ?? DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD;
+                  const missing = !stats?.founder && inv.tradedVolumeUsd < founderMin ? founderMin - inv.tradedVolumeUsd : null;
+                  return (
+                    <li key={inv.wallet} className="flex items-center justify-between gap-3 bg-ink-raised px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-xs text-paper/80">{short(inv.wallet)}</p>
+                        <p className="mt-0.5 text-[11px] text-panda-grey">
+                          {inv.active ? t("rec.statusActive") : inv.everActivated ? t("rec.statusInactive") : t("rec.statusProgress", { n: Math.min(2, inv.streakDays) })}
+                        </p>
+                        {missing !== null && (
+                          <p className="mt-0.5 text-[11px] text-panda-grey">{t("rec.founderVolumeMissing", { amount: missing.toLocaleString(lang, { maximumFractionDigits: 0 }) })}</p>
+                        )}
+                      </div>
+                      <p className="shrink-0 text-xs font-semibold text-paper/80">{(inv.earnedLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL</p>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

@@ -5,16 +5,21 @@ import type { Db } from "./client";
 import { setDbForTests } from "./client";
 import { newTestDb } from "./testing";
 import {
+  pgAllFounderAllocations,
   pgBindReferral,
+  pgCountValidInvitees,
   pgFounderSlotsTaken,
   pgGetPandaLaunch,
   pgGetPandaLaunchesForMints,
   pgGetReferrer,
+  pgInviteeVolumesUsd,
   pgRecordPandaLaunch,
   pgRecordReferralPayout,
   pgReferralStats,
+  pgReleaseFounderSlot,
   pgReserveFounderSlot,
 } from "./referrals";
+import { pgAddTrades } from "./trades";
 
 let db: Db;
 before(async () => {
@@ -117,4 +122,76 @@ test("pgReserveFounderSlot: refuses once maxSlots is reached", async () => {
   const before = await pgFounderSlotsTaken(db);
   await pgReserveFounderSlot(db, x, 1000, before + 1);
   assert.equal(await pgReserveFounderSlot(db, y, 2000, before + 1), null, "the cap was already reached by `x`");
+});
+
+test("pgReleaseFounderSlot: deletes the row, returns whether one actually existed", async () => {
+  const w = addr();
+  assert.equal(await pgReleaseFounderSlot(db, w), false, "nothing to release yet");
+  await pgReserveFounderSlot(db, w, 1000);
+  assert.equal(await pgReleaseFounderSlot(db, w), true);
+  assert.equal(await pgReleaseFounderSlot(db, w), false, "already released — not released twice");
+});
+
+test("pgAllFounderAllocations: lists every row, minted or not", async () => {
+  const before = (await pgAllFounderAllocations(db)).length;
+  await pgReserveFounderSlot(db, addr(), 1000);
+  await pgReserveFounderSlot(db, addr(), 2000);
+  assert.equal((await pgAllFounderAllocations(db)).length, before + 2);
+});
+
+// ── Founder-slot volume (valid invitees) ────────────────────────────────────────────────────────────────────────
+
+/** Logs one trade whose SOL-amount × price equals exactly `usd`, so volume math in these tests is exact. */
+async function seedTradeUsd(w: string, usd: number, seq = 0) {
+  await pgAddTrades(db, w, [
+    {
+      mint: "MINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      ticker: "X",
+      side: "buy",
+      solAmount: usd,
+      tokenAmount: 1,
+      solPriceUsdAtTrade: 1, // 1 USD per SOL keeps the math trivial: solAmount IS the USD value
+      signature: `SIG-${w}-${seq}-${Math.random()}`,
+      ts: 1000,
+    },
+  ]);
+}
+
+test("pgCountValidInvitees: only counts invitees whose OWN cumulative volume reached the threshold", async () => {
+  const referrer = addr();
+  const over = wallet();
+  const under = wallet();
+  const never = wallet();
+  await pgBindReferral(db, over, referrer, 1000);
+  await pgBindReferral(db, under, referrer, 1000);
+  await pgBindReferral(db, never, referrer, 1000);
+  await seedTradeUsd(over, 150);
+  await seedTradeUsd(under, 40);
+  assert.equal(await pgCountValidInvitees(db, referrer, 100), 1);
+});
+
+test("pgCountValidInvitees: sums MULTIPLE trades (buys and sells together) toward the threshold", async () => {
+  const referrer = addr();
+  const w = wallet();
+  await pgBindReferral(db, w, referrer, 1000);
+  await seedTradeUsd(w, 60, 1);
+  assert.equal(await pgCountValidInvitees(db, referrer, 100), 0, "not there yet");
+  await seedTradeUsd(w, 41, 2);
+  assert.equal(await pgCountValidInvitees(db, referrer, 100), 1, "101 total now — crossed it");
+});
+
+test("pgCountValidInvitees: zero for a referrer with no invitees at all", async () => {
+  assert.equal(await pgCountValidInvitees(db, addr(), 100), 0);
+});
+
+test("pgInviteeVolumesUsd: one map for the whole referrer, invitees with no trades are simply absent", async () => {
+  const referrer = addr();
+  const traded = wallet();
+  const untraded = wallet();
+  await pgBindReferral(db, traded, referrer, 1000);
+  await pgBindReferral(db, untraded, referrer, 1000);
+  await seedTradeUsd(traded, 73);
+  const volumes = await pgInviteeVolumesUsd(db, referrer);
+  assert.equal(volumes[traded], 73);
+  assert.equal(untraded in volumes, false);
 });

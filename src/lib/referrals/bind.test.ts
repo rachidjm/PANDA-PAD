@@ -74,28 +74,17 @@ test("tryBindReferral: 'retry_later' (not terminal) when the anti-abuse check is
   assert.equal(await pgGetReferrer(db, w), null, "not bound yet — a later sign-in may still succeed");
 });
 
-test("tryBindReferral: a referrer's first-ever bound invitee reserves them a Founder slot when FEATURE_FOUNDER_NFT is on", async () => {
+// Founder slots are no longer triggered by binding — a freshly-bound invitee hasn't traded yet, so it can't
+// make a recruiter cross the valid-invitee volume threshold. See src/lib/referrals/founder.test.ts for the
+// real trigger (the trade-confirmation hook).
+test("tryBindReferral: binding itself never reserves a Founder slot, even with FEATURE_FOUNDER_NFT on and many invitees", async () => {
   process.env.FEATURE_FOUNDER_NFT = "true";
-  const founder = Keypair.generate().publicKey.toBase58();
-  const first = `W${Math.random()}`;
-  assert.equal(await tryBindReferral(first, founder, cleanFunder(first)), "bound");
-  const allocation = await pgFounderAllocation(db, founder);
-  assert.ok(allocation, "a slot was reserved");
-  assert.ok(allocation!.rank >= 1 && allocation!.rank <= 1000);
-  assert.equal(allocation!.mintedAt, null, "reserved, not minted — the collection doesn't exist yet");
-
-  const second = `W${Math.random()}`;
-  assert.equal(await tryBindReferral(second, founder, cleanFunder(second)), "bound");
-  const stillOne = await pgFounderAllocation(db, founder);
-  assert.deepEqual(stillOne, allocation, "a SECOND invitee never reserves a second slot or changes the first");
-});
-
-test("tryBindReferral: no Founder slot is reserved when FEATURE_FOUNDER_NFT is off", async () => {
-  process.env.FEATURE_FOUNDER_NFT = "false";
-  const founder = Keypair.generate().publicKey.toBase58();
-  const w = `W${Math.random()}`;
-  assert.equal(await tryBindReferral(w, founder, cleanFunder(w)), "bound");
-  assert.equal(await pgFounderAllocation(db, founder), null);
+  const referrer = Keypair.generate().publicKey.toBase58();
+  for (let i = 0; i < 3; i++) {
+    const w = `W${Math.random()}`;
+    assert.equal(await tryBindReferral(w, referrer, cleanFunder(w)), "bound");
+  }
+  assert.equal(await pgFounderAllocation(db, referrer), null);
 });
 
 // ── tryApplyRecruiterCode / canApplyRecruiterCode: the manual "I have a code" flow ──────────────────────────────

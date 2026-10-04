@@ -1,17 +1,11 @@
 import { and, count, eq, gte, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
 import type { Db } from "./client";
-import { founderAllocations, pandaLaunches, referralDailyVolume, referralPayouts, referrals } from "./schema";
+import { founderAllocations, pandaLaunches, referralDailyVolume, referralPayouts, referrals, trades } from "./schema";
 
 /** This wallet's referrer, or null if it was never bound (came in without a link, failed anti-abuse, ...). */
 export async function pgGetReferrer(db: Db, wallet: string): Promise<string | null> {
   const [row] = await db.select({ referrer: referrals.referrer }).from(referrals).where(eq(referrals.wallet, wallet));
   return row?.referrer ?? null;
-}
-
-/** How many invitees `referrer` has ever bound — used to detect "this is their very first", the trigger for a Founder slot. */
-export async function pgCountBoundInvitees(db: Db, referrer: string): Promise<number> {
-  const [{ n }] = await db.select({ n: count() }).from(referrals).where(eq(referrals.referrer, referrer));
-  return n;
 }
 
 /**
@@ -170,6 +164,54 @@ export async function pgUnmintedFounderAllocations(db: Db): Promise<{ wallet: st
 
 export async function pgMarkFounderMinted(db: Db, wallet: string, mintedAt: number, assetId: string): Promise<void> {
   await db.update(founderAllocations).set({ mintedAt, assetId }).where(eq(founderAllocations.wallet, wallet));
+}
+
+/** Releases (deletes) `wallet`'s Founder slot — used only by the one-time migration off the old "first invitee"
+ *  rule (scripts/migrate-founder-slots-to-new-rule.ts). Leaves a gap in `rank` rather than re-packing the
+ *  numbering: a live site must never have an existing Founder's rank change under them. Returns whether a row
+ *  was actually deleted. */
+export async function pgReleaseFounderSlot(db: Db, wallet: string): Promise<boolean> {
+  const rows = await db.delete(founderAllocations).where(eq(founderAllocations.wallet, wallet)).returning({ wallet: founderAllocations.wallet });
+  return rows.length > 0;
+}
+
+/** Every Founder allocation that exists right now — used only by the migration script above (ordinary request
+ *  code reads one wallet at a time via pgFounderAllocation/pgIsFounder). */
+export async function pgAllFounderAllocations(db: Db): Promise<{ wallet: string; rank: number; mintedAt: number | null }[]> {
+  return db.select({ wallet: founderAllocations.wallet, rank: founderAllocations.rank, mintedAt: founderAllocations.mintedAt }).from(founderAllocations);
+}
+
+/**
+ * How many of `referrer`'s invitees are "valid" toward their Founder-slot progress — anti-abuse is already
+ * guaranteed for every bound invitee by construction (tryBindReferral never binds anything but a "clean"
+ * verdict, see src/lib/referrals/bind.ts), so the only remaining condition is the invitee's own cumulative
+ * trade volume. A correlated subquery rather than a join + group-by: there's no need to compute every
+ * invitee's volume when only the COUNT crossing the threshold matters.
+ */
+export async function pgCountValidInvitees(db: Db, referrer: string, minUsd: number): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(referrals)
+    .where(
+      and(
+        eq(referrals.referrer, referrer),
+        sql`(select coalesce(sum(${trades.solAmount} * ${trades.solPriceUsdAtTrade}), 0) from ${trades} where ${trades.wallet} = ${referrals.wallet}) >= ${minUsd}`
+      )
+    );
+  return n;
+}
+
+/** Every one of `referrer`'s invitees' own cumulative USD volume, keyed by wallet — invitees with zero trades
+ *  are simply absent from the result (the caller treats a missing key as 0). One query for the whole Recruiters
+ *  page, not one query per invitee. */
+export async function pgInviteeVolumesUsd(db: Db, referrer: string): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ wallet: trades.wallet, total: sql<number>`coalesce(sum(${trades.solAmount} * ${trades.solPriceUsdAtTrade}), 0)` })
+    .from(trades)
+    .innerJoin(referrals, eq(referrals.wallet, trades.wallet))
+    .where(eq(referrals.referrer, referrer))
+    .groupBy(trades.wallet);
+  return Object.fromEntries(rows.map((r) => [r.wallet, Number(r.total)]));
 }
 
 // ── Coins launched through PANDA's own /create flow ──────────────────────────────────────────────────────────────

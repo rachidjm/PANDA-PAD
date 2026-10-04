@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgFounderAllocation, pgFounderSlotsTaken, pgReferralStats } from "@/lib/db/referrals";
+import { pgCountValidInvitees, pgFounderAllocation, pgFounderSlotsTaken, pgReferralStats } from "@/lib/db/referrals";
 import { solPriceUsd } from "@/lib/solana/prices";
 import { eurUsdRate } from "@/lib/strategy/market";
+import { founderMinTraderVolumeUsd, founderRequiredTraders } from "@/lib/referrals/tiers-config";
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -25,15 +26,26 @@ export async function GET(req: Request) {
         throw err;
       }
     };
-    const [stats, founder, founderSlotsTaken, solUsd, eurUsd] = await Promise.all([
+    const [stats, founder, founderSlotsTaken, solUsd, eurUsd, validInviteeCount] = await Promise.all([
       readDb<{ referredCount: number; earnedLamports: number }>({ referredCount: 0, earnedLamports: 0 }, (db) => pgReferralStats(db, wallet)),
       readDb<Awaited<ReturnType<typeof pgFounderAllocation>>>(null, (db) => pgFounderAllocation(db, wallet)),
       readDb<number>(0, (db) => pgFounderSlotsTaken(db)),
       solPriceUsd().catch(() => 0),
       eurUsdRate(),
+      // Only meaningful before becoming a Founder — the Recruiters page's "X/N traders válidos" progress line.
+      readDb<number>(0, (db) => pgCountValidInvitees(db, wallet, founderMinTraderVolumeUsd())),
     ]);
     return NextResponse.json(
-      { ...stats, solUsd: solUsd > 0 ? solUsd : null, eurUsd, founder, founderSlotsLeft: Math.max(0, 1000 - founderSlotsTaken) },
+      {
+        ...stats,
+        solUsd: solUsd > 0 ? solUsd : null,
+        eurUsd,
+        founder,
+        founderSlotsLeft: Math.max(0, 1000 - founderSlotsTaken),
+        validInviteeCount,
+        founderRequiredTraders: founderRequiredTraders(),
+        founderMinTraderVolumeUsd: founderMinTraderVolumeUsd(),
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {

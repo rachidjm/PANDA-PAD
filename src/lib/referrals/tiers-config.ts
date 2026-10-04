@@ -58,6 +58,25 @@ export function bpsForRank(rank: number, tiers: Tier[] = referralTiers()): numbe
   return tiers[tiers.length - 1]?.bps ?? 0;
 }
 
+export const DEFAULT_FOUNDER_REQUIRED_TRADERS = 10;
+
+/** How many "valid" invitees (src/lib/referrals/founder.ts) a recruiter needs before a Founder slot is earned —
+ *  a valid invitee is one who traded at least founderMinTraderVolumeUsd() of their own volume (anti-abuse is
+ *  already guaranteed for every bound invitee by construction, see src/lib/referrals/bind.ts). */
+export function founderRequiredTraders(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.FOUNDER_REQUIRED_TRADERS);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_FOUNDER_REQUIRED_TRADERS;
+}
+
+export const DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD = 100;
+
+/** The cumulative USD volume (buys + sells, each valued at its own historical SOL/USD price) an invitee needs
+ *  before they count toward their recruiter's Founder-slot progress. */
+export function founderMinTraderVolumeUsd(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.FOUNDER_MIN_TRADER_VOLUME_USD);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD;
+}
+
 export const DEFAULT_REFERRAL_MIN_DAILY_VOLUME_SOL = 0.05;
 
 /** The daily volume (in lamports) an invitee needs for a UTC day to count toward their 3-day streak. */

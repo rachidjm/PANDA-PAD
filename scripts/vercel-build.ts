@@ -9,7 +9,8 @@
  *    purge-blob (deletes the frozen Blob copies of migrated data; a dry run unless PANDA_BUILD_PURGE=yes — see scripts/blob-purge.ts),
  *    backfill-legacy-fees (grandfathers every wallet that already traded onto the 0.5% fee; a dry run unless PANDA_BUILD_LEGACY_FEES=yes
  *    — see scripts/backfill-legacy-fee-wallets.ts; PANDA_BUILD_WATCH_WALLETS="wallet1,wallet2" names specific wallets to confirm by name
- *    in the log).
+ *    in the log), migrate-founder-slots (releases Founder slots reserved under the old "first invitee" rule that don't satisfy the new
+ *    one; a dry run unless PANDA_BUILD_MIGRATE_FOUNDERS=yes — see scripts/migrate-founder-slots-to-new-rule.ts).
  *    A failing task is reported but does not block the deployment of the same code.
  * 3. `next build`.
  */
@@ -58,6 +59,9 @@ for (const t of tasks) {
   } else if (t === "backfill-legacy-fees") {
     const args = process.env.PANDA_BUILD_LEGACY_FEES === "yes" ? ["--yes"] : [];
     run(`backfill-legacy-fee-wallets${args.length ? " --yes" : " (dry run)"}`, tsx("scripts/backfill-legacy-fee-wallets.ts", ...args), false);
+  } else if (t === "migrate-founder-slots") {
+    const args = process.env.PANDA_BUILD_MIGRATE_FOUNDERS === "yes" ? ["--yes"] : [];
+    run(`migrate-founder-slots${args.length ? " --yes" : " (dry run)"}`, tsx("scripts/migrate-founder-slots-to-new-rule.ts", ...args), false);
   } else console.log(`(unknown build task "${t}" ignored)`);
 }
 

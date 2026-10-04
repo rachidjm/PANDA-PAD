@@ -10,6 +10,7 @@ import { recordActivity } from "@/lib/activity/record";
 import { findPandaFee } from "@/lib/points/trade-award";
 import { recordReferralPayoutIfAny } from "@/lib/referrals/payout";
 import { recordReferralVolumeAndStreak } from "@/lib/referrals/streak";
+import { recordFounderProgress } from "@/lib/referrals/founder";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -103,6 +104,11 @@ export async function POST(req: Request) {
     // (which decides the recruiter's tier on the NEXT trade — never this one). Neither can fail the trade record.
     await recordReferralPayoutIfAny(tx, wallet, mint, signature).catch((err) => console.error("[PANDA referrals] payout logging failed", signature, err));
     await recordReferralVolumeAndStreak(wallet, Math.abs(postLamports - preLamports)).catch((err) => console.error("[PANDA referrals] streak update failed", signature, err));
+
+    // Founder-slot progress (feature-flagged, off by default): this trade may be what pushes the TRADING
+    // wallet's own cumulative volume past the Founder-eligibility threshold for the first time, which in turn
+    // may be what gives ITS referrer a Founder slot. Never fails the trade record.
+    await recordFounderProgress(wallet, solAmount * solPriceUsdAtTrade).catch((err) => console.error("[PANDA founder] progress update failed", signature, err));
 
     // PANDA Points (feature-flagged, off by default). A points failure must never fail the trade record.
     let points: { outcome: string; awarded: number } | undefined;

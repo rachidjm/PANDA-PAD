@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgBindReferral, pgCountBoundInvitees, pgGetReferrer, pgReserveFounderSlot } from "@/lib/db/referrals";
+import { pgBindReferral, pgGetReferrer } from "@/lib/db/referrals";
 import { pgGetWalletByCode } from "@/lib/db/fee-tier";
 import { pgHasAnyTrade } from "@/lib/db/trades";
 import { normalizeRecruiterCode } from "./codes";
@@ -59,19 +59,9 @@ export async function tryBindReferral(
   const bound = await pgBindReferral(db, wallet, referrerCandidate, Date.now());
   if (!bound) return "already_bound"; // lost a race to a concurrent sign-in
 
-  // Founder slots (src/lib/db/schema.ts's founderAllocations): the first 1,000 recruiters to land their very
-  // first-ever bound invitee get one, for free, for life. Best-effort — a failure here must never undo or fail
-  // the bind itself (the invitee is already real and permanent regardless of whether a Founder slot exists).
-  if (isEnabled("FOUNDER_NFT")) {
-    try {
-      if ((await pgCountBoundInvitees(db, referrerCandidate)) === 1) {
-        await pgReserveFounderSlot(db, referrerCandidate, Date.now());
-      }
-    } catch (err) {
-      console.error("[PANDA founder] slot reservation failed", referrerCandidate, err);
-    }
-  }
-
+  // Founder slots (src/lib/db/schema.ts's founderAllocations) are no longer triggered by binding itself — a
+  // freshly-bound invitee hasn't traded yet, so they can't make a recruiter cross the valid-invitee threshold.
+  // See src/lib/referrals/founder.ts, called from the trade-confirmation route instead.
   return "bound";
 }
 

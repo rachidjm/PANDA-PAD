@@ -25,6 +25,7 @@
     "chart:check": "tsx --env-file-if-exists=.env.local scripts/chart-check.ts",
     "nft:create-collection": "tsx --env-file-if-exists=.env.local scripts/nft-create-collection.ts",
     "backfill-legacy-fee-wallets": "tsx --env-file-if-exists=.env.local scripts/backfill-legacy-fee-wallets.ts",
+    "migrate-founder-slots": "tsx --env-file-if-exists=.env.local scripts/migrate-founder-slots-to-new-rule.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {

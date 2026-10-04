@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgInviteeEarnings, pgListInvitees } from "@/lib/db/referrals";
+import { pgInviteeEarnings, pgInviteeVolumesUsd, pgListInvitees } from "@/lib/db/referrals";
 import { isCurrentlyActive } from "@/lib/referrals/tiers";
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       if (err instanceof DbNotConfiguredError) return NextResponse.json({ invitees: [] });
       throw err;
     }
-    const [rows, earnings] = await Promise.all([pgListInvitees(db, wallet), pgInviteeEarnings(db, wallet)]);
+    const [rows, earnings, volumesUsd] = await Promise.all([pgListInvitees(db, wallet), pgInviteeEarnings(db, wallet), pgInviteeVolumesUsd(db, wallet)]);
     const now = Date.now();
     const invitees = rows.map((r) => ({
       wallet: r.wallet,
@@ -32,6 +32,7 @@ export async function GET(req: Request) {
       everActivated: r.firstActivatedAt !== null,
       streakDays: r.streakAtLastQualifyingDay,
       earnedLamports: earnings[r.wallet] ?? 0,
+      tradedVolumeUsd: volumesUsd[r.wallet] ?? 0,
     }));
     return NextResponse.json({ invitees }, { headers: { "Cache-Control": "no-store" } });
   } catch {

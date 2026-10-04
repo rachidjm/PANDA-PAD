@@ -327,11 +327,12 @@ export const pandaLaunches = pgTable("panda_launches", {
   launchedAt: bigint("launched_at", { mode: "number" }).notNull(),
 });
 
-/** The 1,000 "Founder" slots: reserved the moment a recruiter lands their first-ever bound invitee (see
- *  tryBindReferral in src/lib/referrals/bind.ts), long before the Founder NFT collection exists to mint into. A row
- *  existing here — reserved or minted, doesn't matter which — is what src/lib/referrals/tiers.ts's `isFounder()`
- *  checks for the permanent flat 30% share; `mintedAt`/`assetId` fill in once the collection is created and the
- *  reserved slots are minted (see scripts/nft-create-collection.ts). */
+/** The 1,000 "Founder" slots: reserved the moment a recruiter reaches founderRequiredTraders() "valid" invitees
+ *  (each with founderMinTraderVolumeUsd()+ of their own trade volume — see src/lib/referrals/founder.ts, called
+ *  from src/app/api/portfolio/record-trade on every confirmed trade), long before the Founder NFT collection
+ *  exists to mint into. A row existing here — reserved or minted, doesn't matter which — is what
+ *  src/lib/referrals/tiers.ts's `isFounder()` checks for the permanent flat 30% share; `mintedAt`/`assetId` fill
+ *  in once the collection is created and the reserved slots are minted (see scripts/nft-create-collection.ts). */
 export const founderAllocations = pgTable(
   "founder_allocations",
   {

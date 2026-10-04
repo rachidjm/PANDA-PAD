@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import { backfillMarks, trades } from "./schema";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
@@ -64,4 +64,16 @@ export async function pgHasAnyTrade(db: Db, wallet: string): Promise<boolean> {
 export async function pgDistinctTradeWallets(db: Db): Promise<string[]> {
   const rows = await db.selectDistinct({ wallet: trades.wallet }).from(trades);
   return rows.map((r) => r.wallet);
+}
+
+/** `wallet`'s cumulative trading volume in USD — buys and sells both, each valued at ITS OWN historical
+ *  SOL/USD price (solAmount × solPriceUsdAtTrade), summed in SQL rather than re-derived with a live price.
+ *  Used by src/lib/referrals/founder.ts to decide whether an invitee counts toward their recruiter's Founder
+ *  progress. */
+export async function pgCumulativeTradeVolumeUsd(db: Db, wallet: string): Promise<number> {
+  const [{ total }] = await db
+    .select({ total: sql<number>`coalesce(sum(${trades.solAmount} * ${trades.solPriceUsdAtTrade}), 0)` })
+    .from(trades)
+    .where(eq(trades.wallet, wallet));
+  return Number(total);
 }
