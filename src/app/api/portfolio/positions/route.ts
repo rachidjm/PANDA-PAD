@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getTrades } from "@/lib/portfolio/trade-log";
 import { computePositions, Position } from "@/lib/portfolio/positions";
 import { backfillTrades, needsBackfill } from "@/lib/portfolio/backfill";
-import { getCachedPositions, setCachedPositions } from "@/lib/portfolio/positions-cache";
+import { getCachedPositions, setCachedPositions, recentlyAttemptedBackfill, markBackfillAttempted } from "@/lib/portfolio/positions-cache";
 import { getLiveCoin } from "@/lib/live-coins";
 import { usdPrices } from "@/lib/solana/prices";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
@@ -12,7 +12,6 @@ import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 export const maxDuration = 30;
 
 // After a failed history scan (usually the RPC refusing), don't retry on every page load.
-const lastBackfillAttempt = new Map<string, number>();
 const RETRY_AFTER_MS = 60_000;
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 /** How many of the wallet's latest trades come back as "recent activity". */
@@ -34,9 +33,8 @@ export async function GET(req: Request) {
 
   try {
     let historyError = false;
-    const last = lastBackfillAttempt.get(wallet) || 0;
-    if (Date.now() - last > RETRY_AFTER_MS && (await needsBackfill(wallet))) {
-      lastBackfillAttempt.set(wallet, Date.now());
+    if (!(await recentlyAttemptedBackfill(wallet, RETRY_AFTER_MS)) && (await needsBackfill(wallet))) {
+      await markBackfillAttempted(wallet, Math.ceil(RETRY_AFTER_MS / 1000));
       try {
         await backfillTrades(wallet);
       } catch (err) {

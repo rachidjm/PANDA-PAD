@@ -37,8 +37,12 @@ export default function ActivitySidebar() {
       })
       .then(() => fetch(`/api/portfolio/positions?wallet=${publicKey.toBase58()}`))
       .then((r) => r.json())
-      .then((data: { open?: Position[]; closed?: Position[] }) => {
+      .then((data: { open?: Position[]; closed?: Position[]; historyError?: boolean }) => {
         if (cancelled) return;
+        if (data.historyError) {
+          setState("error");
+          return;
+        }
         setPositions([...(data.open || []), ...(data.closed || [])]);
         setPage(0);
         setState("ready");
