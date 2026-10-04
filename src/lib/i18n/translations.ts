@@ -64,6 +64,18 @@ export const dict = {
   "home.createCta": { en: "Create a coin", es: "Crear una moneda" },
   "home.exploreCta": { en: "Explore coins", es: "Explorar monedas" },
   "home.liveCoins": { en: "Live coins", es: "Monedas en vivo" },
+
+  // Home banner carousel
+  "banner.xCommunity.title": { en: "Join PANDA's community on X and hear about what's new before anyone else", es: "Únete a la comunidad de PANDA en X y entérate antes que nadie de las novedades" },
+  "banner.xCommunity.cta": { en: "Join", es: "Unirme" },
+  "banner.nft.title": { en: "PANDA NFT collection · Coming soon", es: "Colección de NFTs de PANDA · Próximamente" },
+  "banner.nft.cta": { en: "Notify me", es: "Avisarme" },
+  "banner.recruiters.title": { en: "Earn 30% of our fees for every trader you bring. For life.", es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida." },
+  "banner.recruiters.cta": { en: "I want to be a recruiter", es: "Quiero ser reclutador" },
+  "banner.recruiters.founderLine": { en: "Only 1,000 Founder slots: bring 10 traders and earn yours.", es: "Solo 1.000 plazas de Fundador: consigue 10 traders y gánate la tuya." },
+  "banner.prev": { en: "Previous banner", es: "Banner anterior" },
+  "banner.next": { en: "Next banner", es: "Siguiente banner" },
+  "banner.goTo": { en: "Go to banner {n}", es: "Ir al banner {n}" },
   "home.viewAll": { en: "View all", es: "Ver todas" },
   "home.recentActivity": { en: "Recent activity", es: "Actividad reciente" },
   "home.refreshError": {

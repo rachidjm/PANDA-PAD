@@ -57,6 +57,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 otcRewards: isEnabled("OTC_REWARDS"),
                 holderRewards: isEnabled("HOLDER_REWARDS"),
                 referrals: isEnabled("REFERRALS"),
+                founderNft: isEnabled("FOUNDER_NFT"),
                 aiAssistant: isEnabled("AI_ASSISTANT"),
               }}
             >
