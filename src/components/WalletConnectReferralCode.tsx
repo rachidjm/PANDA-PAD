@@ -88,7 +88,7 @@ export default function WalletConnectReferralCode() {
           </div>
         </>
       )}
-      <ul className="mt-2 space-y-1.5">
+      <ul className="mt-3.5 space-y-1.5">
         <li className="flex items-start gap-1.5 text-[11px] leading-snug text-panda-grey">
           <PercentIcon />
           {t("wallet.refBenefitHalfPrice")}
