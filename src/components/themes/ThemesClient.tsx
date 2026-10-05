@@ -68,7 +68,6 @@ function Sections({ themes }: { themes: ThemeView[] }) {
         <section key={g.id} aria-labelledby={`themes-${g.id}`}>
           <h2 id={`themes-${g.id}`} className="mb-4 flex items-baseline gap-2 font-display text-xl font-bold">
             {g.title}
-            <span className="text-sm font-medium text-panda-grey">{g.list.length}</span>
           </h2>
           <ul className="grid gap-4 sm:grid-cols-2">
             {g.list.map((th) => (

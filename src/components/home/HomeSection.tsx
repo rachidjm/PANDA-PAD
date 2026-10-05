@@ -28,7 +28,6 @@ export default function HomeSection({ titleKey, coins, priority = false }: { tit
       <div className="mb-4 flex items-baseline justify-between gap-2.5">
         <div className="flex items-baseline gap-2.5">
           <h2 className="font-display text-xl font-bold">{t(titleKey)}</h2>
-          <span className="text-xs text-panda-grey">{coins.length}</span>
         </div>
         {/* Desktop only (xl+, where the extra cards below actually live) — mobile already has the one
             "Ver todas" near the top of the page (HomeFeed.tsx), unchanged. */}
