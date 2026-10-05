@@ -147,6 +147,23 @@ function CtaButton({ cta, t }: { cta: NonNullable<BannerConfig["cta"]>; t: Retur
 
 function SlideContent({ banner, Art }: { banner: BannerConfig; Art: BannerConfig["art"] }) {
   const { t } = useLanguage();
+
+  // The art already draws its OWN button (e.g. X-community's "Follow us on X" mockup) — a second, separately
+  // rendered button right next to a picture of one would just look duplicated. Instead the whole banner
+  // becomes the click target, and nothing extra is overlaid (the drawn button is purely illustrative).
+  if (banner.hideTitle && banner.ctaBuiltIntoArt && banner.cta) {
+    const cta = banner.cta;
+    return cta.external ? (
+      <a href={cta.href} target="_blank" rel="noopener noreferrer" className="absolute inset-0 block" aria-label={t(cta.labelKey)}>
+        <Art />
+      </a>
+    ) : (
+      <Link href={cta.href} className="absolute inset-0 block" aria-label={t(cta.labelKey)}>
+        <Art />
+      </Link>
+    );
+  }
+
   return (
     <>
       <div className="absolute inset-0">

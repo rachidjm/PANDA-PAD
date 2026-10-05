@@ -79,7 +79,7 @@ export const dict = {
 
   // Home banner carousel
   "banner.xCommunity.title": { en: "Join PANDA's community on X and hear about what's new before anyone else", es: "Únete a la comunidad de PANDA en X y entérate antes que nadie de las novedades" },
-  "banner.xCommunity.cta": { en: "Join", es: "Unirme" },
+  "banner.xCommunity.cta": { en: "Follow us on X", es: "Síguenos en X" },
   "banner.nft.title": { en: "PANDA NFT collection · Coming soon", es: "Colección de NFTs de PANDA · Próximamente" },
   "banner.nft.cta": { en: "Notify me", es: "Avisarme" },
   "banner.recruiters.title": { en: "Earn 30% of our fees for every trader you bring. For life.", es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida." },
