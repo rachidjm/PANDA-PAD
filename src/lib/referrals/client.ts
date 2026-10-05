@@ -8,6 +8,7 @@
  */
 
 const KEY = "panda:ref";
+const CODE_KEY = "panda:pending-code";
 /** A little looser than a strict base58 pubkey regex (never trusted as one until the server re-validates it) — just enough to not store obvious junk. */
 const LOOKS_LIKE_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -81,5 +82,36 @@ export function clearPendingReferrer(): void {
     window.localStorage.removeItem(KEY);
   } catch {
     // Nothing to do — worst case it's offered again next sign-in and the server says "already_bound".
+  }
+}
+
+/**
+ * A recruiter's short code, typed in by hand (the "¿Tienes un código de referido?" field in the disconnected
+ * wallet menu — src/components/WalletButton.tsx) before any wallet is even connected yet. Same "remembered
+ * until the next real sign-in, server has the only real say" contract as `pendingReferrer` above — see
+ * useWalletSession.ts, which sends this alongside `ref` to /api/auth/verify and clears it once that call
+ * reaches a terminal outcome (bound, or rejected for good).
+ */
+export function setPendingCode(code: string): void {
+  try {
+    window.localStorage.setItem(CODE_KEY, code);
+  } catch {
+    // Private window, blocked storage — the code just isn't remembered this visit.
+  }
+}
+
+export function pendingCode(): string | null {
+  try {
+    return window.localStorage.getItem(CODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingCode(): void {
+  try {
+    window.localStorage.removeItem(CODE_KEY);
+  } catch {
+    // Nothing to do — worst case it's offered again next sign-in and the server says whatever it says.
   }
 }

@@ -27,6 +27,18 @@ export const dict = {
     en: "PANDA never sees your seed phrase or keys. You approve every transaction in your own wallet.",
     es: "PANDA nunca ve tu frase semilla ni tus claves. Apruebas cada transacción desde tu propia wallet.",
   },
+  "wallet.refCodeTitle": { en: "Got a referral code?", es: "¿Tienes un código de referido?" },
+  "wallet.refCodeApplied": { en: "Code @{code} applied.", es: "Código de @{code} aplicado." },
+  "wallet.refLinkApplied": { en: "Referral link applied.", es: "Enlace de recomendación aplicado." },
+  "wallet.refBenefitHalfPrice": {
+    en: "Pay half the fee, for life (0.5% instead of 1%).",
+    es: "Pagas la mitad de comisión, de por vida (0,5% en vez del 1%).",
+  },
+  "wallet.refBenefitRecruiter": {
+    en: "You can be a recruiter too: keep 30% of our fees from every trader you invite.",
+    es: "Tú también puedes ser reclutador: te llevas el 30% de nuestras comisiones de cada trader que invites.",
+  },
+  "wallet.refBenefitFounder": { en: "A shot at one of the 1,000 Founder slots.", es: "Opción a una de las 1.000 plazas de Fundador." },
 
   // Footer
   "rc.good": { en: "No alerts", es: "Sin alertas" },
@@ -1178,6 +1190,7 @@ export const dict = {
   "wp.value": { en: "Portfolio value", es: "Valor del portfolio" },
   "wp.readError": { en: "Couldn't read your wallet right now — try again in a moment.", es: "No se pudo leer tu wallet ahora — inténtalo de nuevo en un momento." },
   "wp.open": { en: "Open Portfolio", es: "Abrir Portfolio" },
+  "wp.switchAccount": { en: "Switch account", es: "Cambiar de cuenta" },
   "wp.disconnect": { en: "Disconnect", es: "Desconectar" },
 
   // Rewards page

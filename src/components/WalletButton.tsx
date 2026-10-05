@@ -4,11 +4,12 @@ import { useState, useRef, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { WalletName } from "@solana/wallet-adapter-base";
 import WalletPanel from "@/components/portfolio/WalletPanel";
+import WalletConnectReferralCode from "@/components/WalletConnectReferralCode";
 import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function WalletButton() {
-  const { wallets, select, disconnect, connected, connecting, publicKey } = useWallet();
+  const { wallets, select, connect, disconnect, connected, connecting, publicKey } = useWallet();
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -49,6 +50,23 @@ export default function WalletButton() {
                 // Also ends the session on the server (a copied cookie stops working at once when sessions are revocable).
                 fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
                 disconnect();
+                setOpen(false);
+              }}
+              onSwitchAccount={async () => {
+                // Ends the old session the same way Disconnect does, then disconnects and immediately
+                // reconnects the SAME adapter — Phantom's own connect approval popup is where the user picks
+                // a different subaccount (its account-switcher, not something PANDA draws). Once a different
+                // account is picked, publicKey/session/balance/portfolio all already follow it automatically:
+                // wallet-adapter-phantom listens for Phantom's own "accountChanged" event internally and
+                // re-emits "connect" with the new key, which this app's useEffects already key off of — see
+                // WalletPanel.tsx and useWalletSession.ts, neither of which needed any change for that part.
+                fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+                try {
+                  await disconnect();
+                  await connect();
+                } catch {
+                  // The user closed Phantom's popup, or it errored — nothing more to do; they can try again.
+                }
                 setOpen(false);
               }}
             />
@@ -108,6 +126,7 @@ export default function WalletButton() {
               </button>
             ))
           )}
+          <WalletConnectReferralCode />
           <p className="px-3 pb-1.5 pt-2 text-[11px] leading-snug text-panda-grey">{t("wallet.neverSeeKeys")}</p>
         </div>
       )}

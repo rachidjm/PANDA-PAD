@@ -5,7 +5,7 @@ import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { burnNonce, isNonceFormat, issueSession, readNonce, sameOrigin, sessionSecret } from "@/lib/auth/session";
 import { buildSignInMessage, verifyEd25519 } from "@/lib/auth/wallet-auth";
 import { recordAudit } from "@/lib/audit/log";
-import { tryBindReferral } from "@/lib/referrals/bind";
+import { tryApplyRecruiterCode, tryBindReferral } from "@/lib/referrals/bind";
 
 const FAIL = { error: "Sign-in failed — please try again." };
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => null);
-    const { nonce, signature, ref } = body ?? {};
+    const { nonce, signature, ref, code } = body ?? {};
     let walletKey: PublicKey;
     try {
       walletKey = new PublicKey(body?.wallet);
@@ -69,7 +69,24 @@ export async function POST(req: Request) {
       }
     }
 
-    const res = NextResponse.json({ wallet, ...(refBound !== undefined ? { refBound } : {}) });
+    // The manual "have a code?" field in the disconnected wallet menu — same untrusted-input, server-decides
+    // contract as `ref` above. If `ref` already bound a referrer this call, tryApplyRecruiterCode's own
+    // pgGetReferrer check makes this a harmless no-op ("already_bound") rather than a race between the two.
+    let codeBound: boolean | undefined;
+    if (typeof code === "string" && code) {
+      try {
+        const outcome = await tryApplyRecruiterCode(wallet, code);
+        if (outcome !== "retry_later") codeBound = outcome === "bound";
+      } catch (err) {
+        console.error("[PANDA referrals] code-apply attempt failed", err instanceof Error ? err.message : err);
+      }
+    }
+
+    const res = NextResponse.json({
+      wallet,
+      ...(refBound !== undefined ? { refBound } : {}),
+      ...(codeBound !== undefined ? { codeBound } : {}),
+    });
     const { jti } = await issueSession(res, wallet); // in postgres mode a session that can't be registered is not issued
     await recordAudit({ req, actor: wallet, action: "auth.login", object: "session", newState: { jti } });
     return res;
