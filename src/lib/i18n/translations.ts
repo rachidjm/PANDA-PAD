@@ -85,6 +85,10 @@ export const dict = {
   "banner.recruiters.title": { en: "Earn 30% of our fees for every trader you bring. For life.", es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida." },
   "banner.recruiters.cta": { en: "I want to be a recruiter", es: "Quiero ser reclutador" },
   "banner.recruiters.founderLine": { en: "Only 1,000 Founder slots: bring 10 traders and earn yours.", es: "Solo 1.000 plazas de Fundador: consigue 10 traders y gánate la tuya." },
+  "banner.recruiters.note": {
+    en: "The 30% applies only to traders you invite yourself. Subject to terms.",
+    es: "El 30% aplica solo a los traders que tú invites directamente. Sujeto a condiciones.",
+  },
   "banner.prev": { en: "Previous banner", es: "Banner anterior" },
   "banner.next": { en: "Next banner", es: "Siguiente banner" },
   "banner.goTo": { en: "Go to banner {n}", es: "Ir al banner {n}" },

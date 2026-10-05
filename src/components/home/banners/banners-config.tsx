@@ -10,10 +10,11 @@ import RecruitersArt from "./RecruitersArt";
  * breaks ties when adding a banner in the middle; `active` is a simple on/off switch independent of any
  * feature-flag gating `visible` does at render time (e.g. hide this banner until an env var or flag is on).
  *
- * `image`: a placeholder has been drawn for every banner so far (plain inline SVG, no network request — see
- * ./XCommunityArt.tsx etc.) — replace `XCommunityArt` with PANDA's real X profile/banner photo, and
- * `NftTeaserArt` with real collection teaser art, whenever that's ready (swap the component here, nothing else
- * needs to change).
+ * `art`: XCommunityArt and NftTeaserArt are still placeholder inline SVG (no network request) — replace them
+ * with PANDA's real X profile/banner photo and real collection teaser art whenever those are ready (swap the
+ * component here, nothing else needs to change). RecruitersArt is real designed art (public/banners/recruiters-*.webp,
+ * one file per language, picked by useLanguage() inside the component) — its headline is drawn into the image
+ * itself, which is why that banner alone sets `hideTitle: true` below.
  */
 export type BannerConfig = {
   id: string;
@@ -23,8 +24,13 @@ export type BannerConfig = {
   visible?: () => boolean;
   art: ComponentType;
   titleKey: DictKey;
+  /** Skips the overlaid title text entirely — for a banner whose image already has its own headline drawn in
+   *  (e.g. Recruiters' real art), so the two never render on top of each other. */
+  hideTitle?: boolean;
   /** A second, smaller line — e.g. the Founder-slot teaser on the Recruiters banner. */
   extraKey?: DictKey;
+  /** Fine-print disclaimer (smallest, gray) — e.g. "the 30% only applies to traders you invite yourself". */
+  noteKey?: DictKey;
   cta: { labelKey: DictKey; href: string; external?: boolean } | null;
 };
 
@@ -56,7 +62,11 @@ export function getHomeBanners(features: { referrals: boolean; founderNft: boole
       visible: () => features.referrals,
       art: RecruitersArt,
       titleKey: "banner.recruiters.title",
-      extraKey: features.founderNft ? "banner.recruiters.founderLine" : undefined,
+      hideTitle: true, // the real art (RecruitersArt.tsx) already has the headline drawn in, per language
+      // No extraKey here on purpose: the banner is too short to also stack the Founder teaser without it
+      // climbing into the image's own text — see SlideContent's hideTitle branch. That teaser still lives
+      // on /recruiters itself.
+      noteKey: "banner.recruiters.note",
       cta: { labelKey: "banner.recruiters.cta", href: "/reclutadores" },
     },
   ];

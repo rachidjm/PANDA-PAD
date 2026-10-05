@@ -63,7 +63,7 @@ export default function BannerCarousel() {
 
   return (
     <div
-      className="relative mb-6 h-44 overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:h-52 lg:h-56"
+      className="group relative mb-6 h-44 overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:h-52 lg:h-56"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -95,11 +95,13 @@ export default function BannerCarousel() {
 
       {banners.length > 1 && (
         <>
+          {/* Discrete by design: invisible until the banner itself is hovered (or an arrow gets keyboard
+              focus), so they never compete with the art/text — see src/components/home/banners/BannerCarousel.tsx. */}
           <button
             type="button"
             onClick={() => go(index - 1)}
             aria-label={t("banner.prev")}
-            className="absolute left-3 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/40 text-paper/70 backdrop-blur transition hover:bg-ink/60 hover:text-paper sm:flex"
+            className="absolute left-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
           >
             <span aria-hidden>‹</span>
           </button>
@@ -107,7 +109,7 @@ export default function BannerCarousel() {
             type="button"
             onClick={() => go(index + 1)}
             aria-label={t("banner.next")}
-            className="absolute right-3 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/40 text-paper/70 backdrop-blur transition hover:bg-ink/60 hover:text-paper sm:flex"
+            className="absolute right-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
           >
             <span aria-hidden>›</span>
           </button>
@@ -130,6 +132,19 @@ export default function BannerCarousel() {
   );
 }
 
+function CtaButton({ cta, t }: { cta: NonNullable<BannerConfig["cta"]>; t: ReturnType<typeof useLanguage>["t"] }) {
+  const className = "inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink transition hover:brightness-90 sm:text-sm";
+  return cta.external ? (
+    <a href={cta.href} target="_blank" rel="noopener noreferrer" className={className}>
+      {t(cta.labelKey)}
+    </a>
+  ) : (
+    <Link href={cta.href} className={className}>
+      {t(cta.labelKey)}
+    </Link>
+  );
+}
+
 function SlideContent({ banner, Art }: { banner: BannerConfig; Art: BannerConfig["art"] }) {
   const { t } = useLanguage();
   return (
@@ -137,33 +152,29 @@ function SlideContent({ banner, Art }: { banner: BannerConfig; Art: BannerConfig
       <div className="absolute inset-0">
         <Art />
       </div>
-      <div className="absolute inset-0 flex items-center">
-        <div className="max-w-md px-6 sm:px-10">
-          <p className="font-display text-lg font-bold leading-tight text-paper sm:text-2xl">{t(banner.titleKey)}</p>
-          {banner.extraKey && <p className="mt-1.5 text-xs text-bamboo sm:text-sm">{t(banner.extraKey)}</p>}
-          {banner.cta && (
-            <div className="mt-4">
-              {banner.cta.external ? (
-                <a
-                  href={banner.cta.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink transition hover:brightness-90 sm:text-sm"
-                >
-                  {t(banner.cta.labelKey)}
-                </a>
-              ) : (
-                <Link
-                  href={banner.cta.href}
-                  className="inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink transition hover:brightness-90 sm:text-sm"
-                >
-                  {t(banner.cta.labelKey)}
-                </Link>
-              )}
-            </div>
-          )}
+      {banner.hideTitle ? (
+        // The art already has its own headline AND the Founder teaser's job (short banner height leaves no
+        // room to also stack `extraKey` here without it climbing into the image's own text — that promotion
+        // still lives on /recruiters) — this just adds what can't be baked into a static image: the CTA and
+        // the fine print, on a gradient scrim so they stay legible over any part of the art.
+        <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-1.5 bg-gradient-to-t from-ink/80 via-ink/20 to-transparent px-6 pb-4 pt-8 sm:px-10 sm:pb-5">
+          {banner.cta && <CtaButton cta={banner.cta} t={t} />}
+          {banner.noteKey && <p className="text-[11px] text-paper/70">{t(banner.noteKey)}</p>}
         </div>
-      </div>
+      ) : (
+        <div className="absolute inset-0 flex items-center">
+          <div className="max-w-md px-6 sm:px-10">
+            <p className="font-display text-lg font-bold leading-tight text-paper sm:text-2xl">{t(banner.titleKey)}</p>
+            {banner.extraKey && <p className="mt-1.5 text-xs text-bamboo sm:text-sm">{t(banner.extraKey)}</p>}
+            {banner.cta && (
+              <div className="mt-4">
+                <CtaButton cta={banner.cta} t={t} />
+              </div>
+            )}
+            {banner.noteKey && <p className="mt-1.5 text-[11px] text-panda-grey">{t(banner.noteKey)}</p>}
+          </div>
+        </div>
+      )}
     </>
   );
 }
