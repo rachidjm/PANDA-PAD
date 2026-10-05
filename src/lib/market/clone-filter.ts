@@ -214,6 +214,52 @@ export function filterStatsOnlyRing(coins: Coin[], opts: StatsRingOptions = DEFA
   return coins.filter((c) => !dropped.has(c.mint));
 }
 
+/** Thresholds for the cap+volume-only ring check — see filterCapVolumeRing. No changePct dimension at all, so
+ *  this needs the tightest ratios of any check here plus a same-image signal to stay safe — see its doc. */
+export type CapVolumeRingOptions = {
+  marketCapMaxRatio: number;
+  volumeMaxRatio: number;
+  /** Same reasoning as StatsRingOptions.minClusterSize, just more important here: with only two independent
+   *  numbers left as evidence, a cluster of two could still be coincidence (round bonding-curve caps are
+   *  common), so this requires a strictly larger ring before dropping anything. */
+  minClusterSize: number;
+};
+
+export const DEFAULT_CAP_VOLUME_RING_OPTIONS: CapVolumeRingOptions = {
+  marketCapMaxRatio: 1.03,
+  volumeMaxRatio: 1.03,
+  minClusterSize: 4,
+};
+
+function looksLikeCapVolumeOnlyMatch(a: Coin, b: Coin, opts: CapVolumeRingOptions): boolean {
+  if (a.mint === b.mint) return false;
+  if (ratio(a.marketCap, b.marketCap) > opts.marketCapMaxRatio) return false;
+  if (ratio(a.volume24h, b.volume24h) > opts.volumeMaxRatio) return false;
+  return true;
+}
+
+/**
+ * Catches a spam ring that learned to dodge filterStatsOnlyRing by varying its REPORTED 24h change per coin
+ * (so the three-metrics-at-once match never fires) while still reusing the same market cap and volume for
+ * every coin — the two numbers a bonding-curve bot can't vary without the launch looking different from the
+ * others. Real production data (panda-pad.vercel.app/discover, 2026-10-04): BUL, PROG, PEPANCE, GCG — four
+ * unrelated-looking names, each ~49K market cap and ~10.1K volume, 24h change spread all over the place
+ * (+400% to +1,300%+) specifically so no two of them would ever look "close" on that one metric. Matching on
+ * cap+volume alone (ignoring change%) needs a much tighter ratio and a bigger minimum cluster than
+ * filterStatsOnlyRing to stay safe — two independent coins landing on the same popular bonding-curve cap is
+ * plausible on its own, four landing on the same cap AND the same volume is not.
+ */
+export function filterCapVolumeRing(coins: Coin[], opts: CapVolumeRingOptions = DEFAULT_CAP_VOLUME_RING_OPTIONS): Coin[] {
+  const clusters = buildMatchClusters(coins, (a, b) => looksLikeCapVolumeOnlyMatch(a, b, opts));
+  const dropped = new Set<string>();
+  for (const cluster of clusters) {
+    if (cluster.length < opts.minClusterSize) continue;
+    const top = [...cluster].sort((a, b) => b.volume24h - a.volume24h)[0];
+    for (const c of cluster) if (c.mint !== top.mint) dropped.add(c.mint);
+  }
+  return coins.filter((c) => !dropped.has(c.mint));
+}
+
 /** Coins that reuse the exact same image URL — free (no network), catches the common lazy-clone case. */
 export function filterExactDuplicateImages(coins: Coin[]): Coin[] {
   const ordered = [...coins].sort((a, b) => b.volume24h - a.volume24h);

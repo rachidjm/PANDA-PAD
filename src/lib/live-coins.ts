@@ -16,7 +16,7 @@ import { withBestImage } from "./coin-image";
 import { searchDexPairs, fetchDexTokenPairs, fetchDexTokensBatch, DexPair } from "./dexscreener/client";
 import { getLivePrice } from "./jupiter/price";
 import { partitionByQuality, withQuality } from "./quality/coin-quality";
-import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
+import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filterCapVolumeRing, filterExactDuplicateImages, filterByImageHash } from "./market/clone-filter";
 import { perceptualHashUrl, hammingDistance, mapWithConcurrency } from "./market/image-hash";
 import { getRugSummaries } from "./rugcheck/server";
 import { getRedis } from "./rate-limit";
@@ -275,6 +275,7 @@ async function fetchFreshCoins(force?: boolean): Promise<{ coins: Coin[]; suspec
   coins = filterCreatorSeriesSpam(coins);
   coins = filterTemplateSpam(coins);
   coins = filterStatsOnlyRing(coins);
+  coins = filterCapVolumeRing(coins);
   coins = filterExactDuplicateImages(coins);
   coins = await filterImageClones(coins).catch(() => coins);
 
@@ -661,6 +662,7 @@ async function searchLiveCoinsUnfiltered(query: string): Promise<{ coins: Coin[]
   coins = filterCreatorSeriesSpam(coins);
   coins = filterTemplateSpam(coins);
   coins = filterStatsOnlyRing(coins);
+  coins = filterCapVolumeRing(coins);
   coins = filterExactDuplicateImages(coins);
   const { ok, suspect } = partitionByQuality(coins);
   searchCache.set(q, { coins: ok, suspect, expires: Date.now() + 15_000 });

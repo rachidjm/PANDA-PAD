@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Coin } from "@/lib/types";
-import { filterCreatorSeriesSpam, filterTemplateSpam, filterStatsOnlyRing, filterExactDuplicateImages, filterByImageHash, looksLikeCloneSeries, looksLikeTemplateSpam } from "./clone-filter";
+import {
+  filterCreatorSeriesSpam,
+  filterTemplateSpam,
+  filterStatsOnlyRing,
+  filterCapVolumeRing,
+  filterExactDuplicateImages,
+  filterByImageHash,
+  looksLikeCloneSeries,
+  looksLikeTemplateSpam,
+} from "./clone-filter";
 
 const coin = (over: Partial<Coin> & { ticker: string }): Coin => ({
   mint: `mint-${over.ticker}`,
@@ -126,6 +135,40 @@ test("filterStatsOnlyRing never drops a lone pair (minClusterSize gate) or coins
   const c = coin({ ticker: "C", changePct: 900, marketCap: 1_000_000, volume24h: 500_000 }); // far apart
   const out = filterStatsOnlyRing([a, b, c]);
   assert.deepEqual(out.map((x) => x.ticker).sort(), ["A", "B", "C"], "a 2-coin match alone isn't enough to drop anything");
+});
+
+// ── real production data (panda-pad.vercel.app/discover, 2026-10-05): the same ring again, now varying its
+// REPORTED 24h change per coin on purpose (+400% to +1,300%+) so filterStatsOnlyRing's three-metrics-at-once
+// match never fires — but market cap and volume are still reused almost exactly. ──────────────────────────
+const REAL_CAP_VOLUME_RING = [
+  coin({ ticker: "BUL", name: "Bul", creator: "creatorO", changePct: 412, marketCap: 49_100, volume24h: 10_120 }),
+  coin({ ticker: "PROG", name: "Prog", creator: "creatorP", changePct: 650, marketCap: 49_050, volume24h: 10_140 }),
+  coin({ ticker: "PEPANCE", name: "Pepance", creator: "creatorQ", changePct: 980, marketCap: 48_980, volume24h: 10_095 }),
+  coin({ ticker: "GCG", name: "GCG", creator: "creatorR", changePct: 1310, marketCap: 49_000, volume24h: 10_150 }),
+];
+
+test("real data: filterStatsOnlyRing misses a ring whose change% is deliberately spread out, even with matching cap and volume", () => {
+  const out = filterStatsOnlyRing(REAL_CAP_VOLUME_RING);
+  assert.equal(out.length, REAL_CAP_VOLUME_RING.length, "change% (412..1310) is far outside the tolerance/ratio gate, so nothing clusters on it");
+});
+
+test("filterCapVolumeRing collapses a 4+ cluster matching only on market cap and volume to the top-volume coin, ignoring change% entirely", () => {
+  const out = filterCapVolumeRing(REAL_CAP_VOLUME_RING);
+  assert.deepEqual(out.map((c) => c.ticker), ["GCG"]); // $10,150 is the highest volume of the four
+});
+
+test("filterCapVolumeRing never drops a cluster smaller than minClusterSize (4), even with cap/volume as close as the real ring", () => {
+  const a = coin({ ticker: "A", marketCap: 49_000, volume24h: 10_100 });
+  const b = coin({ ticker: "B", marketCap: 49_050, volume24h: 10_120 });
+  const c = coin({ ticker: "C", marketCap: 48_980, volume24h: 10_095 });
+  const out = filterCapVolumeRing([a, b, c]);
+  assert.deepEqual(out.map((x) => x.ticker).sort(), ["A", "B", "C"], "only 3 coins match — one short of the 4-coin minimum this check requires");
+});
+
+test("filterCapVolumeRing never touches a coin whose market cap or volume are genuinely apart from the ring it drops", () => {
+  const unrelated = coin({ ticker: "UNRELATED", marketCap: 500_000, volume24h: 250_000 }); // a real, unrelated coin
+  const out = filterCapVolumeRing([...REAL_CAP_VOLUME_RING, unrelated]);
+  assert.deepEqual(out.map((x) => x.ticker).sort(), ["GCG", "UNRELATED"]);
 });
 
 test("filterExactDuplicateImages keeps only the highest-volume coin per exact image URL, and never touches coins without an image", () => {
