@@ -51,13 +51,16 @@ export default function Navbar() {
 
   return (
     <header ref={headerRef} className="sticky top-0 z-40 border-b border-paper/10 bg-ink/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3.5">
+      {/* Same max-width + side padding as the page content below (src/app/page.tsx) — at desktop widths beyond
+          sm, this keeps the logo flush with the cards' left edge and the wallet flush with the sidebar's right
+          edge, instead of the header centering itself in a narrower column than the content it sits above. */}
+      <div className="mx-auto flex max-w-[1680px] items-center gap-6 px-5 py-3.5 2xl:gap-8 2xl:py-4">
         <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="PANDA">
-          <Logo size={34} />
-          <span className="font-display text-lg font-bold tracking-tight">PANDA</span>
+          <Logo size={34} className="2xl:h-10 2xl:w-10" />
+          <span className="font-display text-lg font-bold tracking-tight 2xl:text-xl">PANDA</span>
         </Link>
 
-        <nav aria-label={t("nav.primary")} className="hidden items-center gap-1 sm:flex">
+        <nav aria-label={t("nav.primary")} className="hidden items-center gap-1 sm:flex 2xl:gap-1.5">
           {links.map((l) => {
             const active = isActive(l.href);
             return (
@@ -65,7 +68,7 @@ export default function Navbar() {
                 key={l.href}
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${active ? "bg-paper/10 text-paper" : "text-paper/60 hover:text-paper"}`}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors 2xl:px-4 2xl:py-2 2xl:text-base ${active ? "bg-paper/10 text-paper" : "text-paper/60 hover:text-paper"}`}
               >
                 {l.label}
               </Link>
@@ -73,7 +76,7 @@ export default function Navbar() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3 2xl:gap-4">
           <div className="hidden md:block">
             <CoinSearchBox />
           </div>
@@ -81,7 +84,7 @@ export default function Navbar() {
             <button
               type="button"
               onClick={() => showAI()}
-              className="hidden shrink-0 items-center gap-1.5 rounded-full border border-meme-orange/40 px-3.5 py-1.5 text-sm font-semibold text-paper transition-colors hover:border-meme-orange sm:flex"
+              className="hidden shrink-0 items-center gap-1.5 rounded-full border border-meme-orange/40 px-3.5 py-1.5 text-sm font-semibold text-paper transition-colors hover:border-meme-orange sm:flex 2xl:px-4 2xl:py-2 2xl:text-base"
             >
               <span aria-hidden>✨</span>
               {t("ai.modeButton")}

@@ -106,7 +106,7 @@ export default function CoinSearchBox() {
           onFocus={() => setOpen(true)}
           placeholder={t("nav.searchPlaceholder")}
           aria-label={t("nav.searchPlaceholder")}
-          className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40"
+          className="w-48 rounded-full border border-paper/15 bg-ink-raised px-4 py-2 text-sm text-paper placeholder:text-panda-grey outline-none focus:border-paper/40 2xl:w-64 2xl:py-2.5 2xl:text-base"
         />
       </form>
 
