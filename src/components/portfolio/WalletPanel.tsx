@@ -18,15 +18,7 @@ import ApplyRecruiterCode from "@/components/recruiters/ApplyRecruiterCode";
 type State = "loading" | "ready" | "error";
 
 /** The dropdown body shown under the connected wallet button — a quick real read of what's in the wallet, never PANDA's own data. */
-export default function WalletPanel({
-  publicKey,
-  onDisconnect,
-  onSwitchAccount,
-}: {
-  publicKey: PublicKey;
-  onDisconnect: () => void;
-  onSwitchAccount: () => void;
-}) {
+export default function WalletPanel({ publicKey, onDisconnect }: { publicKey: PublicKey; onDisconnect: () => void }) {
   const connection = useReadConnection();
   const { t } = useLanguage();
   const { points, airdrops, holderRewards, referrals } = useFeatures();
@@ -200,12 +192,6 @@ export default function WalletPanel({
             {adminError && <p className="px-3 pb-1 text-xs text-clay-red">{adminError}</p>}
           </>
         )}
-        <button
-          onClick={onSwitchAccount}
-          className="w-full rounded-xl px-3 py-2 text-left text-sm text-paper/70 hover:bg-paper/10 hover:text-paper transition-colors"
-        >
-          {t("wp.switchAccount")}
-        </button>
         <button
           onClick={onDisconnect}
           className="w-full rounded-xl px-3 py-2 text-left text-sm text-paper/70 hover:bg-paper/10 hover:text-paper transition-colors"

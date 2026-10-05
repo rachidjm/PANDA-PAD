@@ -1190,7 +1190,6 @@ export const dict = {
   "wp.value": { en: "Portfolio value", es: "Valor del portfolio" },
   "wp.readError": { en: "Couldn't read your wallet right now — try again in a moment.", es: "No se pudo leer tu wallet ahora — inténtalo de nuevo en un momento." },
   "wp.open": { en: "Open Portfolio", es: "Abrir Portfolio" },
-  "wp.switchAccount": { en: "Switch account", es: "Cambiar de cuenta" },
   "wp.disconnect": { en: "Disconnect", es: "Desconectar" },
 
   // Rewards page
