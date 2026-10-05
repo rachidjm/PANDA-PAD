@@ -99,8 +99,9 @@ export default function BannerCarousel() {
           </AnimatePresence>
         )}
 
-        {/* Discrete by design: invisible until the banner itself is hovered (or an arrow gets keyboard
-            focus), so they never compete with the art/text — see src/components/home/banners/BannerCarousel.tsx.
+        {/* Always at least faintly visible (not hover-only — against bright/busy real art, a hover-only arrow
+            at 0 opacity was too easy to miss entirely), brighter on hover/focus. A real shadow (not just a
+            translucent fill) keeps them readable over any part of the art, light or dark.
             Sides only (vertically centered) — the bottom of the image is real art now (a free zone for the
             CTA button below), so the dots live outside the image entirely instead of overlaying it there too. */}
         {banners.length > 1 && (
@@ -109,7 +110,7 @@ export default function BannerCarousel() {
               type="button"
               onClick={() => go(index - 1)}
               aria-label={t("banner.prev")}
-              className="absolute left-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
+              className="absolute left-2.5 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-paper opacity-70 shadow-lg ring-1 ring-paper/10 backdrop-blur transition hover:bg-ink/90 hover:opacity-100 focus-visible:opacity-100 sm:flex"
             >
               <span aria-hidden>‹</span>
             </button>
@@ -117,7 +118,7 @@ export default function BannerCarousel() {
               type="button"
               onClick={() => go(index + 1)}
               aria-label={t("banner.next")}
-              className="absolute right-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
+              className="absolute right-2.5 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-paper opacity-70 shadow-lg ring-1 ring-paper/10 backdrop-blur transition hover:bg-ink/90 hover:opacity-100 focus-visible:opacity-100 sm:flex"
             >
               <span aria-hidden>›</span>
             </button>
@@ -175,7 +176,7 @@ function SlideContent({ banner, Art, priority }: { banner: BannerConfig; Art: Ba
           <Art priority={priority} />
         </div>
         {banner.cta && (
-          <div className="absolute inset-x-0 bottom-[6%] flex justify-center px-4 sm:inset-x-auto sm:bottom-[15%] sm:left-[6%] sm:block sm:px-0">
+          <div className="absolute inset-x-0 bottom-[6%] flex justify-center px-4 sm:inset-x-auto sm:bottom-[7%] sm:left-[6%] sm:block sm:px-0">
             <CtaButton cta={banner.cta} t={t} />
           </div>
         )}
