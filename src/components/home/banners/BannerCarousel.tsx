@@ -46,6 +46,9 @@ export default function BannerCarousel() {
   const go = (i: number) => setIndex(((i % banners.length) + banners.length) % banners.length);
   const banner = banners[index];
   const Art = banner.art;
+  // Only the very first slide shown on page load gets eager/high-priority loading — everything reached only
+  // by navigating the carousel afterward can load lazily (see BannerPicture.tsx).
+  const priority = index === 0;
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
@@ -62,59 +65,72 @@ export default function BannerCarousel() {
   }
 
   return (
-    <div
-      className="group relative mb-6 h-44 overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:h-52 lg:h-56"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocus={() => setPaused(true)}
-      onBlur={() => setPaused(false)}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-    >
-      {reducedMotion ? (
-        // No crossfade at all — framer-motion's own reduced-motion handling can leave opacity stranded
-        // mid-transition (the DOM swaps correctly but the old slide never visually clears), so for a viewer
-        // who asked for less motion this skips the animation layer entirely rather than trusting it to degrade.
-        <div className="absolute inset-0">
-          <SlideContent banner={banner} Art={Art} />
-        </div>
-      ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={banner.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5, ease: "easeInOut" }}
-            className="absolute inset-0"
-          >
-            <SlideContent banner={banner} Art={Art} />
-          </motion.div>
-        </AnimatePresence>
-      )}
+    <div className="mb-6">
+      {/* Height follows the real art's own aspect ratio (mobile vs desktop — see BannerPicture.tsx) instead
+          of a fixed height cropped with object-cover, so nothing of the designed banners is ever clipped. */}
+      <div
+        className="group relative aspect-[1672/941] overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:aspect-[1920/819]"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onFocus={() => setPaused(true)}
+        onBlur={() => setPaused(false)}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {reducedMotion ? (
+          // No crossfade at all — framer-motion's own reduced-motion handling can leave opacity stranded
+          // mid-transition (the DOM swaps correctly but the old slide never visually clears), so for a viewer
+          // who asked for less motion this skips the animation layer entirely rather than trusting it to degrade.
+          <div className="absolute inset-0">
+            <SlideContent banner={banner} Art={Art} priority={priority} />
+          </div>
+        ) : (
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={banner.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, ease: "easeInOut" }}
+              className="absolute inset-0"
+            >
+              <SlideContent banner={banner} Art={Art} priority={priority} />
+            </motion.div>
+          </AnimatePresence>
+        )}
 
-      {banners.length > 1 && (
-        <>
-          {/* Discrete by design: invisible until the banner itself is hovered (or an arrow gets keyboard
-              focus), so they never compete with the art/text — see src/components/home/banners/BannerCarousel.tsx. */}
-          <button
-            type="button"
-            onClick={() => go(index - 1)}
-            aria-label={t("banner.prev")}
-            className="absolute left-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
-          >
-            <span aria-hidden>‹</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => go(index + 1)}
-            aria-label={t("banner.next")}
-            className="absolute right-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
-          >
-            <span aria-hidden>›</span>
-          </button>
+        {/* Discrete by design: invisible until the banner itself is hovered (or an arrow gets keyboard
+            focus), so they never compete with the art/text — see src/components/home/banners/BannerCarousel.tsx.
+            Sides only (vertically centered) — the bottom of the image is real art now (a free zone for the
+            CTA button below), so the dots live outside the image entirely instead of overlaying it there too. */}
+        {banners.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => go(index - 1)}
+              aria-label={t("banner.prev")}
+              className="absolute left-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
+            >
+              <span aria-hidden>‹</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => go(index + 1)}
+              aria-label={t("banner.next")}
+              className="absolute right-2.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-ink/30 text-paper/60 opacity-0 backdrop-blur transition hover:bg-ink/50 hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 sm:flex"
+            >
+              <span aria-hidden>›</span>
+            </button>
+          </>
+        )}
+      </div>
 
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+      <div className="mt-2 flex items-center justify-between gap-3 px-1">
+        {/* Fine-print disclaimer, deliberately OUTSIDE the image (never overlaid on the art) — e.g. the
+            Recruiters banner's "30% only applies to traders you invite yourself". */}
+        <p className="text-[11px] text-panda-grey">{banner.noteKey ? t(banner.noteKey) : ""}</p>
+        {banners.length > 1 && (
+          <div className="flex shrink-0 gap-1.5">
             {banners.map((b, i) => (
               <button
                 key={b.id}
@@ -122,18 +138,18 @@ export default function BannerCarousel() {
                 onClick={() => go(i)}
                 aria-label={t("banner.goTo", { n: i + 1 })}
                 aria-current={i === index}
-                className={`h-1.5 rounded-full transition-all ${i === index ? "w-5 bg-paper" : "w-1.5 bg-paper/30 hover:bg-paper/50"}`}
+                className={`h-1.5 rounded-full transition-all ${i === index ? "w-5 bg-paper/70" : "w-1.5 bg-paper/25 hover:bg-paper/40"}`}
               />
             ))}
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 function CtaButton({ cta, t }: { cta: NonNullable<BannerConfig["cta"]>; t: ReturnType<typeof useLanguage>["t"] }) {
-  const className = "inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink transition hover:brightness-90 sm:text-sm";
+  const className = "inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink shadow-lg transition hover:brightness-90 sm:text-sm";
   return cta.external ? (
     <a href={cta.href} target="_blank" rel="noopener noreferrer" className={className}>
       {t(cta.labelKey)}
@@ -145,53 +161,44 @@ function CtaButton({ cta, t }: { cta: NonNullable<BannerConfig["cta"]>; t: Retur
   );
 }
 
-function SlideContent({ banner, Art }: { banner: BannerConfig; Art: BannerConfig["art"] }) {
+function SlideContent({ banner, Art, priority }: { banner: BannerConfig; Art: BannerConfig["art"]; priority: boolean }) {
   const { t } = useLanguage();
 
-  // The art already draws its OWN button (e.g. X-community's "Follow us on X" mockup) — a second, separately
-  // rendered button right next to a picture of one would just look duplicated. Instead the whole banner
-  // becomes the click target, and nothing extra is overlaid (the drawn button is purely illustrative).
-  if (banner.hideTitle && banner.ctaBuiltIntoArt && banner.cta) {
-    const cta = banner.cta;
-    return cta.external ? (
-      <a href={cta.href} target="_blank" rel="noopener noreferrer" className="absolute inset-0 block" aria-label={t(cta.labelKey)}>
-        <Art />
-      </a>
-    ) : (
-      <Link href={cta.href} className="absolute inset-0 block" aria-label={t(cta.labelKey)}>
-        <Art />
-      </Link>
+  if (banner.hideTitle) {
+    // The art already has the headline (and, on X, the subtitle/icons) drawn in, per language and per
+    // breakpoint — this just adds the one thing that can't be baked into a static image: a REAL button, in
+    // the free space each design leaves for it (desktop: below the text, left-aligned; mobile: centered over
+    // the dark ground at the bottom).
+    return (
+      <>
+        <div className="absolute inset-0">
+          <Art priority={priority} />
+        </div>
+        {banner.cta && (
+          <div className="absolute inset-x-0 bottom-[6%] flex justify-center px-4 sm:inset-x-auto sm:bottom-[15%] sm:left-[6%] sm:block sm:px-0">
+            <CtaButton cta={banner.cta} t={t} />
+          </div>
+        )}
+      </>
     );
   }
 
   return (
     <>
       <div className="absolute inset-0">
-        <Art />
+        <Art priority={priority} />
       </div>
-      {banner.hideTitle ? (
-        // The art already has its own headline AND the Founder teaser's job (short banner height leaves no
-        // room to also stack `extraKey` here without it climbing into the image's own text — that promotion
-        // still lives on /recruiters) — this just adds what can't be baked into a static image: the CTA and
-        // the fine print, on a gradient scrim so they stay legible over any part of the art.
-        <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-1.5 bg-gradient-to-t from-ink/80 via-ink/20 to-transparent px-6 pb-4 pt-8 sm:px-10 sm:pb-5">
-          {banner.cta && <CtaButton cta={banner.cta} t={t} />}
-          {banner.noteKey && <p className="text-[11px] text-paper/70">{t(banner.noteKey)}</p>}
+      <div className="absolute inset-0 flex items-center">
+        <div className="max-w-md px-6 sm:px-10">
+          <p className="font-display text-lg font-bold leading-tight text-paper sm:text-2xl">{t(banner.titleKey)}</p>
+          {banner.extraKey && <p className="mt-1.5 text-xs text-bamboo sm:text-sm">{t(banner.extraKey)}</p>}
+          {banner.cta && (
+            <div className="mt-4">
+              <CtaButton cta={banner.cta} t={t} />
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="absolute inset-0 flex items-center">
-          <div className="max-w-md px-6 sm:px-10">
-            <p className="font-display text-lg font-bold leading-tight text-paper sm:text-2xl">{t(banner.titleKey)}</p>
-            {banner.extraKey && <p className="mt-1.5 text-xs text-bamboo sm:text-sm">{t(banner.extraKey)}</p>}
-            {banner.cta && (
-              <div className="mt-4">
-                <CtaButton cta={banner.cta} t={t} />
-              </div>
-            )}
-            {banner.noteKey && <p className="mt-1.5 text-[11px] text-panda-grey">{t(banner.noteKey)}</p>}
-          </div>
-        </div>
-      )}
+      </div>
     </>
   );
 }

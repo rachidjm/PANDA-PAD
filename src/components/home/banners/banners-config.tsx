@@ -12,9 +12,10 @@ import RecruitersArt from "./RecruitersArt";
  *
  * `art`: NftTeaserArt is still placeholder inline SVG (no network request) — replace it with real collection
  * teaser art whenever that's ready (swap the component here, nothing else needs to change). XCommunityArt and
- * RecruitersArt are real designed art (public/banners/{x-community,recruiters}-*.webp, one file per language,
- * picked by useLanguage() inside each component) — their headline (and, for X, the button) is drawn into the
- * image itself, which is why both set `hideTitle: true` below.
+ * RecruitersArt are real designed art — four files each (public/banners/, one per language AND per breakpoint,
+ * see BannerPicture.tsx) with the headline (and, on X, the subtitle/icons) drawn in, which is why both set
+ * `hideTitle: true` below. `art` takes an optional `priority` prop (only the first slide shown passes true —
+ * see BannerCarousel.tsx) so it can mirror next/image's own eager/lazy loading hint.
  */
 export type BannerConfig = {
   id: string;
@@ -22,17 +23,15 @@ export type BannerConfig = {
   active: boolean;
   /** Extra gate beyond `active` — env vars / feature flags that only make sense to check at render time. */
   visible?: () => boolean;
-  art: ComponentType;
+  art: ComponentType<{ priority?: boolean }>;
   titleKey: DictKey;
   /** Skips the overlaid title text entirely — for a banner whose image already has its own headline drawn in
    *  (e.g. Recruiters' real art), so the two never render on top of each other. */
   hideTitle?: boolean;
-  /** The art ALSO draws its own button (e.g. X-community's "Follow us on X" mockup) — the whole banner becomes
-   *  the click target instead of overlaying a second, visually duplicated button next to a picture of one. */
-  ctaBuiltIntoArt?: boolean;
   /** A second, smaller line — e.g. the Founder-slot teaser on the Recruiters banner. */
   extraKey?: DictKey;
-  /** Fine-print disclaimer (smallest, gray) — e.g. "the 30% only applies to traders you invite yourself". */
+  /** Fine-print disclaimer (smallest, gray), rendered BELOW the carousel, never over the art — e.g. "the 30%
+   *  only applies to traders you invite yourself". */
   noteKey?: DictKey;
   cta: { labelKey: DictKey; href: string; external?: boolean } | null;
 };
@@ -48,8 +47,7 @@ export function getHomeBanners(features: { referrals: boolean; founderNft: boole
       visible: () => !!X_COMMUNITY_URL,
       art: XCommunityArt,
       titleKey: "banner.xCommunity.title",
-      hideTitle: true, // the real art (XCommunityArt.tsx) already has the headline and button drawn in, per language
-      ctaBuiltIntoArt: true, // the art's own "Follow us on X" is the button — the whole banner is the click target
+      hideTitle: true, // the real art (XCommunityArt.tsx) already has the headline/subtitle/icons drawn in, per language
       cta: X_COMMUNITY_URL ? { labelKey: "banner.xCommunity.cta", href: X_COMMUNITY_URL, external: true } : null,
     },
     {

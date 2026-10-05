@@ -1,22 +1,13 @@
-"use client";
+import BannerPicture from "./BannerPicture";
 
-import Image from "next/image";
-import { useLanguage } from "@/lib/i18n/LanguageProvider";
-
-/** The Recruiters banner's real art (replaces the earlier placeholder SVG) — one designed image per language,
- *  since the headline itself is drawn into the image rather than overlaid as text. Swaps automatically when
- *  the site's language changes. */
-const SRC = { es: "/banners/recruiters-es.webp", en: "/banners/recruiters-en.webp" } as const;
-
-export default function RecruitersArt() {
-  const { lang } = useLanguage();
+/** The Recruiters banner's real art — headline, subtitle and the panda are all drawn into the image itself,
+ *  one image per language AND per breakpoint (see BannerPicture.tsx). */
+export default function RecruitersArt({ priority }: { priority?: boolean }) {
   return (
-    <Image
-      src={SRC[lang]}
-      alt=""
-      fill
-      sizes="(min-width: 1280px) 1200px, 100vw"
-      className="object-cover"
+    <BannerPicture
+      priority={priority}
+      es={{ desktop: "/banners/recruiters-es-desktop.webp", mobile: "/banners/recruiters-es-mobile.webp" }}
+      en={{ desktop: "/banners/recruiters-en-desktop.webp", mobile: "/banners/recruiters-en-mobile.webp" }}
     />
   );
 }
