@@ -28,6 +28,13 @@ export const dict = {
     es: "PANDA nunca ve tu frase semilla ni tus claves. Apruebas cada transacción desde tu propia wallet.",
   },
   "wallet.connectPhantom": { en: "Connect with Phantom", es: "Conectar con Phantom" },
+  // "Conectar wallet" modal (src/components/wallet/ConnectModal.tsx) — the referral question before connecting
+  "wallet.applyAndConnect": { en: "Apply and connect", es: "Aplicar y conectar" },
+  "wallet.noCode": { en: "I don't have a code", es: "No tengo código" },
+  "wallet.codeInvalid": { en: "This code doesn't exist", es: "Este código no existe" },
+  "wallet.codeCheckError": { en: "We can't check the code right now. Try again.", es: "No podemos comprobar el código ahora. Inténtalo de nuevo." },
+  "wallet.closeModal": { en: "Close", es: "Cerrar" },
+  "wallet.connectModalHint": { en: "Optional — you can skip it.", es: "Opcional — puedes saltarlo." },
   "wallet.installPhantomToConnect": { en: "Install Phantom to connect", es: "Instala Phantom para conectar" },
   "wallet.refCodeTitle": { en: "Got a referral code?", es: "¿Tienes un código de referido?" },
   "wallet.refCodeApplied": { en: "Code @{code} applied.", es: "Código de @{code} aplicado." },
@@ -1212,6 +1219,7 @@ export const dict = {
   "wp.value": { en: "Portfolio value", es: "Valor del portfolio" },
   "wp.readError": { en: "Couldn't read your wallet right now — try again in a moment.", es: "No se pudo leer tu wallet ahora — inténtalo de nuevo en un momento." },
   "wp.open": { en: "Open Portfolio", es: "Abrir Portfolio" },
+  "wp.switchAccount": { en: "Switch account", es: "Cambiar de cuenta" },
   "wp.disconnect": { en: "Disconnect", es: "Desconectar" },
 
   // Rewards page
