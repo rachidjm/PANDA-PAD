@@ -1,4 +1,5 @@
 import type { FundingAsset } from "./plan";
+import type { OrderKind } from "./kinds";
 
 /** What the user sees. Only ever advanced by facts: Jupiter's order state plus a transaction confirmed on-chain. */
 export type StrategyStatus = "waiting" | "buy_triggered" | "position_open" | "sell_triggered" | "completed" | "failed" | "cancelled";
@@ -15,9 +16,14 @@ export type StrategyRecord = {
   wallet: string;
   mint: string;
   ticker: string;
-  buyUsd: number;
-  sellUsd: number;
-  stopUsd: number;
+  /** Which order shape this is (kinds.ts). Absent on strategies created before shapes existed: those are buy_sell_stop. */
+  kind?: OrderKind;
+  /** For the shapes that SELL a held token: the share of the balance this order sells (1–100). */
+  sellPct?: number;
+  /** Each leg's USD price, present only when the shape has that leg. */
+  buyUsd?: number;
+  sellUsd?: number;
+  stopUsd?: number;
   /**
    * Legacy fields from "staggered selling" (removed — Draw Your Trade is one buy, one sell, one stop again).
    * A strategy created while it existed could split into up to 10 sell tranches sharing one drawn position,
@@ -32,7 +38,8 @@ export type StrategyRecord = {
   legIndex?: number;
   legCount?: number;
   legPct?: number;
-  triggerCondition: "above" | "below";
+  /** The buy's trigger direction (buy shapes only). */
+  triggerCondition?: "above" | "below";
   fundingAsset: FundingAsset;
   fundingMint: string;
   inputAmountRaw: string;

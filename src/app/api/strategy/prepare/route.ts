@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     legIndex: body.legIndex,
     legCount: body.legCount,
     legPct: body.legPct,
+    sellPct: body.sellPct,
   });
   if (!result.ok) return failureResponse(result);
   return NextResponse.json({ strategy: result.record, transaction: result.transaction, feeTransaction: result.feeTransaction });

@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import type { CreateOrderParams, DepositCraft, TriggerOrder } from "@/lib/jupiter/trigger";
 import {
+  FUNDING,
   amountToUsd,
   BUY_SLIPPAGE_BPS,
   chooseFunding,
@@ -16,6 +17,7 @@ import {
   type StrategyIssue,
 } from "./plan";
 import { deriveStatus, canAdvance } from "./status";
+import { jupiterOrderParams, kindOf, ORDER_TYPE, sellAmountRaw, startsWithBuy, validateKind, type KindIssue, type Legs, type OrderKind } from "./kinds";
 import type { FeeCheck } from "./fee";
 import { listStrategies, PREPARED_TTL_MS, putPrepared, transition } from "./store";
 import type { StrategyRecord } from "./types";
@@ -41,6 +43,8 @@ export type Deps = {
   };
   /** True only for a signature that is confirmed on-chain and did not fail. */
   verifyTx: (signature: string) => Promise<boolean>;
+  /** The wallet's raw balance of one mint (sum over its token accounts) and that mint's decimals. */
+  balance: (wallet: string, mint: string) => Promise<{ raw: bigint; decimals: number }>;
   /** This wallet's own per-trade fee bps right now (src/lib/pump/fee-tier.ts's feeBpsForWallet) — the strategy's
    *  own fee is double this (one buy leg, one sell leg; see strategyFeeBps in ./plan). */
   feeBps: (wallet: string) => Promise<number>;
@@ -60,9 +64,9 @@ export type Failure = {
   status: number;
   code: "engine_unavailable" | "invalid" | "price_unavailable" | "issues" | "conflict" | "limit" | "expired" | "jupiter_error" | "not_found";
   message: string;
-  issues?: StrategyIssue[];
+  issues?: (StrategyIssue | KindIssue)[];
 };
-const fail = (status: number, code: Failure["code"], message: string, issues?: StrategyIssue[]): Failure => ({ ok: false, status, code, message, issues });
+const fail = (status: number, code: Failure["code"], message: string, issues?: (StrategyIssue | KindIssue)[]): Failure => ({ ok: false, status, code, message, issues });
 
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 const validKey = (s: unknown): s is string => {
@@ -92,7 +96,20 @@ export type PrepareInput = {
   legIndex?: unknown;
   legCount?: unknown;
   legPct?: unknown;
+  /** For the shapes that sell a held token: the share of the balance to sell, 1–100. */
+  sellPct?: unknown;
 };
+
+/** The legs that were sent: a price is either a positive number or absent. Anything else is refused. */
+function parseLegs(i: { buyUsd: unknown; sellUsd: unknown; stopUsd: unknown }): { ok: true; value: Legs } | { ok: false } {
+  const out: Legs = {};
+  for (const [key, v] of [["buy", i.buyUsd], ["sell", i.sellUsd], ["stop", i.stopUsd]] as const) {
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return { ok: false };
+    out[key] = v;
+  }
+  return { ok: true, value: out };
+}
 
 export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string; feeTransaction: string | null }> {
   if (!deps.engineConfigured()) return fail(503, "engine_unavailable", "The order engine isn't configured on this deployment.");
@@ -102,7 +119,10 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   if (typeof id !== "string" || !ID_RE.test(id)) return fail(400, "invalid", "Invalid strategy id.");
   if (!validKey(i.wallet) || !validKey(mint)) return fail(400, "invalid", "Invalid wallet or token address.");
   if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 999) return fail(400, "invalid", "Invalid strategy number.");
-  if (![buyUsd, sellUsd, stopUsd].every((p) => typeof p === "number" && Number.isFinite(p) && p > 0)) return fail(400, "invalid", "Invalid target prices.");
+  const legs = parseLegs({ buyUsd, sellUsd, stopUsd });
+  if (!legs.ok) return fail(400, "invalid", "Invalid target prices.");
+  const kind = kindOf(legs.value);
+  if (!kind) return fail(400, "invalid", "That combination of orders isn't offered.");
   if (!["USD", "EUR", "SOL", "USDC"].includes(unit)) return fail(400, "invalid", "Invalid amount unit.");
   const preferred = i.fundingAsset === "SOL" || i.fundingAsset === "USDC" ? (i.fundingAsset as FundingAsset) : null;
   const ticker = typeof i.ticker === "string" && /^[\w.$-]{1,16}$/.test(i.ticker) ? i.ticker : "?";
@@ -118,6 +138,9 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   // rate itself: it's this wallet's own (src/lib/pump/fee-tier.ts), never a flat constant.
   const [quote, tradeFeeBps] = await Promise.all([deps.quote(mint as string), deps.feeBps(i.wallet)]);
   if (!quote.tokenUsd) return fail(503, "price_unavailable", "No live price for this token right now.");
+  if (kind !== "buy_sell_stop") {
+    return prepareShape(deps, { wallet: i.wallet, token: i.token, id: id as string, n: n as number, mint: mint as string, ticker, kind, legs: legs.value, unit, value, sellPct: i.sellPct, preferred }, quote, tradeFeeBps);
+  }
   const amountUsd = amountToUsd(unit, value, quote);
   const funding = chooseFunding({ unit, value, rates: quote, balances: { sol: null, usdc: null }, preferred, feeBps: strategyFeeBps(tradeFeeBps) });
   if (!funding.ok) {
@@ -221,27 +244,7 @@ export async function createStrategy(
   }
 
   try {
-    const order = await deps.jupiter.createOrder(
-      {
-        orderType: "otoco",
-        depositRequestId: record.depositRequestId,
-        depositSignedTx: i.depositSignedTx,
-        userPubkey: record.wallet,
-        inputMint: record.fundingMint,
-        inputAmount: record.inputAmountRaw,
-        outputMint: record.mint,
-        triggerMint: record.mint,
-        triggerCondition: record.triggerCondition,
-        triggerPriceUsd: record.buyUsd,
-        tpPriceUsd: record.sellUsd,
-        slPriceUsd: record.stopUsd,
-        slippageBps: BUY_SLIPPAGE_BPS,
-        tpSlippageBps: TP_SLIPPAGE_BPS,
-        slSlippageBps: SL_SLIPPAGE_BPS,
-        expiresAt: record.expiresAt,
-      },
-      i.token
-    );
+    const order = await deps.jupiter.createOrder(orderParamsFor(record, i.depositSignedTx), i.token);
     let live = await transition(i.wallet, i.id, ["creating"], { state: "waiting", jupiterOrderId: order.id }, deps.now());
     // The strategy exists: now, and only now, the fee is collected (so nothing is charged if Jupiter refused the order).
     if (record.feeLamports > 0) {
@@ -285,7 +288,7 @@ export async function syncStrategies(deps: Deps, i: { wallet: string; token: str
       await transition(i.wallet, s.id, [s.state], { lastSyncAt: now }, now);
       continue;
     }
-    const d = await deriveStatus(order, deps.verifyTx);
+    const d = await deriveStatus(order, deps.verifyTx, s.kind);
     if (d.status && canAdvance(s.state, d.status)) {
       await transition(
         i.wallet,
@@ -305,6 +308,148 @@ export async function syncStrategies(deps: Deps, i: { wallet: string; token: str
     }
   }
   return { ok: true, strategies: await listStrategies(i.wallet, now) };
+}
+
+/** Jupiter's create-order request for a stored strategy. Records from before shapes existed are the full otoco. */
+function orderParamsFor(record: StrategyRecord, depositSignedTx: string): CreateOrderParams {
+  const kind = record.kind ?? "buy_sell_stop";
+  if (kind !== "buy_sell_stop") {
+    return jupiterOrderParams(kind, {
+      wallet: record.wallet,
+      mint: record.mint,
+      settlementMint: record.fundingMint,
+      fundingMint: record.fundingMint,
+      inputAmountRaw: record.inputAmountRaw,
+      legs: { buy: record.buyUsd, sell: record.sellUsd, stop: record.stopUsd },
+      buyCondition: record.triggerCondition,
+      depositRequestId: record.depositRequestId,
+      depositSignedTx,
+      expiresAt: record.expiresAt,
+    });
+  }
+  return {
+    orderType: "otoco",
+    depositRequestId: record.depositRequestId,
+    depositSignedTx,
+    userPubkey: record.wallet,
+    inputMint: record.fundingMint,
+    inputAmount: record.inputAmountRaw,
+    outputMint: record.mint,
+    triggerMint: record.mint,
+    triggerCondition: record.triggerCondition as "above" | "below",
+    triggerPriceUsd: record.buyUsd,
+    tpPriceUsd: record.sellUsd,
+    slPriceUsd: record.stopUsd,
+    slippageBps: BUY_SLIPPAGE_BPS,
+    tpSlippageBps: TP_SLIPPAGE_BPS,
+    slSlippageBps: SL_SLIPPAGE_BPS,
+    expiresAt: record.expiresAt,
+  };
+}
+
+/**
+ * The shapes other than the full strategy: a single buy, a single sell or stop of a held token, or an oco pair on
+ * held tokens. Validated BEFORE the deposit is asked for, so nothing is crafted for an order that would be refused.
+ * For held tokens the sold amount is re-read from the wallet's balance here, never taken from the browser.
+ */
+async function prepareShape(
+  deps: Deps,
+  i: { wallet: string; token: string; id: string; n: number; mint: string; ticker: string; kind: OrderKind; legs: Legs; unit: AmountUnit; value: number; sellPct: unknown; preferred: FundingAsset | null },
+  quote: StrategyQuote,
+  tradeFeeBps: number
+): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string; feeTransaction: string | null }> {
+  if (!quote.tokenUsd) return fail(503, "price_unavailable", "No live price for this token right now.");
+  const holds = !startsWithBuy(i.kind);
+  let amountUsd: number;
+  let fundingAsset: FundingAsset;
+  let inputMint: string;
+  let inputAmountRaw: string;
+  let orderSubType: "single" | "oco";
+  let sellPct: number | undefined;
+  let issues: KindIssue[];
+
+  if (!holds) {
+    const funding = chooseFunding({ unit: i.unit, value: i.value, rates: quote, balances: { sol: null, usdc: null }, preferred: i.preferred, feeBps: strategyFeeBps(tradeFeeBps) });
+    if (!funding.ok) {
+      return fail(funding.reason === "invalid_amount" ? 400 : 503, funding.reason === "invalid_amount" ? "invalid" : "price_unavailable", "That amount can't be converted right now.");
+    }
+    amountUsd = funding.funding.usd;
+    fundingAsset = funding.funding.asset;
+    inputMint = funding.funding.mint;
+    inputAmountRaw = funding.funding.raw;
+    orderSubType = "single";
+    issues = validateKind(i.kind, i.legs, { currentUsd: quote.tokenUsd, amountUsd, liquidityUsd: quote.liquidityUsd });
+  } else {
+    const pct = typeof i.sellPct === "number" ? i.sellPct : NaN;
+    if (!(pct >= 1 && pct <= 100)) return fail(400, "invalid", "Choose a percentage between 1 and 100.");
+    sellPct = pct;
+    let balance: { raw: bigint; decimals: number };
+    try {
+      balance = await deps.balance(i.wallet, i.mint);
+    } catch (err) {
+      return fail(502, "jupiter_error", clip(err));
+    }
+    const tokensRaw = sellAmountRaw(balance.raw, pct);
+    amountUsd = (Number(tokensRaw) / 10 ** balance.decimals) * quote.tokenUsd;
+    fundingAsset = i.preferred ?? "USDC";
+    inputMint = i.mint;
+    inputAmountRaw = tokensRaw.toString();
+    orderSubType = ORDER_TYPE[i.kind] === "oco" ? "oco" : "single";
+    issues = validateKind(i.kind, i.legs, { currentUsd: quote.tokenUsd, tokensUsd: amountUsd, liquidityUsd: quote.liquidityUsd });
+  }
+  if (issues.length) return fail(422, "issues", "This strategy can't be placed as drawn.", issues);
+
+  let fee = strategyFee(amountUsd, quote.solUsd, tradeFeeBps);
+  if (!fee) return fail(503, "price_unavailable", "No live SOL rate to work out the fee right now.");
+  if (fee.feeLamports <= 0) return fail(400, "invalid", "That amount is too small.");
+  if (!(await deps.fee.canReceive(fee.feeLamports))) fee = { feeUsd: 0, feeLamports: 0 };
+
+  let deposit: DepositCraft;
+  try {
+    deposit = await deps.jupiter.craftDeposit(
+      { inputMint, outputMint: holds ? FUNDING[fundingAsset].mint : i.mint, userAddress: i.wallet, amount: inputAmountRaw, orderType: "price", orderSubType },
+      i.token
+    );
+  } catch (err) {
+    return fail(502, "jupiter_error", clip(err));
+  }
+  let feeTransaction: string | null = null;
+  try {
+    feeTransaction = fee.feeLamports > 0 ? await deps.fee.build(i.wallet, fee.feeLamports) : null;
+  } catch (err) {
+    return fail(502, "jupiter_error", clip(err));
+  }
+
+  const now = deps.now();
+  const record: StrategyRecord = {
+    id: i.id,
+    n: i.n,
+    wallet: i.wallet,
+    mint: i.mint,
+    ticker: i.ticker,
+    kind: i.kind,
+    ...(i.legs.buy !== undefined ? { buyUsd: i.legs.buy, triggerCondition: triggerConditionFor(i.legs.buy, quote.tokenUsd) } : {}),
+    ...(i.legs.sell !== undefined ? { sellUsd: i.legs.sell } : {}),
+    ...(i.legs.stop !== undefined ? { stopUsd: i.legs.stop } : {}),
+    ...(sellPct !== undefined ? { sellPct } : {}),
+    fundingAsset,
+    fundingMint: holds ? FUNDING[fundingAsset].mint : inputMint,
+    inputAmountRaw,
+    amountUsd,
+    feeLamports: fee.feeLamports,
+    feeState: fee.feeLamports > 0 ? "prepared" : "none",
+    state: "prepared",
+    depositRequestId: deposit.requestId,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now + STRATEGY_TTL_MS,
+  };
+  const put = await putPrepared(record, now);
+  if (!put.ok) {
+    if (put.reason === "exists") return fail(409, "conflict", "This strategy was already submitted.");
+    return fail(429, "limit", put.reason === "limit" ? "Too many strategies on this wallet." : "Too many strategies waiting to be confirmed.");
+  }
+  return { ok: true, record, transaction: deposit.transaction, feeTransaction };
 }
 
 function clip(err: unknown): string {

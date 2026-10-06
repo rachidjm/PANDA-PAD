@@ -1,4 +1,4 @@
-import { Connection, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, type ParsedAccountData } from "@solana/web3.js";
 import { craftDeposit, createOrder, listOrders } from "@/lib/jupiter/trigger";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { PANDA_TREASURY } from "@/lib/pump/constants";
@@ -46,6 +46,20 @@ export function realDeps(): Deps {
         }
         throw new Error("The fee transaction did not confirm in time.");
       },
+    },
+    balance: async (wallet, mint) => {
+      // Sums every token account of this mint (a wallet can hold more than one). A wallet with none has zero, and
+      // decimals are then irrelevant: the sell is refused as "no balance" before anything is crafted.
+      const connection = new Connection(serverRpcUrl(), "confirmed");
+      const res = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { mint: new PublicKey(mint) });
+      let raw = BigInt(0);
+      let decimals = 0;
+      for (const account of res.value) {
+        const info = (account.account.data as ParsedAccountData).parsed.info as { tokenAmount: { amount: string; decimals: number } };
+        raw += BigInt(info.tokenAmount.amount);
+        decimals = info.tokenAmount.decimals;
+      }
+      return { raw, decimals };
     },
     verifyTx: async (signature) => {
       try {

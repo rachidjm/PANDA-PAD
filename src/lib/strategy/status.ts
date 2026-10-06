@@ -1,6 +1,7 @@
 import type { TriggerOrder } from "@/lib/jupiter/trigger";
 import type { RecordState, StrategyStatus } from "./types";
 import { TERMINAL } from "./types";
+import { startsWithBuy, type OrderKind } from "./kinds";
 
 /**
  * Turns what Jupiter reports about an order into a strategy status. Two rules:
@@ -25,7 +26,31 @@ export type Derived = {
   unrecognised?: string;
 };
 
-export async function deriveStatus(order: TriggerOrder, verifyTx: (signature: string) => Promise<boolean>): Promise<Derived> {
+/**
+ * Shapes that SELL a held token (single sell, single stop, oco) have no buy to prove, so the rule is simpler: the
+ * order is completed only when Jupiter reports it `filled` AND its fill transaction is confirmed on-chain. Jupiter's
+ * docs name the fill contexts take_profit / stop_loss for the OTOCO only, so this doesn't rely on a context value
+ * for a standalone sell or stop: the signature of a verified fill is the proof, and the context is recorded only
+ * when it is one of the two documented exit names.
+ */
+export async function deriveHeldStatus(order: TriggerOrder, verifyTx: (signature: string) => Promise<boolean>): Promise<Derived> {
+  const events = Array.isArray(order.events) ? order.events : [];
+  const fill = events.find((e) => e && e.type === "fill" && typeof e.txSignature === "string");
+  const state = order.orderState;
+  if (state === "failed") return { status: "failed" };
+  if (state === "cancelled" || state === "expired") return { status: "cancelled" };
+  if (state === "filled" && fill && (await verifyTx(fill.txSignature as string))) {
+    const context = fill.orderContext;
+    const sellKind = context === "take_profit" || context === "stop_loss" ? context : undefined;
+    return { status: "completed", sellSignature: fill.txSignature, ...(sellKind ? { sellKind } : {}) };
+  }
+  if (state === "executing") return { status: "sell_triggered" };
+  if (state === "pending" || state === "open") return { status: "waiting" };
+  return { status: null, unrecognised: `state "${state}" with no verifiable fill` };
+}
+
+export async function deriveStatus(order: TriggerOrder, verifyTx: (signature: string) => Promise<boolean>, kind?: OrderKind): Promise<Derived> {
+  if (kind && !startsWithBuy(kind)) return deriveHeldStatus(order, verifyTx);
   const events = Array.isArray(order.events) ? order.events : [];
   const fills = events.filter((e) => e && typeof e.txSignature === "string" && typeof e.orderContext === "string");
   const buyFill = fills.find((e) => BUY_CONTEXT.has(e.orderContext as string));

@@ -41,6 +41,7 @@ function fakeDeps(over: Partial<Deps> = {}, orders: () => TriggerOrder[] = () =>
       },
     },
     verifyTx: async () => true,
+    balance: async () => ({ raw: BigInt(0), decimals: 6 }),
     fee: {
       treasury: "TREASURY",
       canReceive: async () => true,

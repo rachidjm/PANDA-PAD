@@ -601,7 +601,7 @@ function LegRow({ r, showIndex, index, draw }: { r: StrategyRecord; showIndex: b
         {showIndex && <span className="shrink-0 text-panda-grey">{t("draw.sellN", { n: index + 1 })}</span>}
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${STATUS_TONE[status]} ${showIndex ? "" : "ml-auto"}`}>{t(`draw.status.${status}` as DictKey)}</span>
       </div>
-      {hasHelp && <p className="mt-1 text-panda-grey">{t(helpKey, { price: formatPrice(r.buyUsd) })}</p>}
+      {hasHelp && <p className="mt-1 text-panda-grey">{t(helpKey, { price: formatPrice(r.buyUsd ?? 0) })}</p>}
       {status === "completed" && <p className="mt-1 text-panda-grey">{r.sellKind === "stop_loss" ? t("draw.closedStop") : t("draw.closedTarget")}</p>}
       {status === "failed" && r.error && <p className="mt-1 break-words text-clay-red">{r.error}</p>}
       {r.holdsTokens && <p className="mt-1 text-meme-orange">{t("draw.holds")}</p>}

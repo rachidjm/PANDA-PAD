@@ -276,14 +276,14 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       const tag = `#${r.n}`;
       if (!drawnGroupLines.has(gid)) {
         drawnGroupLines.add(gid);
-        out.push({ key: `${gid}-b`, groupId: gid, kind: "buy", price: r.buyUsd, tag, live: true, active: false });
-        out.push({ key: `${gid}-x`, groupId: gid, kind: "stop", price: r.stopUsd, tag, live: true, active: false });
+        out.push({ key: `${gid}-b`, groupId: gid, kind: "buy", price: r.buyUsd ?? 0, tag, live: true, active: false });
+        out.push({ key: `${gid}-x`, groupId: gid, kind: "stop", price: r.stopUsd ?? 0, tag, live: true, active: false });
       }
       out.push({
         key: `${r.id}-s`,
         groupId: gid,
         kind: sellTargetAt(legIndex),
-        price: r.sellUsd,
+        price: r.sellUsd ?? 0,
         tag: legCount > 1 ? `${tag}.${legIndex + 1}` : tag,
         live: true,
         active: false,
