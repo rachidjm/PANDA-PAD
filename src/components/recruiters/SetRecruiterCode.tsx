@@ -100,7 +100,6 @@ export default function SetRecruiterCode({ wallet }: { wallet: string }) {
             setInput(e.target.value);
             setError(null);
           }}
-          placeholder={t("rec.setCodePlaceholder")}
           disabled={busy}
           maxLength={20}
           className="min-w-0 flex-1 rounded-2xl border border-paper/15 bg-ink px-3.5 py-2.5 text-sm outline-none placeholder:text-panda-grey focus:border-bamboo/50 disabled:opacity-50"

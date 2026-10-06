@@ -312,7 +312,6 @@ export const dict = {
   "rec.halfPriceNote": { en: "Anyone who comes in through your link or code pays half the fee.", es: "Quien entre con tu enlace o código paga la mitad de comisión." },
   "rec.yourCode": { en: "Your short code", es: "Tu código corto" },
   "rec.yourCodeNote": { en: "Choose it once — it can never be changed afterwards.", es: "Elígelo una vez — después no se puede cambiar." },
-  "rec.setCodePlaceholder": { en: "e.g. rachid", es: "ej. rachid" },
   "rec.setCodeCta": { en: "Set my code", es: "Elegir mi código" },
   "rec.setCodeSaving": { en: "Saving…", es: "Guardando…" },
   "rec.codeErrTooShort": { en: "Too short — at least 3 characters.", es: "Demasiado corto — mínimo 3 caracteres." },
