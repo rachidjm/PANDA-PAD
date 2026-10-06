@@ -7,6 +7,7 @@ import WalletButton from "@/components/WalletButton";
 import CopyReferralLink from "./CopyReferralLink";
 import SetRecruiterCode from "./SetRecruiterCode";
 import ApplyRecruiterCode from "./ApplyRecruiterCode";
+import InviterLine from "@/components/referrals/InviterLine";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import { formatMoney } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -29,11 +30,38 @@ type Stats = {
   founderRequiredTraders: number;
   founderMinTraderVolumeUsd: number;
 };
-type Invitee = { wallet: string; boundAt: number; active: boolean; everActivated: boolean; streakDays: number; earnedLamports: number; tradedVolumeUsd: number };
+type Invitee = {
+  wallet: string;
+  state: "bound" | "pending" | "rejected";
+  boundAt: number;
+  source: "link" | "code";
+  code: string | null;
+  active: boolean;
+  everActivated: boolean;
+  streakDays: number;
+  earnedLamports: number;
+  tradedVolumeUsd: number;
+};
 type LoadState = "loading" | "ready" | "error";
 
 const pct = (bps: number) => `${(bps / 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
 const short = (wallet: string) => `${wallet.slice(0, 4)}…${wallet.slice(-4)}`;
+const STATE_CLASS: Record<Invitee["state"], string> = { bound: "text-bamboo", pending: "text-meme-orange", rejected: "text-clay-red" };
+
+/** A labelled progress bar: how far an invitee is toward one requirement (trader-active or Founder-valid). */
+function ProgressBar({ label, value, fraction }: { label: string; value: string; fraction: number }) {
+  return (
+    <div className="mt-2">
+      <div className="flex justify-between gap-2 text-[11px] text-panda-grey">
+        <span>{label}</span>
+        <span className="font-medium text-paper/80">{value}</span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-paper/10">
+        <div className="h-full rounded-full bg-bamboo transition-all" style={{ width: `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export default function RecruitersClient() {
   const { connected, publicKey } = useWallet();
@@ -182,6 +210,7 @@ function LoggedIn({ address }: { address: string }) {
 
   return (
     <div>
+      <InviterLine wallet={address} className="mb-4 rounded-2xl border border-paper/10 bg-ink-raised px-4 py-3" />
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold">{t("rec.title")}</h1>
@@ -278,19 +307,34 @@ function LoggedIn({ address }: { address: string }) {
               <ul className="mt-3 divide-y divide-paper/10 overflow-hidden rounded-2xl border border-paper/10">
                 {invitees.map((inv) => {
                   const founderMin = stats?.founderMinTraderVolumeUsd ?? DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD;
-                  const missing = !stats?.founder && inv.tradedVolumeUsd < founderMin ? founderMin - inv.tradedVolumeUsd : null;
+                  const streakFraction = inv.streakDays / 3;
+                  const volumeFraction = inv.tradedVolumeUsd / founderMin;
+                  const via = inv.source === "code" && inv.code ? t("rec.enteredCode", { code: inv.code }) : t("rec.enteredLink");
                   return (
-                    <li key={inv.wallet} className="flex items-center justify-between gap-3 bg-ink-raised px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-xs text-paper/80">{short(inv.wallet)}</p>
-                        <p className="mt-0.5 text-[11px] text-panda-grey">
-                          {inv.active ? t("rec.statusActive") : inv.everActivated ? t("rec.statusInactive") : t("rec.statusProgress", { n: Math.min(2, inv.streakDays) })}
-                        </p>
-                        {missing !== null && (
-                          <p className="mt-0.5 text-[11px] text-panda-grey">{t("rec.founderVolumeMissing", { amount: missing.toLocaleString(lang, { maximumFractionDigits: 0 }) })}</p>
+                    <li key={inv.wallet} className="bg-ink-raised px-4 py-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-xs text-paper/80">{short(inv.wallet)}</p>
+                          <p className={`mt-0.5 text-[11px] font-semibold ${STATE_CLASS[inv.state]}`}>
+                            {inv.state === "bound" ? t("rec.stateBound") : inv.state === "pending" ? t("rec.statePending") : t("rec.stateRejected")}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-panda-grey">
+                            {via} · {t("rec.linkedOn", { date: new Date(inv.boundAt).toLocaleDateString(lang, { day: "numeric", month: "short", year: "numeric" }) })}
+                          </p>
+                        </div>
+                        {inv.state === "bound" && (
+                          <p className="shrink-0 text-xs font-semibold text-paper/80">{(inv.earnedLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL</p>
                         )}
                       </div>
-                      <p className="shrink-0 text-xs font-semibold text-paper/80">{(inv.earnedLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL</p>
+                      {inv.state === "pending" && <p className="mt-1.5 text-[11px] text-panda-grey">{t("rec.pendingRetry")}</p>}
+                      <ProgressBar label={t("rec.barActive")} value={t("rec.barActiveValue", { n: inv.streakDays })} fraction={streakFraction} />
+                      {!stats?.founder && (
+                        <ProgressBar
+                          label={t("rec.barFounder")}
+                          value={t("rec.barFounderValue", { amount: inv.tradedVolumeUsd.toLocaleString(lang, { maximumFractionDigits: 0 }), min: founderMin.toLocaleString(lang, { maximumFractionDigits: 0 }) })}
+                          fraction={volumeFraction}
+                        />
+                      )}
                     </li>
                   );
                 })}

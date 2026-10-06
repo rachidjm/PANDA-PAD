@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgBindReferral, pgGetReferrer } from "@/lib/db/referrals";
+import { pgBindReferral, pgGetReferralAttempt, pgGetReferrer, pgUpsertReferralAttempt, type BindOrigin } from "@/lib/db/referrals";
 import { pgGetWalletByCode } from "@/lib/db/fee-tier";
 import { pgHasAnyTrade } from "@/lib/db/trades";
 import { normalizeRecruiterCode } from "./codes";
@@ -37,7 +37,8 @@ const isRealAddress = (v: string): boolean => {
 export async function tryBindReferral(
   wallet: string,
   referrerCandidate: string | null | undefined,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  origin: BindOrigin = { source: "link" }
 ): Promise<BindOutcome> {
   if (!isEnabled("REFERRALS")) return "rejected";
   if (!referrerCandidate || !isRealAddress(referrerCandidate) || referrerCandidate === wallet) return "rejected";
@@ -52,11 +53,23 @@ export async function tryBindReferral(
 
   if (await pgGetReferrer(db, wallet)) return "already_bound";
 
+  const now = Date.now();
   const funder = await firstFunderCheck(wallet, referrerCandidate, fetchImpl);
-  if (funder === "unknown") return "retry_later";
-  if (funder === "self_funded") return "rejected";
+  // Not a binding yet, but the recruiter should still see the invitee (see referralAttempts in schema.ts). A
+  // retry_later attempt is picked up again automatically on the invitee's next sign-in; a rejected one is final.
+  if (funder === "unknown" || funder === "self_funded") {
+    await pgUpsertReferralAttempt(db, {
+      wallet,
+      referrer: referrerCandidate,
+      source: origin.source,
+      code: origin.source === "code" ? (origin.code ?? null) : null,
+      status: funder === "unknown" ? "pending" : "rejected",
+      updatedAt: now,
+    });
+    return funder === "unknown" ? "retry_later" : "rejected";
+  }
 
-  const bound = await pgBindReferral(db, wallet, referrerCandidate, Date.now());
+  const bound = await pgBindReferral(db, wallet, referrerCandidate, now, origin);
   if (!bound) return "already_bound"; // lost a race to a concurrent sign-in
 
   // Founder slots (src/lib/db/schema.ts's founderAllocations) are no longer triggered by binding itself — a
@@ -83,8 +96,9 @@ export async function canApplyRecruiterCode(wallet: string): Promise<boolean> {
     if (err instanceof DbNotConfiguredError) return false;
     throw err;
   }
-  const [referrer, traded] = await Promise.all([pgGetReferrer(db, wallet), pgHasAnyTrade(db, wallet)]);
-  return !referrer && !traded;
+  const [referrer, traded, attempt] = await Promise.all([pgGetReferrer(db, wallet), pgHasAnyTrade(db, wallet), pgGetReferralAttempt(db, wallet)]);
+  // A code already in progress (pending verification) is shown as its own status line, never as a fresh field.
+  return !referrer && !traded && !(attempt && attempt.status === "pending");
 }
 
 /** The manual "I have a code" flow (as opposed to a `?ref=` link): resolves the short code to its owner's wallet,
@@ -111,8 +125,9 @@ export async function tryApplyRecruiterCode(
   if (await pgGetReferrer(db, wallet)) return "already_bound";
   if (await pgHasAnyTrade(db, wallet)) return "already_traded";
 
-  const referrer = await pgGetWalletByCode(db, normalizeRecruiterCode(rawCode));
+  const code = normalizeRecruiterCode(rawCode);
+  const referrer = await pgGetWalletByCode(db, code);
   if (!referrer) return "invalid_code";
 
-  return tryBindReferral(wallet, referrer, fetchImpl);
+  return tryBindReferral(wallet, referrer, fetchImpl, { source: "code", code });
 }

@@ -1,6 +1,6 @@
 import { and, count, eq, gte, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
 import type { Db } from "./client";
-import { founderAllocations, pandaLaunches, referralDailyVolume, referralPayouts, referrals, trades } from "./schema";
+import { founderAllocations, pandaLaunches, referralAttempts, referralDailyVolume, referralPayouts, referrals, trades } from "./schema";
 
 /** This wallet's referrer, or null if it was never bound (came in without a link, failed anti-abuse, ...). */
 export async function pgGetReferrer(db: Db, wallet: string): Promise<string | null> {
@@ -14,9 +14,47 @@ export async function pgGetReferrer(db: Db, wallet: string): Promise<string | nu
  * Callers must reject `wallet === referrer` themselves before calling (the CHECK constraint is the last line of
  * defense, not the primary one — it turns a bug here into a loud failure instead of a silent bad row).
  */
-export async function pgBindReferral(db: Db, wallet: string, referrer: string, boundAt: number): Promise<boolean> {
-  const rows = await db.insert(referrals).values({ wallet, referrer, boundAt }).onConflictDoNothing().returning({ wallet: referrals.wallet });
-  return rows.length > 0;
+export type BindOrigin = { source: "link" | "code"; code?: string | null };
+
+/** Same first-touch, conflict-safe insert as ever, plus: a binding that lands also clears any pending/rejected
+ *  attempt for that wallet (one transaction, so the invitee list never shows both a binding and an attempt). */
+export async function pgBindReferral(db: Db, wallet: string, referrer: string, boundAt: number, origin: BindOrigin = { source: "link" }): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(referrals)
+      .values({ wallet, referrer, boundAt, source: origin.source, code: origin.source === "code" ? (origin.code ?? null) : null })
+      .onConflictDoNothing()
+      .returning({ wallet: referrals.wallet });
+    if (rows.length === 0) return false;
+    await tx.delete(referralAttempts).where(eq(referralAttempts.wallet, wallet));
+    return true;
+  });
+}
+
+/** This wallet's binding in full (who, through what, when) — null if it isn't bound. */
+export async function pgGetReferralBinding(db: Db, wallet: string): Promise<{ referrer: string; source: "link" | "code"; code: string | null; boundAt: number } | null> {
+  const [row] = await db
+    .select({ referrer: referrals.referrer, source: referrals.source, code: referrals.code, boundAt: referrals.boundAt })
+    .from(referrals)
+    .where(eq(referrals.wallet, wallet));
+  return row ? { ...row, source: row.source as "link" | "code" } : null;
+}
+
+/** Records (or refreshes) an attempt that is not a binding yet — see the `referralAttempts` table in schema.ts.
+ *  Latest attempt wins: an attempt is never a binding, so overwriting it can't change who a wallet belongs to. */
+export async function pgUpsertReferralAttempt(
+  db: Db,
+  row: { wallet: string; referrer: string; source: "link" | "code"; code: string | null; status: "pending" | "rejected"; updatedAt: number }
+): Promise<void> {
+  await db
+    .insert(referralAttempts)
+    .values(row)
+    .onConflictDoUpdate({ target: referralAttempts.wallet, set: { referrer: row.referrer, source: row.source, code: row.code, status: row.status, updatedAt: row.updatedAt } });
+}
+
+export async function pgGetReferralAttempt(db: Db, wallet: string): Promise<{ referrer: string; status: "pending" | "rejected" } | null> {
+  const [row] = await db.select({ referrer: referralAttempts.referrer, status: referralAttempts.status }).from(referralAttempts).where(eq(referralAttempts.wallet, wallet));
+  return row ? { referrer: row.referrer, status: row.status as "pending" | "rejected" } : null;
 }
 
 /** Records one verified on-chain referral payment (informational — see schema.ts). Returns false if it was already recorded. */
@@ -67,7 +105,15 @@ export async function pgAddDailyVolume(db: Db, wallet: string, day: string, addL
   return row.volumeLamports;
 }
 
-export type InviteeRow = { wallet: string; boundAt: number; lastQualifyingDay: string | null; streakAtLastQualifyingDay: number; firstActivatedAt: number | null };
+export type InviteeRow = {
+  wallet: string;
+  boundAt: number;
+  lastQualifyingDay: string | null;
+  streakAtLastQualifyingDay: number;
+  firstActivatedAt: number | null;
+  source: "link" | "code";
+  code: string | null;
+};
 
 /** Every invitee `referrer` has ever bound, newest first — the raw rows the Recruiters page turns into a live
  *  active/inactive/"n of 3 days" status (src/lib/referrals/tiers.ts's `isCurrentlyActive`, applied per row). */
@@ -79,10 +125,22 @@ export async function pgListInvitees(db: Db, referrer: string): Promise<InviteeR
       lastQualifyingDay: referrals.lastQualifyingDay,
       streakAtLastQualifyingDay: referrals.streakAtLastQualifyingDay,
       firstActivatedAt: referrals.firstActivatedAt,
+      source: referrals.source,
+      code: referrals.code,
     })
     .from(referrals)
     .where(eq(referrals.referrer, referrer))
-    .orderBy(sql`${referrals.boundAt} desc`);
+    .orderBy(sql`${referrals.boundAt} desc`) as Promise<InviteeRow[]>;
+}
+
+/** Every pending/rejected attempt `referrer` has (see referralAttempts in schema.ts) — listed next to the bindings. */
+export async function pgListReferralAttempts(db: Db, referrer: string): Promise<{ wallet: string; status: "pending" | "rejected"; source: "link" | "code"; code: string | null; updatedAt: number }[]> {
+  const rows = await db
+    .select({ wallet: referralAttempts.wallet, status: referralAttempts.status, source: referralAttempts.source, code: referralAttempts.code, updatedAt: referralAttempts.updatedAt })
+    .from(referralAttempts)
+    .where(eq(referralAttempts.referrer, referrer))
+    .orderBy(sql`${referralAttempts.updatedAt} desc`);
+  return rows.map((r) => ({ ...r, status: r.status as "pending" | "rejected", source: r.source as "link" | "code" }));
 }
 
 /** How much PANDA has verified was paid to `referrer`, broken down by WHICH invitee's trades earned it. */

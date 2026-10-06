@@ -293,12 +293,40 @@ export const referrals = pgTable(
     lastQualifyingDay: date("last_qualifying_day", { mode: "string" }),
     streakAtLastQualifyingDay: smallint("streak_at_last_qualifying_day").notNull().default(0),
     firstActivatedAt: bigint("first_activated_at", { mode: "number" }),
+    /** How the invitee arrived: a `?ref=` link ("link") or a recruiter's short code applied by hand ("code"). */
+    source: text("source").notNull().default("link"),
+    /** The short code that was applied when `source` is "code"; null for a link. */
+    code: text("code"),
   },
   (t) => [
     check("referrals_no_self", sql`${t.wallet} <> ${t.referrer}`),
     check("referrals_streak_nonneg", sql`${t.streakAtLastQualifyingDay} >= 0`),
+    check("referrals_source", sql`${t.source} in ('link', 'code')`),
     index("referrals_referrer").on(t.referrer),
     index("referrals_referrer_first_activated").on(t.referrer, t.firstActivatedAt),
+  ]
+);
+
+/** A referral that has NOT become a binding yet, so the recruiter can still see it in their invitee list:
+ *  "pending" = the anti-abuse check was inconclusive this time (retried automatically the next time that wallet
+ *  connects and signs in, the code never has to be typed again); "rejected" = the check found the wallet was
+ *  funded by the recruiter (shown only as "Rechazado", never with the reason). Deleted the moment the same wallet
+ *  does bind through any path (see src/lib/db/referrals.ts's pgBindReferral). */
+export const referralAttempts = pgTable(
+  "referral_attempts",
+  {
+    wallet: text("wallet").primaryKey(), // the REFERRED wallet
+    referrer: text("referrer").notNull(),
+    source: text("source").notNull(),
+    code: text("code"),
+    status: text("status").notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    check("referral_attempts_no_self", sql`${t.wallet} <> ${t.referrer}`),
+    check("referral_attempts_source", sql`${t.source} in ('link', 'code')`),
+    check("referral_attempts_status", sql`${t.status} in ('pending', 'rejected')`),
+    index("referral_attempts_referrer").on(t.referrer),
   ]
 );
 

@@ -71,6 +71,13 @@
       "when": 1791120880016,
       "tag": "0009_hot_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791305486644,
+      "tag": "0010_referral_attempts",
+      "breakpoints": true
     }
   ]
 }

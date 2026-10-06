@@ -8,6 +8,30 @@ import { ADMIN_FRESH_MS } from "@/lib/auth/admin-policy";
 import { clearPendingCode, clearPendingReferrer, pendingCode, pendingReferrer } from "@/lib/referrals/client";
 
 /**
+ * Retries a still-pending referral (a `?ref=` link or a typed code) for a wallet that already has a signed session —
+ * no signature needed, so an earlier sign-in can't strand a new link. Clears the pending value only on a terminal
+ * answer (see /api/referrals/bind). Never throws: a referral problem is never a sign-in problem.
+ */
+async function retryPendingReferral(wallet: string): Promise<void> {
+  const ref = pendingReferrer();
+  const code = pendingCode();
+  if (!ref && !code) return;
+  try {
+    const res = await fetch("/api/referrals/bind", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet, ...(ref ? { ref } : {}), ...(code ? { code } : {}) }),
+    });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    if (typeof data.refBound === "boolean") clearPendingReferrer();
+    if (typeof data.codeBound === "boolean") clearPendingCode();
+  } catch {
+    // Still pending — the next connect or sign-in tries again.
+  }
+}
+
+/**
  * Proves the connected wallet is really the user's: asks the server for a
  * one-time challenge, has the wallet sign it (free, moves no funds), and lets
  * the server set an HttpOnly session cookie. The client never sees or stores
@@ -26,7 +50,10 @@ export function useWalletSession() {
       .then((r) => r.json())
       .catch(() => null);
     const fresh = !opts?.adminFresh || (typeof current?.issuedAt === "number" && Date.now() - current.issuedAt < ADMIN_FRESH_MS - 2 * 60_000);
-    if (current?.wallet === wallet && fresh) return;
+    if (current?.wallet === wallet && fresh) {
+      await retryPendingReferral(wallet);
+      return;
+    }
 
     if (!signMessage) throw new Error(t("auth.noSign"));
 
