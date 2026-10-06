@@ -101,7 +101,7 @@ export default function Navbar() {
             key={l.href}
             href={l.href}
             aria-current={isActive(l.href) ? "page" : undefined}
-            className={`rounded-full px-3 py-1.5 text-sm ${isActive(l.href) ? "bg-paper/10 text-paper" : "text-paper/70 hover:text-paper"}`}
+            className={`inline-flex min-h-11 items-center rounded-full px-3 py-1.5 text-sm ${isActive(l.href) ? "bg-paper/10 text-paper" : "text-paper/70 hover:text-paper"}`}
           >
             {l.label}
           </Link>

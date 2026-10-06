@@ -142,8 +142,10 @@ export default function BannerCarousel() {
                 onClick={() => go(i)}
                 aria-label={t("banner.goTo", { n: i + 1 })}
                 aria-current={i === index}
-                className={`h-1.5 rounded-full transition-all ${i === index ? "w-5 bg-paper/70" : "w-1.5 bg-paper/25 hover:bg-paper/40"}`}
-              />
+                className="flex h-11 w-5 items-center justify-center"
+              >
+                <span className={`block h-1.5 rounded-full transition-all ${i === index ? "w-5 bg-paper/70" : "w-1.5 bg-paper/25"}`} />
+              </button>
             ))}
           </div>
         )}

@@ -243,7 +243,7 @@ export default function PriceChart({
                   type="button"
                   onClick={() => pickUnit(u)}
                   aria-pressed={unit === u}
-                  className={`min-w-[64px] rounded-full px-2.5 py-1 text-center text-[11px] font-semibold transition-colors ${unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"}`}
+                  className={`min-h-11 min-w-[64px] rounded-full px-2.5 py-1 text-center text-[11px] font-semibold transition-colors sm:min-h-0 ${unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"}`}
                 >
                   {u === "price" ? t("chart.price") : t("chart.mc")}
                 </button>
@@ -272,7 +272,7 @@ export default function PriceChart({
               key={tfOption}
               onClick={() => selectTimeframe(tfOption)}
               disabled={!poolAddress}
-              className={`min-w-[34px] rounded-full px-2.5 py-1 text-center text-xs font-semibold transition-colors disabled:opacity-40 sm:min-w-[38px] sm:px-3 sm:py-1.5 ${
+              className={`min-h-11 min-w-[34px] rounded-full px-2.5 py-1 text-center text-xs font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:min-w-[38px] sm:px-3 sm:py-1.5 ${
                 tf === tfOption ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"
               }`}
             >
@@ -501,19 +501,22 @@ function AreaChart({
   const activeIndex = hoverIndex !== null ? hoverIndex : points.length - 1;
   const active = points[activeIndex];
 
+  function hoverIndexAt(e: React.PointerEvent<SVGSVGElement>): number {
+    const rect = svgRef.current!.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width;
+    const idx = Math.round(relX * (points.length - 1));
+    return Math.max(0, Math.min(points.length - 1, idx));
+  }
+
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
-    const svg = svgRef.current;
-    if (!svg) return;
+    if (!svgRef.current) return;
     if (drawing) {
       // While a drag is being tracked on `window` (above), that's the single source of truth — this
       // would otherwise double-fire for the same movement whenever the pointer is still over the SVG.
       if (dragPointerId === null) overlay!.onPointer("move", priceAt(e), info(e));
       return;
     }
-    const rect = svg.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width;
-    const idx = Math.round(relX * (points.length - 1));
-    onHover(Math.max(0, Math.min(points.length - 1, idx)));
+    onHover(hoverIndexAt(e));
   }
 
   // Up to 5 evenly-spaced real timestamps along the bottom, so the timeline
@@ -541,26 +544,33 @@ function AreaChart({
           if (drawing) { if (dragPointerId === null) overlay!.onPointer("leave", 0, { type: "mouse", button: 0, pressed: false }); }
           else onHover(null);
         }}
-        onPointerDown={
-          drawing
-            ? (e) => {
-                setDragPointerId(e.pointerId);
-                overlay!.onPointer("down", priceAt(e), info(e));
-              }
-            : undefined
-        }
+        onPointerDown={(e) => {
+          if (drawing) {
+            setDragPointerId(e.pointerId);
+            overlay!.onPointer("down", priceAt(e), info(e));
+            return;
+          }
+          // Touch: keep receiving moves while the finger drags sideways, and show the point under the finger right away.
+          if (e.pointerType === "touch") {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+            onHover(hoverIndexAt(e));
+          }
+        }}
+        onPointerUp={(e) => {
+          if (!drawing && e.pointerType === "touch") onHover(null);
+        }}
+        onPointerCancel={(e) => {
+          if (!drawing && e.pointerType === "touch") onHover(null);
+        }}
         className="h-[170px] w-full cursor-crosshair sm:h-[260px]"
-        style={
-          drawing
-            ? {
-                // The finger must move the line, not scroll the page or trigger iOS's press-and-hold text-selection callout.
-                touchAction: "none",
-                WebkitUserSelect: "none",
-                userSelect: "none",
-                WebkitTouchCallout: "none",
-              }
-            : undefined
-        }
+        style={{
+          // Drawing: the finger moves the line, never the page. Browsing: sideways drags scan the chart, vertical ones still scroll the page.
+          touchAction: drawing ? "none" : "pan-y",
+          WebkitTapHighlightColor: "transparent",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTouchCallout: "none",
+        }}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
