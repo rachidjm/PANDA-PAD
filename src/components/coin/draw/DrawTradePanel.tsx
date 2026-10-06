@@ -3,6 +3,8 @@
 import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
+import { startsWithBuy, type KindIssue } from "@/lib/strategy/kinds";
+import { needsNoStopNotice, summaryParts, type SummaryPart } from "@/lib/strategy/summary";
 import { formatDisplayValue, parseDisplayValue, sanitizeDisplayInput } from "@/lib/strategy/display";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
@@ -15,7 +17,6 @@ import {
   VOLATILE_LIQUIDITY_USD,
   VOLATILE_PRICE_CHANGE_1H_PCT,
   type FundingAsset,
-  type StrategyIssue,
 } from "@/lib/strategy/plan";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import type { RecordGroup } from "./useDrawTrade";
@@ -236,7 +237,11 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
   const [impactAck, setImpactAck] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const confirming = draw.step !== "idle" && draw.step !== "done";
-  const complete = draft.buy !== undefined && draft.sell !== undefined;
+  // A draft is complete once its legs make one of the offered shapes (see kinds.ts), not only the full strategy.
+  const complete = view.kind !== null;
+  const holdsCoin = view.kind !== null && !startsWithBuy(view.kind);
+  // A sell or a stop with no buy in front of it sells the coin the wallet already holds: none, no order.
+  const noCoin = draft.buy === undefined && view.heldTokens !== null && view.heldTokens <= 0;
 
   // A trade this big moves the price — estimated from the coin's own real liquidity, same as a normal buy
   // (TradingPanel.tsx); on-curve = still on Pump.fun's own bonding curve, off-curve = graduated/external, via
@@ -263,7 +268,7 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
           <p className="font-semibold">
             {t("draw.strategy", { n: draft.n })} <span className="ml-1 rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-medium text-panda-grey">{t("draw.draft")}</span>
           </p>
-          <PriceSummary buy={draft.buy} sells={[{ price: draft.sell, pct: 100 }]} stop={draft.stop} formatValue={formatValue} />
+          <SummaryLine parts={summaryParts({ buy: draft.buy, sell: draft.sell, stop: draft.stop }, view.heldPct)} formatValue={formatValue} />
         </div>
         <div className="flex shrink-0 gap-3">
           <button type="button" onClick={() => draw.setActiveId(draft.id)} className="font-semibold text-meme-orange hover:brightness-110">
@@ -341,14 +346,36 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
       {/* Three clean rows, one per line: a dot, the name, the price (or market cap — whatever the chart is
           showing right now) and the live % vs. the buy target. Tap the number to edit it by hand. */}
       <div className="mt-2">
-        <LineRow kind="buy" label={t("draw.line.buy")} value={draft.buy} pct={null} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} />
-        <LineRow kind="sell1" label={t("draw.line.sell")} value={draft.sell} pct={sellPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "sell1", v)} />
-        <LineRow kind="stop" label={t("draw.line.stop")} value={draft.stop} pct={stopPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} last />
+        <LineRow kind="buy" label={t("draw.line.buy")} value={draft.buy} pct={null} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} onClear={draft.buy !== undefined ? () => draw.clearLeg(draft.id, "buy") : undefined} clearLabel={t("draw.clearLeg")} />
+        <LineRow kind="sell1" label={t("draw.line.sell")} value={draft.sell} pct={sellPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "sell1", v)} onClear={draft.sell !== undefined ? () => draw.clearLeg(draft.id, "sell1") : undefined} clearLabel={t("draw.clearLeg")} disabledReason={noCoin ? t("draw.noToken", { ticker: coin.ticker }) : undefined} />
+        <LineRow kind="stop" label={t("draw.line.stop")} value={draft.stop} pct={stopPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} onClear={draft.stop !== undefined ? () => draw.clearLeg(draft.id, "stop") : undefined} clearLabel={t("draw.clearLeg")} disabledReason={noCoin ? t("draw.noToken", { ticker: coin.ticker }) : undefined} last />
       </div>
-      {draft.stop === undefined && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.stopHint")}</p>}
+      {holdsCoin && (
+        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-panda-grey" role="group" aria-label={t("draw.sellShare")}>
+          <span>{t("draw.sellShare")}</span>
+          {[25, 50, 75, 100].map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => draw.setSellPct(draft.id, p)}
+              aria-pressed={view.heldPct === p}
+              className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${view.heldPct === p ? "bg-paper/15 text-paper" : "bg-paper/5 text-paper/70 hover:bg-paper/10"}`}
+            >
+              {p}%
+            </button>
+          ))}
+        </div>
+      )}
+      {needsNoStopNotice({ buy: draft.buy, sell: draft.sell, stop: draft.stop }) && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.noStopWarning")}</p>}
 
       {complete && (
         <>
+          {holdsCoin ? (
+            <p className="mt-4 text-xs text-paper/80">
+              {t("draw.heldSell", { pct: view.heldPct, tokens: formatTokens(view.heldTokens), ticker: coin.ticker })}
+            </p>
+          ) : (
+          <>
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
             <input
               value={draft.amount}
@@ -393,6 +420,9 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
             </div>
           )}
 
+          </>
+          )}
+
           {/* One-line summary; the fee/total breakdown stays folded until asked for. */}
           {view.metrics !== null && view.amountUsd && (
             <>
@@ -417,13 +447,13 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
 
           {view.issues.length > 0 && draft.amount !== "" && (
             <ul className="mt-3 space-y-1 text-xs text-clay-red" role="alert">
-              {view.issues.map((i: StrategyIssue) => (
+              {view.issues.map((i: KindIssue) => (
                 <li key={i}>{t(`draw.issue.${i}` as DictKey)}</li>
               ))}
             </ul>
           )}
 
-          {funding && (
+          {(funding || holdsCoin) && (
             <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-paper/80">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--meme-orange)]" />
               <span>{t("draw.custodyShort")}</span>
@@ -468,25 +498,51 @@ type PriceDisplayApi = Pick<DisplayApi, "unit" | "toDisplay" | "fromDisplay">;
 
 /** One row: a colored dot, the line's name, its live % vs. the buy target (when it has one), and its
  *  price/market cap — tap the number to edit it by hand, same as drawing it on the chart. */
-function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onCommit, last }: { kind: DrawTarget; label: string; value?: number; pct: number | null; onCommit: (v: string) => void; last?: boolean } & PriceDisplayApi) {
+function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onCommit, onClear, clearLabel, disabledReason, last }: { kind: DrawTarget; label: string; value?: number; pct: number | null; onCommit: (v: string) => void; onClear?: () => void; clearLabel: string; disabledReason?: string; last?: boolean } & PriceDisplayApi) {
   return (
-    <div className={`flex items-center justify-between gap-3 py-2 ${last ? "" : "border-b border-paper/10"}`}>
-      <span className="flex items-center gap-2 text-xs text-panda-grey">
-        <Dot kind={kind} />
-        {label}
-      </span>
-      <span className="flex items-center gap-2">
-        {pct !== null && <span className={`text-xs font-medium ${pct >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(pct)}</span>}
-        <UnitAwarePriceInput value={value} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={onCommit} />
-      </span>
+    <div className={`py-2 ${last ? "" : "border-b border-paper/10"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-xs text-panda-grey">
+          <Dot kind={kind} />
+          {label}
+        </span>
+        <span className="flex items-center gap-2">
+          {pct !== null && <span className={`text-xs font-medium ${pct >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(pct)}</span>}
+          <UnitAwarePriceInput value={value} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={onCommit} disabled={!!disabledReason} />
+          {onClear && (
+            <button type="button" onClick={onClear} aria-label={clearLabel} title={clearLabel} className="flex h-8 w-8 items-center justify-center rounded-full text-sm text-panda-grey transition hover:text-clay-red">
+              <span aria-hidden>×</span>
+            </button>
+          )}
+        </span>
+      </div>
+      {disabledReason && <p className="mt-1 text-right text-[11px] text-clay-red">{disabledReason}</p>}
     </div>
   );
+}
+
+/** A token amount, shown plainly for a sell ("1.250.000 PANDA" style: grouped, at most 4 decimals). */
+function formatTokens(n: number | null): string {
+  return n === null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+/** The summary as one line of translated parts ("Compra a $0,0012 · sin stop"). */
+function SummaryLine({ parts, formatValue }: { parts: SummaryPart[]; formatValue: (usd: number) => string }) {
+  const { t } = useLanguage();
+  const text = parts
+    .map((p) => {
+      if (p.key === "draw.sum.noStop") return t("draw.sum.noStop");
+      if ("pct" in p) return t(p.key, { price: formatValue(p.price), pct: p.pct });
+      return t(p.key, { price: formatValue(p.price) });
+    })
+    .join(" · ");
+  return <p className="mt-0.5 text-panda-grey">{text}</p>;
 }
 
 /** Shows and edits in whatever unit the chart is currently on (price or market cap) — always converts back
  *  to real USD (`fromDisplay`) the moment a value is committed, since that's the space every draft, the
  *  validation and the server all work in. Applied on Enter or when leaving the box, same as before. */
-function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCommit }: { value?: number; label: string; onCommit: (v: string) => void } & PriceDisplayApi) {
+function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCommit, disabled }: { value?: number; label: string; onCommit: (v: string) => void; disabled?: boolean } & PriceDisplayApi) {
   const { lang } = useLanguage();
   const [text, setText] = useState<string | null>(null);
   const commit = () => {
@@ -507,6 +563,7 @@ function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCom
       onKeyDown={(e) => e.key === "Enter" && commit()}
       inputMode="decimal"
       placeholder="—"
+      disabled={disabled}
       aria-label={unit === "mcap" ? `${label} (market cap)` : `${label} (USD)`}
       className="w-24 bg-transparent text-right text-sm font-semibold outline-none placeholder:text-panda-grey sm:w-28"
     />

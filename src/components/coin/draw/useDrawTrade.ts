@@ -25,6 +25,7 @@ import {
   type StrategyMetrics,
 } from "@/lib/strategy/plan";
 import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } from "@/lib/strategy/draw-machine";
+import { kindOf, startsWithBuy, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
 import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
 
 /**
@@ -40,6 +41,8 @@ export type Draft = {
   sell?: number;
   stop?: number;
   amount: string;
+  /** For a shape that sells a held token: the share of the balance to sell (1–100, default 100). */
+  sellPct?: number;
   /** What the amount is typed in. */
   unit: BuyUnit;
   /** The coin that pays when the amount is in dollars or euros. null = the one the wallet holds most of. */
@@ -77,10 +80,16 @@ export type DraftView = {
   asset: FundingAsset;
   amountUsd: number | null;
   funding: FundingResult | null;
-  issues: StrategyIssue[];
+  issues: KindIssue[];
   /** Null until buy/sell/stop and a priced amount are all in. */
   metrics: StrategyMetrics | null;
   ready: boolean;
+  /** Which order shape the legs make (kinds.ts), or null while no shape is complete. */
+  kind: OrderKind | null;
+  /** The share of the held balance this order sells (a shape that starts with a buy ignores it). */
+  heldPct: number;
+  /** Tokens of the held balance this order would sell, or null when the balance isn't known. */
+  heldTokens: number | null;
 };
 
 export type Notice = { kind: DrawTarget; price: number } | null;
@@ -137,7 +146,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         if (Array.isArray(parsed)) {
           setDrafts(
             parsed
-              .filter((d) => d && typeof d.id === "string" && d.buy !== undefined)
+              .filter((d) => d && typeof d.id === "string" && (d.buy !== undefined || d.sell !== undefined || d.stop !== undefined))
               .slice(0, 20)
               .map((d) => {
                 const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: { price?: number }[] };
@@ -146,7 +155,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
                 // A draft saved while staggered selling still existed may carry a `sells` array instead of a
                 // single `sell` — only its first tranche's price survives (this is a local, unsent draft, never a real order).
                 const sell = typeof old.sell === "number" ? old.sell : old.sells?.[0]?.price;
-                return { id: d.id, n: d.n, buy: d.buy, sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay };
+                const sellPct = typeof d.sellPct === "number" && d.sellPct >= 1 && d.sellPct <= 100 ? d.sellPct : undefined;
+                return { id: d.id, n: d.n, buy: d.buy, sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay, sellPct };
               })
           );
         }
@@ -193,6 +203,20 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       cancelled = true;
     };
   }, [connected, publicKey, readConnection, step]);
+
+  // The wallet's balance of THIS coin: what a sell or a stop can sell (only shapes without a buy need it).
+  const [tokenBalance, setTokenBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!connected || !publicKey || !mint) return;
+    let cancelled = false;
+    readConnection
+      .getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(mint) })
+      .then((r) => !cancelled && setTokenBalance(r.value.reduce((s, a) => s + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0)))
+      .catch(() => !cancelled && setTokenBalance(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, publicKey, readConnection, mint, step]);
 
   // ── saved strategies (server) ────────────────────────────────────────────────────────────────────
   const refreshList = useCallback(async () => {
@@ -241,19 +265,28 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
         const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS }) : null;
         const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
-        const complete = draft.buy !== undefined && draft.sell !== undefined && draft.stop !== undefined;
+        const legs = { buy: draft.buy, sell: draft.sell, stop: draft.stop };
+        const kind = kindOf(legs);
+        const complete = kind !== null;
+        const heldPct = draft.sellPct ?? 100;
+        const holdsCoin = kind !== null && !startsWithBuy(kind);
+        const heldTokens = holdsCoin && tokenBalance !== null ? tokenBalance * (heldPct / 100) : null;
+        const heldUsd = heldTokens !== null && currentUsd ? heldTokens * currentUsd : null;
 
-        const issues: StrategyIssue[] = [];
+        const issues: KindIssue[] = [];
         let metrics: StrategyMetrics | null = null;
-        if (complete) {
+        if (kind === "buy_sell_stop") {
           issues.push(...validateStrategy({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, currentUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }));
           if (amountUsd !== null && !issues.includes("invalid_price") && draft.buy! > 0) {
             metrics = strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, feeUsd: (amountUsd * STRATEGY_FEE_BPS) / 10_000 });
           }
+        } else if (kind) {
+          issues.push(...validateKind(kind, legs, { currentUsd, amountUsd, tokensUsd: heldUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }));
         }
-        return { draft, asset, amountUsd, funding, issues, metrics, ready: complete && issues.length === 0 && !!funding?.ok };
+        const ready = complete && issues.length === 0 && (holdsCoin || !!funding?.ok);
+        return { draft, asset, amountUsd, funding, issues, metrics, ready, kind, heldPct, heldTokens };
       }),
-    [drafts, rates, balances, currentUsd, quote]
+    [drafts, rates, balances, currentUsd, quote, tokenBalance]
   );
 
   const lines: ChartLine[] = useMemo(() => {
@@ -357,6 +390,24 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     setActiveId((id) => (id && drafts.find((d) => d.id === id)?.buy === undefined ? null : id));
   }, [activeId, drafts, setMachine]);
 
+  /** Takes one leg back out of a draft ("x" next to it). The draft itself stays, even when it is left empty. */
+  const clearLeg = useCallback((id: string, target: DrawTarget) => {
+    setDrafts((ds) =>
+      ds.map((d) => {
+        if (d.id !== id) return d;
+        if (target === "buy") return { ...d, buy: undefined };
+        if (target === "stop") return { ...d, stop: undefined };
+        return { ...d, sell: undefined };
+      })
+    );
+  }, []);
+
+  /** The share of a held balance the sell or stop sells (1–100). */
+  const setSellPct = useCallback((id: string, pct: number) => {
+    if (!(pct >= 1 && pct <= 100)) return;
+    setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, sellPct: pct } : d)));
+  }, []);
+
   const applyPrice = useCallback((id: string, target: DrawTarget, price: number) => {
     setDrafts((ds) =>
       ds.map((d) => {
@@ -450,6 +501,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             buyUsd: d.buy,
             sellUsd: d.sell,
             stopUsd: d.stop,
+            // Only the legs this shape has are sent; a held-token shape also says what share it sells.
+            ...(view.kind && !startsWithBuy(view.kind) ? { sellPct: view.heldPct } : {}),
             amount: { unit: d.unit, value },
             fundingAsset: view.asset,
           }),
@@ -564,6 +617,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   }, [records]);
 
   return {
+    clearLeg,
+    setSellPct,
+    tokenBalance,
     connected,
     quote,
     currentUsd,
