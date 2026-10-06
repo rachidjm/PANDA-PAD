@@ -3,6 +3,7 @@
 import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
+import { formatDisplayValue, parseDisplayValue, sanitizeDisplayInput } from "@/lib/strategy/display";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import type { Coin } from "@/lib/types";
@@ -486,19 +487,22 @@ function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onComm
  *  to real USD (`fromDisplay`) the moment a value is committed, since that's the space every draft, the
  *  validation and the server all work in. Applied on Enter or when leaving the box, same as before. */
 function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCommit }: { value?: number; label: string; onCommit: (v: string) => void } & PriceDisplayApi) {
+  const { lang } = useLanguage();
   const [text, setText] = useState<string | null>(null);
   const commit = () => {
     if (text !== null) {
-      const typed = parseFloat(text);
-      if (Number.isFinite(typed) && typed > 0) onCommit(String(fromDisplay(typed)));
+      // Read back exactly what the field shows ("$6,69M", "$0,00012"), so what's typed is never misread.
+      const typed = parseDisplayValue(text);
+      if (typed !== null) onCommit(String(fromDisplay(typed)));
     }
     setText(null);
   };
   const display = value !== undefined ? toDisplay(value) : undefined;
+  const shown = display !== undefined ? formatDisplayValue(display, unit === "mcap" ? "mcap" : "price", lang) : "";
   return (
     <input
-      value={text ?? (display !== undefined ? plainDisplay(display, unit) : "")}
-      onChange={(e) => setText(sanitizeDecimalInput(e.target.value))}
+      value={text ?? shown}
+      onChange={(e) => setText(sanitizeDisplayInput(e.target.value))}
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && commit()}
       inputMode="decimal"
@@ -507,17 +511,6 @@ function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCom
       className="w-24 bg-transparent text-right text-sm font-semibold outline-none placeholder:text-panda-grey sm:w-28"
     />
   );
-}
-
-/** The price as plain digits (never "4.3e-7"), so it can be read and edited by hand. */
-function plainPrice(p: number): string {
-  const decimals = Math.min(18, Math.max(2, -Math.floor(Math.log10(p)) + 3));
-  return p.toFixed(decimals).replace(/\.?0+$/, "");
-}
-
-/** A market cap is a whole dollar figure — no point in a token price's many significant digits. */
-function plainDisplay(n: number, unit: "price" | "mcap"): string {
-  return unit === "mcap" ? String(Math.round(n)) : plainPrice(n);
 }
 
 function PriceSummary({ buy, sells, stop, formatValue }: { buy?: number; sells: { price?: number; pct: number }[]; stop?: number; formatValue: (usd: number) => string }) {
