@@ -39,6 +39,18 @@ export function captureReferralFromUrl(): void {
   }
 }
 
+/** A short recruiter code carried in the URL — how a code typed before connecting survives the trip into the
+ *  Phantom app's in-app browser (a different browser storage, so localStorage alone can't carry it across). */
+export function captureCodeFromUrl(): void {
+  try {
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (!code || code.length > 20) return;
+    if (!window.localStorage.getItem(CODE_KEY)) window.localStorage.setItem(CODE_KEY, code);
+  } catch {
+    // Same as above — nothing to recover, just not remembered this visit.
+  }
+}
+
 /** A PANDA-launched coin's own page doubles as its creator's recruiter link — same "first wins, never
  *  overwritten client-side" rule as an explicit `?ref=` link. Called from the coin page on mount
  *  (src/components/coin/CoinClient.tsx) only when `coin.launchedOnPanda` is true. */

@@ -43,6 +43,13 @@
 
 html {
   color-scheme: dark;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* On phones one tap must mean one tap: no blue flash, and no double-tap-zoom delay on controls. */
+a, button, [role="button"], [role="tab"], label, select, input, textarea {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 body {

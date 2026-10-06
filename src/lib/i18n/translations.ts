@@ -27,6 +27,8 @@ export const dict = {
     en: "PANDA never sees your seed phrase or keys. You approve every transaction in your own wallet.",
     es: "PANDA nunca ve tu frase semilla ni tus claves. Apruebas cada transacción desde tu propia wallet.",
   },
+  "wallet.connectPhantom": { en: "Connect with Phantom", es: "Conectar con Phantom" },
+  "wallet.installPhantomToConnect": { en: "Install Phantom to connect", es: "Instala Phantom para conectar" },
   "wallet.refCodeTitle": { en: "Got a referral code?", es: "¿Tienes un código de referido?" },
   "wallet.refCodeApplied": { en: "Code @{code} applied.", es: "Código de @{code} aplicado." },
   "wallet.refLinkApplied": { en: "Referral link applied.", es: "Enlace de recomendación aplicado." },
