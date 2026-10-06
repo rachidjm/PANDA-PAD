@@ -36,7 +36,8 @@ export type BannerConfig = {
   cta: { labelKey: DictKey; href: string; external?: boolean } | null;
 };
 
-const X_COMMUNITY_URL = process.env.NEXT_PUBLIC_X_COMMUNITY_URL || null;
+/** PANDA's public X account. Overridable per deploy, but this is the real default — no env var needed to show the banner. */
+const X_ACCOUNT_URL = process.env.NEXT_PUBLIC_X_ACCOUNT_URL || "https://x.com/LaunchOnPanda";
 
 export function getHomeBanners(features: { referrals: boolean; founderNft: boolean }): BannerConfig[] {
   const banners: BannerConfig[] = [
@@ -44,11 +45,10 @@ export function getHomeBanners(features: { referrals: boolean; founderNft: boole
       id: "x-community",
       order: 1,
       active: true,
-      visible: () => !!X_COMMUNITY_URL,
       art: XCommunityArt,
       titleKey: "banner.xCommunity.title",
       hideTitle: true, // the real art (XCommunityArt.tsx) already has the headline/subtitle/icons drawn in, per language
-      cta: X_COMMUNITY_URL ? { labelKey: "banner.xCommunity.cta", href: X_COMMUNITY_URL, external: true } : null,
+      cta: { labelKey: "banner.xCommunity.cta", href: X_ACCOUNT_URL, external: true },
     },
     {
       id: "nft-teaser",
@@ -56,7 +56,7 @@ export function getHomeBanners(features: { referrals: boolean; founderNft: boole
       active: false, // paused for now at the user's request — the placeholder art/copy isn't ready to show yet
       art: NftTeaserArt,
       titleKey: "banner.nft.title",
-      cta: X_COMMUNITY_URL ? { labelKey: "banner.nft.cta", href: X_COMMUNITY_URL, external: true } : null,
+      cta: { labelKey: "banner.nft.cta", href: X_ACCOUNT_URL, external: true },
     },
     {
       id: "recruiters",
