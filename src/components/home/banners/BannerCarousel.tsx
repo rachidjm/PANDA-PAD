@@ -69,7 +69,7 @@ export default function BannerCarousel() {
       {/* Height follows the real art's own aspect ratio (mobile vs desktop — see BannerPicture.tsx) instead
           of a fixed height cropped with object-cover, so nothing of the designed banners is ever clipped. */}
       <div
-        className="group relative aspect-[1672/941] overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:aspect-[1920/819]"
+        className="group relative aspect-[1672/941] overflow-hidden rounded-[24px] border border-paper/10 bg-ink-raised sm:aspect-[13/5]"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
         onFocus={() => setPaused(true)}
@@ -99,18 +99,15 @@ export default function BannerCarousel() {
           </AnimatePresence>
         )}
 
-        {/* Always at least faintly visible (not hover-only — against bright/busy real art, a hover-only arrow
-            at 0 opacity was too easy to miss entirely), brighter on hover/focus. A real shadow (not just a
-            translucent fill) keeps them readable over any part of the art, light or dark.
-            Sides only (vertically centered) — the bottom of the image is real art now (a free zone for the
-            CTA button below), so the dots live outside the image entirely instead of overlaying it there too. */}
+        {/* Solid and always on (no opacity/hover dependency — a faint or hover-only arrow simply wasn't seen over the
+            real art). Desktop only: on touch screens the swipe does the same job. Sides, vertically centered. */}
         {banners.length > 1 && (
           <>
             <button
               type="button"
               onClick={() => go(index - 1)}
               aria-label={t("banner.prev")}
-              className="absolute left-2.5 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-paper opacity-70 shadow-lg ring-1 ring-paper/10 backdrop-blur transition hover:bg-ink/90 hover:opacity-100 focus-visible:opacity-100 sm:flex"
+              className="absolute left-3 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-paper/30 bg-ink text-xl leading-none text-paper shadow-lg transition hover:bg-ink-raised sm:flex"
             >
               <span aria-hidden>‹</span>
             </button>
@@ -118,7 +115,7 @@ export default function BannerCarousel() {
               type="button"
               onClick={() => go(index + 1)}
               aria-label={t("banner.next")}
-              className="absolute right-2.5 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-paper opacity-70 shadow-lg ring-1 ring-paper/10 backdrop-blur transition hover:bg-ink/90 hover:opacity-100 focus-visible:opacity-100 sm:flex"
+              className="absolute right-3 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-paper/30 bg-ink text-xl leading-none text-paper shadow-lg transition hover:bg-ink-raised sm:flex"
             >
               <span aria-hidden>›</span>
             </button>
@@ -126,10 +123,16 @@ export default function BannerCarousel() {
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-between gap-3 px-1">
-        {/* Fine-print disclaimer, deliberately OUTSIDE the image (never overlaid on the art) — e.g. the
-            Recruiters banner's "30% only applies to traders you invite yourself". */}
-        <p className="text-[11px] text-panda-grey">{banner.noteKey ? t(banner.noteKey) : ""}</p>
+      {banner.hideTitle && (banner.cta || banner.noteKey) && (
+        // Phone only: the button and the fine print sit centered right under the box (on desktop they live
+        // inside it, see SlideContent).
+        <div className="mt-3 flex flex-col items-center gap-2 text-center sm:hidden">
+          {banner.cta && <CtaButton cta={banner.cta} t={t} />}
+          {banner.noteKey && <p className="px-4 text-[11px] text-panda-grey">{t(banner.noteKey)}</p>}
+        </div>
+      )}
+
+      <div className="mt-2 flex justify-center sm:justify-end">
         {banners.length > 1 && (
           <div className="flex shrink-0 gap-1.5">
             {banners.map((b, i) => (
@@ -175,9 +178,12 @@ function SlideContent({ banner, Art, priority }: { banner: BannerConfig; Art: Ba
         <div className="absolute inset-0">
           <Art priority={priority} />
         </div>
-        {banner.cta && (
-          <div className="absolute inset-x-0 bottom-[6%] flex justify-center px-4 sm:inset-x-auto sm:bottom-[7%] sm:left-[6%] sm:block sm:px-0">
-            <CtaButton cta={banner.cta} t={t} />
+        {/* Desktop only: button and fine print stacked inside the box, bottom-left in the free zone under the
+            text. On phones the same button is rendered below the box instead (BannerCarousel). */}
+        {(banner.cta || banner.noteKey) && (
+          <div className="absolute bottom-[7%] left-[6%] hidden flex-col items-start gap-2 sm:flex">
+            {banner.cta && <CtaButton cta={banner.cta} t={t} />}
+            {banner.noteKey && <p className="text-[11px] text-paper/90 [text-shadow:0_1px_3px_rgb(0_0_0_/_0.9)]">{t(banner.noteKey)}</p>}
           </div>
         )}
       </>
