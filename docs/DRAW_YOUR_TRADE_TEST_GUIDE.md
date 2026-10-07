@@ -41,3 +41,15 @@ venta/stop por porcentaje) y verás dos filas, "Venta" y "Stop", cada una con 25
    quedar ninguna orden del lote activa.
 7. Tras confirmar, las líneas del lote aparecen agrupadas en una sola tarjeta en "Estrategias guardadas", cada
    tramo con su propio estado y botón de cancelar.
+
+## Campana de avisos
+
+1. Con la wallet conectada, el icono de campana aparece en el encabezado (si no ves ninguno, es que
+   `FEATURE_STRATEGIES` no está activo para esa wallet).
+2. Tras una compra o venta que se haya ejecutado de verdad (puedes forzarlo pulsando "Sincronizar" en
+   "Estrategias guardadas" si acabas de confirmar una), recarga la página o espera hasta 60 s: la campana
+   muestra un punto rojo.
+3. Ábrela: aparece "Tu compra de $MONEDA se ha ejecutado a $X" o "Tu venta de…", con la hora relativa; al
+   pulsar una línea te lleva a la página de esa moneda. Al abrir la campana el punto rojo desaparece.
+4. Cierra sesión del navegador (o borra `panda.notif.seen.<wallet>` de `localStorage`) y vuelve a entrar: las
+   ejecuciones ya ocurridas deben volver a marcarse como no leídas.
