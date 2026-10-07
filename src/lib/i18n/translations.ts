@@ -975,9 +975,17 @@ export const dict = {
   // Draw Your Trade — optional legs, held-token shapes and the summary line
   "draw.clearLeg": { en: "Remove", es: "Quitar" },
   "draw.noToken": { en: "You don't hold {ticker}", es: "No tienes {ticker}" },
-  "draw.sellShare": { en: "Sell:", es: "Vender:" },
   "draw.noStopWarning": { en: "No stop loss: if the price falls, it won't be sold automatically.", es: "Sin stop loss: si el precio cae, no se venderá automáticamente." },
-  "draw.heldSell": { en: "You sell {pct}% of your balance: {tokens} {ticker}", es: "Vendes el {pct}% de tu saldo: {tokens} {ticker}" },
+  "draw.more": { en: "More", es: "Más" },
+  "draw.other": { en: "Other", es: "Otro" },
+  "draw.otherPlaceholder": { en: "1–100", es: "1-100" },
+  "draw.apply": { en: "Apply", es: "Aplicar" },
+  "draw.tapChart": { en: "Now tap the chart", es: "Ahora toca el gráfico" },
+  "draw.remainingPct": { en: "Available: {pct}%", es: "Disponible: {pct}%" },
+  "draw.err.batchRolledBack": {
+    en: "One of the batch's orders failed, so the ones already created were cancelled. Nothing is live — try again.",
+    es: "Una de las órdenes del lote ha fallado, así que se han cancelado las que ya se habían creado. No queda nada activo — inténtalo de nuevo.",
+  },
   "draw.sum.buy": { en: "Buy at {price}", es: "Compra a {price}" },
   "draw.sum.sell": { en: "Sell at {price}", es: "Venta a {price}" },
   "draw.sum.sellPct": { en: "Sell {pct}% at {price}", es: "Venta del {pct}% a {price}" },
@@ -1107,6 +1115,10 @@ export const dict = {
   "draw.step.create": {
     en: "Creating the order…",
     es: "Creando la orden…",
+  },
+  "draw.step.cancel": {
+    en: "An order in this batch failed — cancelling the rest…",
+    es: "Una orden del lote ha fallado; cancelando las demás…",
   },
   "draw.step.done": {
     en: "Strategy live",

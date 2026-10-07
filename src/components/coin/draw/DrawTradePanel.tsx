@@ -3,8 +3,10 @@
 import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
-import { startsWithBuy, type KindIssue } from "@/lib/strategy/kinds";
-import { needsNoStopNotice, summaryParts, type SummaryPart } from "@/lib/strategy/summary";
+import { type KindIssue } from "@/lib/strategy/kinds";
+import { needsNoStopNotice, summaryParts, trancheSummaryParts, type SummaryPart } from "@/lib/strategy/summary";
+import { canAddPct, PCT_MORE_PRESETS, PCT_PRESETS, type Tranche } from "@/lib/strategy/allocation";
+import type { Draft, TrancheView } from "./useDrawTrade";
 import { formatDisplayValue, parseDisplayValue, sanitizeDisplayInput } from "@/lib/strategy/display";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
@@ -32,6 +34,7 @@ const STEP_KEYS: Record<string, DictKey> = {
   prepare: "draw.step.prepare",
   sign: "draw.step.sign",
   create: "draw.step.create",
+  cancel: "draw.step.cancel",
   done: "draw.step.done",
 };
 // Only "buy" / "sell1" / "stop" are ever placed on a new draft now — the other sell slots in DrawTarget exist
@@ -220,6 +223,8 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
         t("draw.err.rejected")
       ) : error.code === "conflict" ? (
         t("draw.err.conflict")
+      ) : error.code === "BATCH_ROLLED_BACK" ? (
+        t("draw.err.batchRolledBack")
       ) : (
         <>
           {t("draw.err.generic")}
@@ -237,11 +242,10 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
   const [impactAck, setImpactAck] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const confirming = draw.step !== "idle" && draw.step !== "done";
-  // A draft is complete once its legs make one of the offered shapes (see kinds.ts), not only the full strategy.
-  const complete = view.kind !== null;
-  const holdsCoin = view.kind !== null && !startsWithBuy(view.kind);
-  // A sell or a stop with no buy in front of it sells the coin the wallet already holds: none, no order.
-  const noCoin = draft.buy === undefined && view.heldTokens !== null && view.heldTokens <= 0;
+  // A held-coin draft (no buy leg) is governed entirely by its percentage tranches now — see TrancheEditor
+  // below; a buy-including draft is complete once its legs make one of the two offered shapes (kinds.ts).
+  const heldMode = draft.buy === undefined;
+  const complete = heldMode ? view.tranches.length > 0 : view.kind !== null;
 
   // A trade this big moves the price — estimated from the coin's own real liquidity, same as a normal buy
   // (TradingPanel.tsx); on-curve = still on Pump.fun's own bonding curve, off-curve = graduated/external, via
@@ -268,7 +272,7 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
           <p className="font-semibold">
             {t("draw.strategy", { n: draft.n })} <span className="ml-1 rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-medium text-panda-grey">{t("draw.draft")}</span>
           </p>
-          <SummaryLine parts={summaryParts({ buy: draft.buy, sell: draft.sell, stop: draft.stop }, view.heldPct)} formatValue={formatValue} />
+          <SummaryLine parts={draft.buy === undefined ? trancheSummaryParts(draft.tranches ?? []) : summaryParts({ buy: draft.buy, sell: draft.sell, stop: draft.stop }, 100)} formatValue={formatValue} />
         </div>
         <div className="flex shrink-0 gap-3">
           <button type="button" onClick={() => draw.setActiveId(draft.id)} className="font-semibold text-meme-orange hover:brightness-110">
@@ -343,37 +347,26 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
         </button>
       </div>
 
-      {/* Three clean rows, one per line: a dot, the name, the price (or market cap — whatever the chart is
-          showing right now) and the live % vs. the buy target. Tap the number to edit it by hand. */}
-      <div className="mt-2">
-        <LineRow kind="buy" label={t("draw.line.buy")} value={draft.buy} pct={null} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} onClear={draft.buy !== undefined ? () => draw.clearLeg(draft.id, "buy") : undefined} clearLabel={t("draw.clearLeg")} />
-        <LineRow kind="sell1" label={t("draw.line.sell")} value={draft.sell} pct={sellPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "sell1", v)} onClear={draft.sell !== undefined ? () => draw.clearLeg(draft.id, "sell1") : undefined} clearLabel={t("draw.clearLeg")} disabledReason={noCoin ? t("draw.noToken", { ticker: coin.ticker }) : undefined} />
-        <LineRow kind="stop" label={t("draw.line.stop")} value={draft.stop} pct={stopPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} onClear={draft.stop !== undefined ? () => draw.clearLeg(draft.id, "stop") : undefined} clearLabel={t("draw.clearLeg")} disabledReason={noCoin ? t("draw.noToken", { ticker: coin.ticker }) : undefined} last />
-      </div>
-      {holdsCoin && (
-        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-panda-grey" role="group" aria-label={t("draw.sellShare")}>
-          <span>{t("draw.sellShare")}</span>
-          {[25, 50, 75, 100].map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => draw.setSellPct(draft.id, p)}
-              aria-pressed={view.heldPct === p}
-              className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${view.heldPct === p ? "bg-paper/15 text-paper" : "bg-paper/5 text-paper/70 hover:bg-paper/10"}`}
-            >
-              {p}%
-            </button>
-          ))}
+      {/* A buy-including draft: three clean rows, a dot, the name, the price (or market cap — whatever the
+          chart shows now) and the live % vs. the buy target. Tap the number to edit it by hand. A held-coin
+          draft (no buy) uses the percentage tranche editor below instead — there is no bare, un-allocated
+          sell/stop any more, every exit is a % of the position. */}
+      {!heldMode && (
+        <div className="mt-2">
+          <LineRow kind="buy" label={t("draw.line.buy")} value={draft.buy} pct={null} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} onClear={() => draw.clearLeg(draft.id, "buy")} clearLabel={t("draw.clearLeg")} />
+          <LineRow kind="sell1" label={t("draw.line.sell")} value={draft.sell} pct={sellPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "sell1", v)} onClear={draft.sell !== undefined ? () => draw.clearLeg(draft.id, "sell1") : undefined} clearLabel={t("draw.clearLeg")} />
+          <LineRow kind="stop" label={t("draw.line.stop")} value={draft.stop} pct={stopPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} onClear={draft.stop !== undefined ? () => draw.clearLeg(draft.id, "stop") : undefined} clearLabel={t("draw.clearLeg")} last />
         </div>
       )}
-      {needsNoStopNotice({ buy: draft.buy, sell: draft.sell, stop: draft.stop }) && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.noStopWarning")}</p>}
+      {heldMode && <TrancheEditor draft={draft} view={view} draw={draw} coin={coin} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />}
+      {!heldMode && needsNoStopNotice({ buy: draft.buy, sell: draft.sell, stop: draft.stop }) && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.noStopWarning")}</p>}
 
       {complete && (
         <>
-          {holdsCoin ? (
-            <p className="mt-4 text-xs text-paper/80">
-              {t("draw.heldSell", { pct: view.heldPct, tokens: formatTokens(view.heldTokens), ticker: coin.ticker })}
-            </p>
+          {heldMode ? (
+            <div className="mt-3 text-xs font-medium text-paper/90">
+              <SummaryLine parts={trancheSummaryParts(draft.tranches ?? [])} formatValue={formatValue} />
+            </div>
           ) : (
           <>
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
@@ -453,7 +446,7 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
             </ul>
           )}
 
-          {(funding || holdsCoin) && (
+          {(funding || heldMode) && (
             <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-paper/80">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--meme-orange)]" />
               <span>{t("draw.custodyShort")}</span>
@@ -473,11 +466,11 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
 
           <button
             type="button"
-            onClick={() => draw.confirm(view)}
-            disabled={!view.ready || !draw.engine || !draw.connected || !ack || confirming || (impactHigh && !impactAck)}
+            onClick={() => (heldMode ? draw.confirmTranches(view) : draw.confirm(view))}
+            disabled={!view.ready || !draw.engine || !draw.connected || !ack || confirming || (!heldMode && impactHigh && !impactAck)}
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {confirming || draw.step === "done" ? t(STEP_KEYS[draw.step]) : t("draw.confirm")}
+            {confirming || draw.step === "done" ? `${t(STEP_KEYS[draw.step])}${draw.batchProgress ? ` (${draw.batchProgress.done}/${draw.batchProgress.total})` : ""}` : t("draw.confirm")}
           </button>
         </>
       )}
@@ -521,9 +514,165 @@ function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onComm
   );
 }
 
-/** A token amount, shown plainly for a sell ("1.250.000 PANDA" style: grouped, at most 4 decimals). */
-function formatTokens(n: number | null): string {
-  return n === null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+/**
+ * "Venta por porcentaje dibujando": pick a % (a preset, or "Otro" for a free 1–100 value), then click/tap the
+ * chart at the price to place that tranche's line — repeatable at several price levels, capped at 100% of
+ * the balance in total (allocation.ts). Mouse and touch both already go through the exact same gesture (see
+ * useDrawTrade.ts's onPointer/startTranchePlacement), so nothing here needs to know which one is in use.
+ */
+function TrancheEditor({ draft, view, draw, coin, unit, toDisplay, fromDisplay }: { draft: Draft; view: DraftView; draw: DrawApi; coin: Coin } & PriceDisplayApi) {
+  const { t } = useLanguage();
+  const tranches = draft.tranches ?? [];
+  // Not yet known (null, still loading) is never treated as "none" — only a real, read balance of 0 or less is.
+  const noCoin = view.tokenBalance !== null && view.tokenBalance <= 0;
+  return (
+    <div className="mt-2 space-y-3">
+      {noCoin ? (
+        <p className="text-xs text-panda-grey">{t("draw.noToken", { ticker: coin.ticker })}</p>
+      ) : (
+        <>
+          <PctRow legLabel={t("draw.line.sell")} dotKind="sell1" leg="sell" draftId={draft.id} tranches={tranches} draw={draw} />
+          <PctRow legLabel={t("draw.line.stop")} dotKind="stop" leg="stop" draftId={draft.id} tranches={tranches} draw={draw} />
+          <p className="text-[11px] text-panda-grey">{t("draw.remainingPct", { pct: view.remainingPct })}</p>
+        </>
+      )}
+      {view.tranches.length > 0 && (
+        <div className="space-y-1.5">
+          {view.tranches.map((tv) => (
+            <TrancheLegRows key={tv.tranche.id} tv={tv} draftId={draft.id} draw={draw} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One leg's quick picks ("Venta"/"Stop"): the 4 main presets always shown, "Más ▾" unfolding 5/10/15/"Otro"
+ *  (a free 1–100 entry) — folds back up the moment a value is picked. Picking an enabled % arms the chart for
+ *  the NEXT click/tap (DrawTradePanel never places a price itself). */
+function PctRow({ legLabel, dotKind, leg, draftId, tranches, draw }: { legLabel: string; dotKind: DrawTarget; leg: "sell" | "stop"; draftId: string; tranches: Tranche[]; draw: DrawApi }) {
+  const { t } = useLanguage();
+  const [more, setMore] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherValue, setOtherValue] = useState("");
+  const armed = draw.machine.target === dotKind;
+  const pick = (pct: number) => {
+    draw.startTranchePlacement(draftId, leg, pct);
+    setMore(false);
+    setOtherOpen(false);
+    setOtherValue("");
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span className="flex items-center gap-1.5 text-panda-grey">
+        <Dot kind={dotKind} />
+        {legLabel}
+      </span>
+      {PCT_PRESETS.map((pct) => (
+        <PctButton key={pct} pct={pct} tranches={tranches} onPick={pick} />
+      ))}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setMore((v) => !v)}
+          aria-expanded={more}
+          className="rounded-full bg-paper/5 px-2.5 py-1 font-semibold text-paper/70 transition-colors hover:bg-paper/10"
+        >
+          {t("draw.more")} ▾
+        </button>
+        {more && (
+          <div className="absolute left-0 top-full z-10 mt-1 flex min-w-[88px] flex-col gap-1 rounded-xl border border-paper/10 bg-ink-raised p-2 shadow-lg">
+            {PCT_MORE_PRESETS.map((pct) => (
+              <PctButton key={pct} pct={pct} tranches={tranches} onPick={pick} full />
+            ))}
+            {otherOpen ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  value={otherValue}
+                  onChange={(e) => setOtherValue(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                  placeholder={t("draw.otherPlaceholder")}
+                  inputMode="numeric"
+                  aria-label={t("draw.other")}
+                  className="w-12 rounded-lg bg-ink px-2 py-1 text-xs outline-none placeholder:text-panda-grey"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const n = parseInt(otherValue, 10);
+                    if (n >= 1 && n <= 100 && canAddPct(tranches, n)) pick(n);
+                  }}
+                  className="rounded-lg bg-paper px-2 py-1 text-xs font-semibold text-ink"
+                >
+                  {t("draw.apply")}
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setOtherOpen(true)} className="rounded-full bg-paper/5 px-2.5 py-1 text-left font-semibold text-paper/70 hover:bg-paper/10">
+                {t("draw.other")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {armed && <span className="text-meme-orange">{t("draw.tapChart")}</span>}
+    </div>
+  );
+}
+
+function PctButton({ pct, tranches, onPick, full }: { pct: number; tranches: Tranche[]; onPick: (pct: number) => void; full?: boolean }) {
+  const ok = canAddPct(tranches, pct);
+  return (
+    <button
+      type="button"
+      onClick={() => ok && onPick(pct)}
+      disabled={!ok}
+      className={`rounded-full bg-paper/5 px-2.5 py-1 font-semibold text-paper/80 transition-colors hover:bg-paper/10 disabled:cursor-not-allowed disabled:opacity-40 ${full ? "text-left" : ""}`}
+    >
+      {pct}%
+    </button>
+  );
+}
+
+/** One tranche's own line(s) — ONE row per leg it actually has, so a paired (sell+stop) tranche shows two,
+ *  each independently editable/removable, sharing the SAME % (allocation.ts pairs them into one "oco" order). */
+function TrancheLegRows({ tv, draftId, draw, unit, toDisplay, fromDisplay }: { tv: TrancheView; draftId: string; draw: DrawApi } & PriceDisplayApi) {
+  const { t } = useLanguage();
+  const tr = tv.tranche;
+  const legs: { leg: "sell" | "stop"; price: number; dotKind: DrawTarget; labelKey: DictKey }[] = [];
+  if (tr.sell !== undefined) legs.push({ leg: "sell", price: tr.sell, dotKind: "sell1", labelKey: "draw.line.sell" });
+  if (tr.stop !== undefined) legs.push({ leg: "stop", price: tr.stop, dotKind: "stop", labelKey: "draw.line.stop" });
+  return (
+    <div className="rounded-xl bg-ink-raised px-3 py-2">
+      {legs.map((l, i) => (
+        <div key={l.leg} className={`flex items-center justify-between gap-2 ${i > 0 ? "mt-1.5" : ""}`}>
+          <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
+            <Dot kind={l.dotKind} />
+            {t(l.labelKey)} · {tr.pct}%
+          </span>
+          <span className="flex items-center gap-1.5">
+            <UnitAwarePriceInput value={l.price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={t(l.labelKey)} onCommit={(v) => draw.setTranchePrice(draftId, tr.id, l.leg, v)} />
+            <button
+              type="button"
+              onClick={() => draw.removeTrancheLeg(draftId, tr.id, l.leg)}
+              aria-label={t("draw.clearLeg")}
+              title={t("draw.clearLeg")}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-sm text-panda-grey transition hover:text-clay-red"
+            >
+              <span aria-hidden>×</span>
+            </button>
+          </span>
+        </div>
+      ))}
+      {tv.issues.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-[11px] text-clay-red" role="alert">
+          {tv.issues.map((i) => (
+            <li key={i}>{t(`draw.issue.${i}` as DictKey)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 /** The summary as one line of translated parts ("Compra a $0,0012 · sin stop"). */

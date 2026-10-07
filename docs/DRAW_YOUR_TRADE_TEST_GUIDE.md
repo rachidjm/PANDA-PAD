@@ -20,14 +20,24 @@ Para cada una: abre la moneda, dibuja las patas indicadas, confirma y mira la fi
 
 Comprobaciones comunes: la "x" quita una pata; el resumen cambia; si la venta no está por encima del precio, aparece el aviso y no se confirma.
 
-## Lote de porcentajes (pendiente de implementar)
+## Lote de porcentajes
 
-Esta parte aún no está construida: el porcentaje sobre el gráfico (25/50/75/100 y "Otro") y el lote firmado
-con `signAllTransactions` llegarán en la siguiente entrega. Cuando esté, la prueba será:
+Para una moneda que ya tienes. Pulsa "+ Añadir estrategia" (no actives "Compra": así el borrador queda como
+venta/stop por porcentaje) y verás dos filas, "Venta" y "Stop", cada una con 25/50/75/100 y "Más ▾" (5/10/15/Otro).
 
-1. Pulsa 25% y toca el gráfico a un precio: aparece "Venta · 25% · $X".
-2. Repite con 50% en otro precio: la suma no puede pasar de 100%; el botón restante aparece desactivado con
-   "Solo te queda un X% por asignar".
-3. Confirma una sola vez: una aprobación en Phantom firma todas las órdenes del lote.
-4. Si una orden del lote falla al enviarse, las demás del lote se cancelan y se avisa.
-5. Mínimo: una línea que valga menos de 10 $ se marca en rojo y no deja confirmar.
+1. Pulsa 25% en "Venta": aparece "Ahora toca el gráfico" junto a esa fila. Toca el gráfico al precio que
+   quieras: se dibuja la línea "↑/↓ Venta $X · 25%" y debajo, en la lista, "Venta · 25% · $X" con su "x" y el
+   precio editable a mano.
+2. Repite con 50% en otro precio: "Disponible" baja a 25%. Si pides más de lo que queda, el botón de ese % se
+   desactiva.
+3. Pulsa 25% en "Venta" y 25% en "Stop" (el mismo porcentaje en los dos): se emparejan en UNA sola línea de
+   tramo con venta Y stop — es una orden "oco", no dos.
+4. Arrastra la etiqueta de una línea ya dibujada: la sigue mientras arrastras y fija el nuevo precio al soltar,
+   sin crear una línea nueva ni cambiar su %. Funciona igual con el dedo en móvil.
+5. Una línea que valga menos de 10 $ (según el % y tu saldo) se marca en rojo con el motivo y no deja confirmar.
+6. Pulsa "Confirmar estrategia": UNA sola aprobación en Phantom firma el depósito (y la comisión) de TODAS las
+   líneas del lote. Si Jupiter rechaza una orden del lote después de firmar, las que ya se crearon se cancelan
+   solas (con una aprobación extra) y aparece el aviso "Una de las órdenes del lote ha fallado…" — no debería
+   quedar ninguna orden del lote activa.
+7. Tras confirmar, las líneas del lote aparecen agrupadas en una sola tarjeta en "Estrategias guardadas", cada
+   tramo con su propio estado y botón de cancelar.

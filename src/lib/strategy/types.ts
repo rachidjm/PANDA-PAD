@@ -25,14 +25,12 @@ export type StrategyRecord = {
   sellUsd?: number;
   stopUsd?: number;
   /**
-   * Legacy fields from "staggered selling" (removed — Draw Your Trade is one buy, one sell, one stop again).
-   * A strategy created while it existed could split into up to 10 sell tranches sharing one drawn position,
-   * shown as ONE strategy — but each was its own real Jupiter order (its own deposit, its own OCO pair on its
-   * own slice of the tokens), so each was its own StrategyRecord. `groupId` (= the first leg's `id`) ties them
-   * back together; `legIndex` is 0-based, `legCount` how many siblings it has, `legPct` its share of the
-   * position (all legs' `legPct` summed to 100). Still read (DrawTradePanel.tsx groups and shows them, and
-   * each leg can still be cancelled) so an old multi-tranche strategy keeps working — nothing new is ever
-   * created with more than one leg, so these are undefined on every strategy going forward.
+   * Grouping for a drawn position made of several real orders sharing one deposit-able balance: a legacy
+   * "staggered selling" strategy (removed), or a held-coin draft's percentage tranches (allocation.ts) — one
+   * sell/stop/oco PER tranche, each its own StrategyRecord with its own deposit, shown as ONE card in the UI.
+   * `groupId` (= the first leg's `id`) ties them back together; `legIndex` is 0-based, `legCount` how many
+   * siblings it has, `legPct` its share of the position (every leg's `legPct` sums to at most 100). A
+   * single-order strategy never sets these.
    */
   groupId?: string;
   legIndex?: number;

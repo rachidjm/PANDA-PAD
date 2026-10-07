@@ -139,7 +139,12 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   const [quote, tradeFeeBps] = await Promise.all([deps.quote(mint as string), deps.feeBps(i.wallet)]);
   if (!quote.tokenUsd) return fail(503, "price_unavailable", "No live price for this token right now.");
   if (kind !== "buy_sell_stop") {
-    return prepareShape(deps, { wallet: i.wallet, token: i.token, id: id as string, n: n as number, mint: mint as string, ticker, kind, legs: legs.value, unit, value, sellPct: i.sellPct, preferred }, quote, tradeFeeBps);
+    return prepareShape(
+      deps,
+      { wallet: i.wallet, token: i.token, id: id as string, n: n as number, mint: mint as string, ticker, kind, legs: legs.value, unit, value, sellPct: i.sellPct, preferred, groupId, legIndex, legCount, legPct },
+      quote,
+      tradeFeeBps
+    );
   }
   const amountUsd = amountToUsd(unit, value, quote);
   const funding = chooseFunding({ unit, value, rates: quote, balances: { sol: null, usdc: null }, preferred, feeBps: strategyFeeBps(tradeFeeBps) });
@@ -354,7 +359,27 @@ function orderParamsFor(record: StrategyRecord, depositSignedTx: string): Create
  */
 async function prepareShape(
   deps: Deps,
-  i: { wallet: string; token: string; id: string; n: number; mint: string; ticker: string; kind: OrderKind; legs: Legs; unit: AmountUnit; value: number; sellPct: unknown; preferred: FundingAsset | null },
+  i: {
+    wallet: string;
+    token: string;
+    id: string;
+    n: number;
+    mint: string;
+    ticker: string;
+    kind: OrderKind;
+    legs: Legs;
+    unit: AmountUnit;
+    value: number;
+    sellPct: unknown;
+    preferred: FundingAsset | null;
+    /** One tranche of a percentage-allocated batch (allocation.ts) — display-only grouping, same as the
+     *  legacy multi-tranche fields on buy_sell_stop: each tranche is still its OWN order, validated and
+     *  deposited on its own; this only ties the resulting records back into one card in the UI. */
+    groupId?: string;
+    legIndex?: number;
+    legCount?: number;
+    legPct?: number;
+  },
   quote: StrategyQuote,
   tradeFeeBps: number
 ): Promise<Failure | { ok: true; record: StrategyRecord; transaction: string; feeTransaction: string | null }> {
@@ -432,6 +457,10 @@ async function prepareShape(
     ...(i.legs.sell !== undefined ? { sellUsd: i.legs.sell } : {}),
     ...(i.legs.stop !== undefined ? { stopUsd: i.legs.stop } : {}),
     ...(sellPct !== undefined ? { sellPct } : {}),
+    ...(i.groupId ? { groupId: i.groupId } : {}),
+    ...(i.legIndex !== undefined ? { legIndex: i.legIndex } : {}),
+    ...(i.legCount !== undefined ? { legCount: i.legCount } : {}),
+    ...(i.legPct !== undefined ? { legPct: i.legPct } : {}),
     fundingAsset,
     fundingMint: holds ? FUNDING[fundingAsset].mint : inputMint,
     inputAmountRaw,

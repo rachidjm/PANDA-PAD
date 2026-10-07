@@ -117,6 +117,18 @@ test("sell only: sells the held token at the chosen share, one single above the 
   assert.equal(order.inputAmount, "25000000");
 });
 
+test("sell only: a percentage tranche's grouping metadata is kept on the record (so a batch's legs show as one card)", async () => {
+  const { deps } = fakeDeps();
+  const w = wallet();
+  const prepared = await prepareStrategy(deps, base(w, { sellUsd: 2, sellPct: 25, groupId: "draft-abc", legIndex: 1, legCount: 3, legPct: 25 }));
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  assert.equal(prepared.record.groupId, "draft-abc");
+  assert.equal(prepared.record.legIndex, 1);
+  assert.equal(prepared.record.legCount, 3);
+  assert.equal(prepared.record.legPct, 25);
+});
+
 test("sell only: a sell percentage is required — no percentage means no order", async () => {
   const { deps, seen } = fakeDeps();
   const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 2 }));

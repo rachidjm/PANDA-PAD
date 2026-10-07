@@ -19,8 +19,14 @@ export type ChartOverlayData = {
   /** Converts a real USD price into whatever the Y axis is showing right now (price or market cap) — for
    *  positioning only; every line's own data (and the % vs. buy) always stays real USD underneath. */
   toDisplay: (usd: number) => number;
+  /** The inverse of `toDisplay` — needed by a tag's own drag-start (below), which only has a screen position. */
+  fromDisplay: (displayValue: number) => number;
   /** A real USD price, formatted in the unit currently on screen (price or market cap). */
   formatValue: (usd: number) => string;
+  /** Grabbing a draggable tranche leg's tag (its `trancheId` is set — see useDrawTrade.ts's `lines`) arms the
+   *  SAME press-drag-release the chart already uses to place a brand new line, just seeded on this existing
+   *  one: moving the pointer without lifting repositions it live, lifting commits the new price. */
+  grabLine?: (line: ChartLine, price: number, info: { type: string; button: number }) => void;
 };
 
 /** 0-based index of a sell tranche target ("sell1" → 0 … up to MAX_TRANCHES); -1 for "buy"/"stop". Mirrors
@@ -95,7 +101,22 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
 /** Price tags on the right edge (the tag of the line being placed sits on the left, out of the way of a finger coming from the right).
  * HTML, not SVG: the SVG is stretched to the card, which would stretch the text too. The box is shorter on a phone, so the
  * positions are scaled to its real height. */
-export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; domain: Domain }) {
+export function PriceTags({
+  overlay,
+  domain,
+  priceAtClientY,
+  onGrabPointer,
+}: {
+  overlay: ChartOverlayData;
+  domain: Domain;
+  /** Same conversion AreaChart itself drags with (clientY → real USD) — kept in ONE place so a line grabbed by
+   *  its tag and a line placed by clicking the chart always land on the exact same price. Only needed when a
+   *  tranche leg can actually be dragged (`overlay.grabLine` set); undefined otherwise. */
+  priceAtClientY?: (clientY: number) => number;
+  /** Tells the chart which pointer to keep tracking on `window` once a tag starts a drag — the SAME tracking
+   *  AreaChart already runs for a line placed by clicking the chart itself. */
+  onGrabPointer?: (pointerId: number) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [h, setH] = useState<number>(CHART.height);
   useEffect(() => {
@@ -125,7 +146,10 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
     const parts = [`${arrow}${overlay.labels(l.kind)}${multipleGroups ? ` ${l.tag}` : ""} ${overlay.formatValue(l.price)}`];
     if (pct !== null) parts.push(formatPct(pct));
     if (l.pct !== undefined) parts.push(`${l.pct}%`);
-    return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(y), strong: l.live || l.active };
+    // Only a DRAFT tranche's own leg can be grabbed and dragged — never a live/saved line, and never the plain
+    // (non-tranche) buy/sell/stop lines, which are repriced by typing instead (see DrawTradePanel.tsx).
+    const draggable = !!overlay.grabLine && !l.live && !!l.trancheId;
+    return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(y), strong: l.live || l.active, line: l, draggable };
   });
   const previewY = overlay.drawing && overlay.preview !== null ? px(clampedY(overlay.toDisplay(overlay.preview), domain).y) : null;
   const spread = spreadLabels(
@@ -138,8 +162,18 @@ export function PriceTags({ overlay, domain }: { overlay: ChartOverlayData; doma
       {items.map((it, i) => (
         <span
           key={it.key}
-          className="absolute right-1 -translate-y-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none text-ink"
-          style={{ top: Math.max(9, spread[i]), background: lineColor(it.kind), opacity: it.strong ? 1 : 0.75 }}
+          onPointerDown={
+            it.draggable && priceAtClientY && overlay.grabLine
+              ? (e) => {
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+                  overlay.grabLine!(it.line, priceAtClientY(e.clientY), { type: e.pointerType, button: e.button });
+                  onGrabPointer?.(e.pointerId);
+                }
+              : undefined
+          }
+          className={`absolute right-1 -translate-y-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none text-ink ${it.draggable ? "pointer-events-auto cursor-grab active:cursor-grabbing" : ""}`}
+          style={{ top: Math.max(9, spread[i]), background: lineColor(it.kind), opacity: it.strong ? 1 : 0.75, touchAction: it.draggable ? "none" : undefined }}
         >
           {it.text}
         </span>

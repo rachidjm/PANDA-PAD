@@ -25,7 +25,19 @@ import {
   type StrategyMetrics,
 } from "@/lib/strategy/plan";
 import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } from "@/lib/strategy/draw-machine";
-import { kindOf, startsWithBuy, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
+import { kindOf, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
+import {
+  allocatedPct as sumAllocatedPct,
+  placeLeg,
+  remainingPct as sumRemainingPct,
+  removeLeg as removeTrancheLegFrom,
+  removeTranche as removeTrancheFrom,
+  setTranchePct as setTranchePctOf,
+  trancheKind,
+  updateLegPrice,
+  validateTranches,
+  type Tranche,
+} from "@/lib/strategy/allocation";
 import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
 
 /**
@@ -41,8 +53,10 @@ export type Draft = {
   sell?: number;
   stop?: number;
   amount: string;
-  /** For a shape that sells a held token: the share of the balance to sell (1–100, default 100). */
-  sellPct?: number;
+  /** Percentage tranches of a held token's position (allocation.ts) — only meaningful while `buy` is unset:
+   *  the full buy→sell→stop strategy always exits 100% and never uses this. Each tranche is validated and
+   *  submitted as its own order (see confirmTranches). */
+  tranches?: Tranche[];
   /** What the amount is typed in. */
   unit: BuyUnit;
   /** The coin that pays when the amount is in dollars or euros. null = the one the wallet holds most of. */
@@ -66,17 +80,26 @@ export type ChartLine = {
   tag: string;
   live: boolean;
   active: boolean;
-  /** Set only on a sell tranche's own line: the % of the position it sells. */
+  /** Set only on a sell/stop tranche's own line: the % of the position it sells. */
   pct?: number;
+  /** Set only on a DRAFT tranche's leg (never a live/saved one): grabbing this line's tag on the chart repositions THIS leg. */
+  trancheId?: string;
 };
 
 export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | null; priceChangeH1Pct: number | null; engine: boolean };
 
-export type Step = "idle" | "session" | "jupiter" | "prepare" | "sign" | "create" | "done";
+export type Step = "idle" | "session" | "jupiter" | "prepare" | "sign" | "create" | "cancel" | "done";
+
+/** Progress through a percentage-tranche batch (confirmTranches) — how many of its own orders are done, for a
+ *  "2/3" next to the step label; null outside a batch (a normal single-order confirm never sets this). */
+export type BatchProgress = { done: number; total: number } | null;
+
+/** One percentage tranche's own order shape, issues and readiness (allocation.ts's rules). */
+export type TrancheView = { tranche: Tranche; kind: OrderKind | null; issues: KindIssue[]; ready: boolean };
 
 export type DraftView = {
   draft: Draft;
-  /** The coin that will pay: the user's pick, else the one the wallet holds most of. */
+  /** The coin that will pay: the user's pick, else the one the wallet holds most of. Only meaningful for a buy. */
   asset: FundingAsset;
   amountUsd: number | null;
   funding: FundingResult | null;
@@ -84,12 +107,16 @@ export type DraftView = {
   /** Null until buy/sell/stop and a priced amount are all in. */
   metrics: StrategyMetrics | null;
   ready: boolean;
-  /** Which order shape the legs make (kinds.ts), or null while no shape is complete. */
+  /** Which order shape the legs make (kinds.ts) for a BUY-including draft; always null for a held-token draft
+   *  (its tranches can each be a different shape — see `tranches` below). */
   kind: OrderKind | null;
-  /** The share of the held balance this order sells (a shape that starts with a buy ignores it). */
-  heldPct: number;
-  /** Tokens of the held balance this order would sell, or null when the balance isn't known. */
-  heldTokens: number | null;
+  /** This draft's percentage tranches (empty for a buy-including draft). */
+  tranches: TrancheView[];
+  /** % of the held balance already assigned across `tranches`, and what's left (0–100, sums to 100). */
+  allocatedPct: number;
+  remainingPct: number;
+  /** The wallet's balance of this coin, read fresh — null until known. */
+  tokenBalance: number | null;
 };
 
 export type Notice = { kind: DrawTarget; price: number } | null;
@@ -119,6 +146,10 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [machine, setMachineState] = useState<DrawState>(IDLE);
   const machineRef = useRef<DrawState>(IDLE);
+  // What the NEXT committed price on the chart is for, while it isn't just "set this leg of the active draft"
+  // (the normal path): placing a brand new percentage tranche, or dragging an existing one's line. Cleared the
+  // moment it's used, or when drawing is cancelled outright — see startTranchePlacement/startTrancheDrag below.
+  const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop"; pct: number } | { mode: "drag"; trancheId: string; leg: "sell" | "stop" } | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
@@ -127,6 +158,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<BatchProgress>(null);
   const jwt = useRef<{ token: string; at: number } | null>(null);
   const loaded = useRef(false);
 
@@ -142,21 +174,33 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       try {
         const raw = localStorage.getItem(storageKey(mint));
         const parsed = raw ? (JSON.parse(raw) as Draft[]) : [];
-        // A draft with no BUY yet is just an empty box left behind: not worth keeping between visits.
+        // A draft with no BUY, sell, stop or tranche yet is just an empty box left behind: not worth keeping between visits.
         if (Array.isArray(parsed)) {
           setDrafts(
             parsed
-              .filter((d) => d && typeof d.id === "string" && (d.buy !== undefined || d.sell !== undefined || d.stop !== undefined))
+              .filter((d) => d && typeof d.id === "string" && (d.buy !== undefined || d.sell !== undefined || d.stop !== undefined || (Array.isArray((d as unknown as { tranches?: unknown }).tranches) && (d as unknown as { tranches: unknown[] }).tranches.length > 0)))
               .slice(0, 20)
               .map((d) => {
-                const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: { price?: number }[] };
+                const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: { price?: number }[]; sellPct?: number; tranches?: unknown };
                 const unit: BuyUnit = old.unit === "USD" || old.unit === "EUR" ? old.unit : old.unit === "USDC" ? "USD" : "SOL";
                 const pay = old.pay === "SOL" || old.pay === "USDC" ? old.pay : old.unit === "USDC" ? "USDC" : null;
+                const hasBuy = typeof d.buy === "number";
                 // A draft saved while staggered selling still existed may carry a `sells` array instead of a
                 // single `sell` — only its first tranche's price survives (this is a local, unsent draft, never a real order).
-                const sell = typeof old.sell === "number" ? old.sell : old.sells?.[0]?.price;
-                const sellPct = typeof d.sellPct === "number" && d.sellPct >= 1 && d.sellPct <= 100 ? d.sellPct : undefined;
-                return { id: d.id, n: d.n, buy: d.buy, sell, stop: d.stop, amount: typeof d.amount === "string" ? d.amount : "", unit, pay, sellPct };
+                const legacySell = typeof old.sell === "number" ? old.sell : old.sells?.[0]?.price;
+                let tranches: Tranche[] | undefined;
+                if (!hasBuy) {
+                  if (Array.isArray(old.tranches)) {
+                    tranches = old.tranches.filter(
+                      (t): t is Tranche => !!t && typeof t === "object" && typeof (t as Tranche).id === "string" && typeof (t as Tranche).pct === "number" && ((t as Tranche).sell !== undefined || (t as Tranche).stop !== undefined)
+                    );
+                  } else if (legacySell !== undefined || d.stop !== undefined) {
+                    // A draft from before percentage tranches existed (Part 2's flat 25/50/75/100 picker): becomes its own single tranche.
+                    const pct = typeof old.sellPct === "number" && old.sellPct >= 1 && old.sellPct <= 100 ? old.sellPct : 100;
+                    tranches = [{ id: newId(), pct, sell: legacySell, stop: d.stop }];
+                  }
+                }
+                return { id: d.id, n: d.n, buy: d.buy, sell: hasBuy ? legacySell : undefined, stop: hasBuy ? d.stop : undefined, amount: typeof d.amount === "string" ? d.amount : "", unit, pay, tranches };
               })
           );
         }
@@ -265,13 +309,24 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
         const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS }) : null;
         const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
+
+        if (draft.buy === undefined) {
+          // A held-coin draft: any number of percentage tranches (allocation.ts), each its own order shape —
+          // there is no single `kind` for the whole draft any more, see `tranches` below.
+          const tranches = draft.tranches ?? [];
+          const balanceUsd = tokenBalance !== null && currentUsd !== null ? tokenBalance * currentUsd : null;
+          const trancheIssues = validateTranches(tranches, { currentUsd, balanceUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined });
+          const tv: TrancheView[] = tranches.map((t) => {
+            const issues = trancheIssues.get(t.id) ?? [];
+            return { tranche: t, kind: trancheKind(t), issues, ready: issues.length === 0 };
+          });
+          const ready = tv.length > 0 && tv.every((v) => v.ready);
+          return { draft, asset, amountUsd: null, funding: null, issues: [], metrics: null, ready, kind: null, tranches: tv, allocatedPct: sumAllocatedPct(tranches), remainingPct: sumRemainingPct(tranches), tokenBalance };
+        }
+
         const legs = { buy: draft.buy, sell: draft.sell, stop: draft.stop };
         const kind = kindOf(legs);
         const complete = kind !== null;
-        const heldPct = draft.sellPct ?? 100;
-        const holdsCoin = kind !== null && !startsWithBuy(kind);
-        const heldTokens = holdsCoin && tokenBalance !== null ? tokenBalance * (heldPct / 100) : null;
-        const heldUsd = heldTokens !== null && currentUsd ? heldTokens * currentUsd : null;
 
         const issues: KindIssue[] = [];
         let metrics: StrategyMetrics | null = null;
@@ -281,10 +336,10 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             metrics = strategyMetrics({ buy: draft.buy!, sell: draft.sell!, stop: draft.stop!, amountUsd, feeUsd: (amountUsd * STRATEGY_FEE_BPS) / 10_000 });
           }
         } else if (kind) {
-          issues.push(...validateKind(kind, legs, { currentUsd, amountUsd, tokensUsd: heldUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }));
+          issues.push(...validateKind(kind, legs, { currentUsd, amountUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined }));
         }
-        const ready = complete && issues.length === 0 && (holdsCoin || !!funding?.ok);
-        return { draft, asset, amountUsd, funding, issues, metrics, ready, kind, heldPct, heldTokens };
+        const ready = complete && issues.length === 0 && !!funding?.ok;
+        return { draft, asset, amountUsd, funding, issues, metrics, ready, kind, tranches: [], allocatedPct: 0, remainingPct: 100, tokenBalance };
       }),
     [drafts, rates, balances, currentUsd, quote, tokenBalance]
   );
@@ -297,6 +352,10 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (d.buy) out.push({ key: `${d.id}-b`, groupId: d.id, kind: "buy", price: d.buy, tag, live: false, active });
       if (d.sell) out.push({ key: `${d.id}-s`, groupId: d.id, kind: "sell1", price: d.sell, tag, live: false, active });
       if (d.stop) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
+      for (const t of d.tranches ?? []) {
+        if (t.sell !== undefined) out.push({ key: `${d.id}-t-${t.id}-s`, groupId: d.id, kind: "sell1", price: t.sell, tag, live: false, active, pct: t.pct, trancheId: t.id });
+        if (t.stop !== undefined) out.push({ key: `${d.id}-t-${t.id}-x`, groupId: d.id, kind: "stop", price: t.stop, tag, live: false, active, pct: t.pct, trancheId: t.id });
+      }
     }
     // Live (submitted) strategies: a multi-tranche one is several sibling StrategyRecords sharing `groupId` — the shared
     // buy/stop lines are drawn once (from whichever sibling is first), each sibling still draws its own sell line.
@@ -380,17 +439,23 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     newDraft();
     setError(null);
     setNotice(null);
-    setMachine(start("buy"));
+    // Nothing is armed yet: a brand new draft could become a bought strategy (the "Compra" tab) or a
+    // held-coin tranche (its own % buttons, shown right away since it has no buy) — arming "buy" by default
+    // would show a misleading "fija el precio de compra" status on a draft the user might only want to sell from.
+    setMachine(IDLE);
   }, [newDraft, setMachine]);
 
   const cancelDrawing = useCallback(() => {
+    pendingTrancheRef.current = null;
     setMachine(IDLE);
-    // Backing out of the very first BUY leaves nothing behind.
-    if (activeId) setDrafts((ds) => ds.filter((d) => !(d.id === activeId && d.buy === undefined)));
-    setActiveId((id) => (id && drafts.find((d) => d.id === id)?.buy === undefined ? null : id));
+    // Backing out of the very first BUY leaves nothing behind — but only when it was ALSO never going to be a
+    // held-coin draft (no tranches drawn on it either).
+    if (activeId) setDrafts((ds) => ds.filter((d) => !(d.id === activeId && d.buy === undefined && !(d.tranches && d.tranches.length > 0))));
+    setActiveId((id) => (id && drafts.find((d) => d.id === id)?.buy === undefined && !drafts.find((d) => d.id === id)?.tranches?.length ? null : id));
   }, [activeId, drafts, setMachine]);
 
-  /** Takes one leg back out of a draft ("x" next to it). The draft itself stays, even when it is left empty. */
+  /** Takes one leg back out of a draft ("x" next to it). The draft itself stays, even when it is left empty.
+   *  Only for a BUY-including draft — a held-coin draft's tranches are each removed on their own (below). */
   const clearLeg = useCallback((id: string, target: DrawTarget) => {
     setDrafts((ds) =>
       ds.map((d) => {
@@ -402,11 +467,45 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     );
   }, []);
 
-  /** The share of a held balance the sell or stop sells (1–100). */
-  const setSellPct = useCallback((id: string, pct: number) => {
-    if (!(pct >= 1 && pct <= 100)) return;
-    setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, sellPct: pct } : d)));
+  // ── percentage tranches (a held coin's "venta por porcentaje dibujando") ────────────────────────
+  const updateTrancheLegPrice = useCallback((draftId: string, trancheId: string, leg: "sell" | "stop", price: number) => {
+    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: updateLegPrice(d.tranches ?? [], trancheId, leg, price) } : d)));
   }, []);
+
+  /** A typed price goes through the same place as one dragged on the chart. */
+  const setTranchePrice = useCallback(
+    (draftId: string, trancheId: string, leg: "sell" | "stop", value: string) => {
+      const p = roundPrice(parseFloat(value));
+      if (p > 0) updateTrancheLegPrice(draftId, trancheId, leg, p);
+    },
+    [updateTrancheLegPrice]
+  );
+
+  const removeTrancheLeg = useCallback((draftId: string, trancheId: string, leg: "sell" | "stop") => {
+    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: removeTrancheLegFrom(d.tranches ?? [], trancheId, leg) } : d)));
+  }, []);
+
+  const removeTranche = useCallback((draftId: string, trancheId: string) => {
+    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: removeTrancheFrom(d.tranches ?? [], trancheId) } : d)));
+  }, []);
+
+  const setTranchePct = useCallback((draftId: string, trancheId: string, pct: number) => {
+    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: setTranchePctOf(d.tranches ?? [], trancheId, pct) } : d)));
+  }, []);
+
+  /** Arms the chart for a BRAND NEW tranche leg at `pct` — the next click/tap on the chart places it (see
+   *  onPointer's commit branch below). `pct` must already be affordable (DrawTradePanel only shows an
+   *  enabled button for a `pct` that `canAddPct` allows). */
+  const startTranchePlacement = useCallback(
+    (draftId: string, leg: "sell" | "stop", pct: number) => {
+      setActiveId(draftId);
+      pendingTrancheRef.current = { mode: "place", leg, pct };
+      setError(null);
+      setNotice(null);
+      setMachine(start(leg === "sell" ? "sell1" : "stop"));
+    },
+    [setMachine]
+  );
 
   const applyPrice = useCallback((id: string, target: DrawTarget, price: number) => {
     setDrafts((ds) =>
@@ -452,11 +551,24 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (phase === "down") return setMachine(down(s, p, info));
       const r = up(s, p, info);
       if (r.picked !== null && activeId) {
-        applyPrice(activeId, s.target, r.picked);
-        // Placing buy moves straight into sell, then straight into stop — three clicks/taps in one flow
-        // instead of having to re-pick the tab after each one.
-        const next = s.target === "buy" ? "sell1" : s.target === "sell1" ? "stop" : null;
-        setMachine(next ? start(next) : r.state);
+        const pending = pendingTrancheRef.current;
+        if (pending?.mode === "place") {
+          pendingTrancheRef.current = null;
+          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: placeLeg(d.tranches ?? [], pending.leg, pending.pct, r.picked!) } : d)));
+          setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
+          setMachine(IDLE);
+        } else if (pending?.mode === "drag") {
+          pendingTrancheRef.current = null;
+          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: updateLegPrice(d.tranches ?? [], pending.trancheId, pending.leg, r.picked!) } : d)));
+          setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
+          setMachine(IDLE);
+        } else {
+          applyPrice(activeId, s.target, r.picked);
+          // Placing buy moves straight into sell, then straight into stop — three clicks/taps in one flow
+          // instead of having to re-pick the tab after each one.
+          const next = s.target === "buy" ? "sell1" : s.target === "sell1" ? "stop" : null;
+          setMachine(next ? start(next) : r.state);
+        }
       } else {
         setMachine(r.state);
       }
@@ -464,10 +576,30 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [activeId, applyPrice, setMachine]
   );
 
+  /** Grabs an already-placed tranche leg's line (its tag on the chart) and starts repositioning it right away —
+   *  the same press-drag-release the user already knows from placing a brand new line, just seeded on an
+   *  existing one instead of creating a new tranche when it's released. `price`/`info` are the SAME pointerdown
+   *  that triggered the grab, fed straight into the machine so the line starts following the pointer at once. */
+  const startTrancheDrag = useCallback(
+    (draftId: string, trancheId: string, leg: "sell" | "stop", price: number, info: { type: string; button: number }) => {
+      setActiveId(draftId);
+      pendingTrancheRef.current = { mode: "drag", trancheId, leg };
+      setError(null);
+      setNotice(null);
+      setMachine(start(leg === "sell" ? "sell1" : "stop"));
+      onPointer("down", price, { ...info, pressed: true });
+    },
+    [setMachine, onPointer]
+  );
+
   // Escape leaves drawing mode.
   useEffect(() => {
     if (!machine.target) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMachine(IDLE);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      pendingTrancheRef.current = null;
+      setMachine(IDLE);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [machine.target, setMachine]);
@@ -501,8 +633,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
             buyUsd: d.buy,
             sellUsd: d.sell,
             stopUsd: d.stop,
-            // Only the legs this shape has are sent; a held-token shape also says what share it sells.
-            ...(view.kind && !startsWithBuy(view.kind) ? { sellPct: view.heldPct } : {}),
             amount: { unit: d.unit, value },
             fundingAsset: view.asset,
           }),
@@ -540,6 +670,98 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setTimeout(() => setStep("idle"), 3500);
       } catch (err) {
         setStep("idle");
+        if (err instanceof ApiError && err.code === "JUPITER_AUTH_REQUIRED") jwt.current = null;
+        setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+      }
+    },
+    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
+  );
+
+  // ── confirm a held-coin draft's percentage tranches: each is prepared on its own (nothing deposited yet),
+  // then EVERY deposit + fee in the batch is signed in ONE Phantom approval, then each order is created in
+  // order. If one fails to be created, every order already created in this batch is cancelled (one more
+  // single approval covers all of them) and the user is told plainly — nothing is left half-done.
+  const confirmTranches = useCallback(
+    async (view: DraftView) => {
+      const d = view.draft;
+      const tranches = d.tranches ?? [];
+      if (!view.ready || !coin || !signTransaction || tranches.length === 0) return;
+      setError(null);
+      try {
+        setStep("session");
+        await ensureSession();
+        setStep("jupiter");
+        const token = await ensureJwt();
+        const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+        setStep("prepare");
+        setBatchProgress({ done: 0, total: tranches.length });
+        const prepared: { record: StrategyRecord; transaction: string; feeTransaction: string | null }[] = [];
+        for (const t of tranches) {
+          const res = await fetch("/api/strategy/prepare", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              id: t.id,
+              n: d.n,
+              mint: coin.mint,
+              ticker: coin.ticker,
+              sellUsd: t.sell,
+              stopUsd: t.stop,
+              sellPct: t.pct,
+              amount: { unit: "USD", value: 0 },
+              fundingAsset: null,
+              groupId: d.id,
+              legIndex: prepared.length,
+              legCount: tranches.length,
+              legPct: t.pct,
+            }),
+          });
+          const p = await res.json();
+          if (!res.ok) throw new ApiError(p.error, p.code, p.issues);
+          prepared.push({ record: p.strategy as StrategyRecord, transaction: p.transaction as string, feeTransaction: p.feeTransaction as string | null });
+          setBatchProgress({ done: prepared.length, total: tranches.length });
+        }
+
+        setStep("sign");
+        const deposits = prepared.map((p) => base64ToVersionedTransaction(p.transaction));
+        const feeTxs = prepared.map((p) => (p.feeTransaction ? base64ToTransaction(p.feeTransaction) : null));
+        const toSign: (VersionedTransaction | Transaction)[] = [...deposits, ...feeTxs.filter((f): f is Transaction => f !== null)];
+        const signed = signAllTransactions ? await signAllTransactions(toSign) : await signOneByOne(toSign, signTransaction);
+        const signedDeposits = signed.slice(0, deposits.length) as VersionedTransaction[];
+        const signedFees: (Transaction | null)[] = [];
+        let cursor = deposits.length;
+        for (const f of feeTxs) signedFees.push(f === null ? null : (signed[cursor++] as Transaction));
+
+        setStep("create");
+        const created: StrategyRecord[] = [];
+        for (let i = 0; i < prepared.length; i++) {
+          setBatchProgress({ done: i, total: prepared.length });
+          const body: Record<string, unknown> = { id: prepared[i].record.id, depositSignedTx: versionedTransactionToBase64(signedDeposits[i]) };
+          if (signedFees[i]) body.feeSignedTx = transactionToBase64(signedFees[i]!);
+          const res = await fetch("/api/strategy/create", { method: "POST", headers, body: JSON.stringify(body) });
+          const result = await res.json();
+          if (!res.ok) {
+            const hadCreated = created.length > 0;
+            if (hadCreated) {
+              setStep("cancel");
+              await cancelBatch(created, token, headers, signAllTransactions, signTransaction);
+            }
+            throw new ApiError(result.error, hadCreated ? "BATCH_ROLLED_BACK" : result.code, result.issues);
+          }
+          created.push(result.strategy as StrategyRecord);
+          setBatchProgress({ done: created.length, total: prepared.length });
+        }
+
+        setRecords((rs) => [...rs.filter((r) => r.groupId !== d.id && r.id !== d.id), ...created]);
+        setDrafts((ds) => ds.filter((x) => x.id !== d.id));
+        setActiveId(null);
+        setStep("done");
+        setBatchProgress(null);
+        setTimeout(() => setStep("idle"), 3500);
+      } catch (err) {
+        setStep("idle");
+        setBatchProgress(null);
         if (err instanceof ApiError && err.code === "JUPITER_AUTH_REQUIRED") jwt.current = null;
         setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
       }
@@ -618,8 +840,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
 
   return {
     clearLeg,
-    setSellPct,
     tokenBalance,
+    startTranchePlacement,
+    startTrancheDrag,
+    setTranchePrice,
+    removeTrancheLeg,
+    removeTranche,
+    setTranchePct,
+    confirmTranches,
+    batchProgress,
     connected,
     quote,
     currentUsd,
@@ -664,6 +893,49 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
 }
 
 export type DrawApi = ReturnType<typeof useDrawTrade>;
+
+/** Only hit when the wallet doesn't support `signAllTransactions` at all — one approval per transaction instead of one for all of them. */
+async function signOneByOne<T extends Transaction | VersionedTransaction>(txs: T[], signTransaction: <U extends Transaction | VersionedTransaction>(tx: U) => Promise<U>): Promise<T[]> {
+  const out: T[] = [];
+  for (const tx of txs) out.push(await signTransaction(tx));
+  return out;
+}
+
+/** Undoes every order already created in a failed batch: crafts each one's cancellation, signs them all in
+ *  ONE approval (or one by one as a fallback), then confirms each — so a partial batch never needs more than
+ *  a single extra Phantom popup to clean up. Failures here are swallowed on purpose: the caller has already
+ *  surfaced the batch's own failure, and anything left live still has its normal "Cancelar" button. */
+async function cancelBatch(
+  created: StrategyRecord[],
+  token: string,
+  headers: Record<string, string>,
+  signAllTransactions: (<T extends Transaction | VersionedTransaction>(txs: T[]) => Promise<T[]>) | undefined,
+  signTransaction: (<T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>) | undefined
+): Promise<void> {
+  const crafts: { record: StrategyRecord; transaction: string; requestId: string }[] = [];
+  for (const r of created) {
+    if (!r.jupiterOrderId) continue;
+    try {
+      const res = await fetch(`/api/jupiter/trigger/orders/${r.jupiterOrderId}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const c = await res.json();
+      if (res.ok) crafts.push({ record: r, transaction: c.transaction, requestId: c.requestId });
+    } catch {}
+  }
+  if (crafts.length === 0 || !signTransaction) return;
+  try {
+    const txs = crafts.map((c) => base64ToVersionedTransaction(c.transaction));
+    const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
+    await Promise.all(
+      crafts.map((c, i) =>
+        fetch(`/api/jupiter/trigger/orders/${c.record.jupiterOrderId}/confirm-cancel`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ signedTransaction: versionedTransactionToBase64(signed[i]), cancelRequestId: c.requestId }),
+        })
+      )
+    );
+  } catch {}
+}
 
 class ApiError extends Error {
   constructor(message: string, public code?: string, public issues?: StrategyIssue[]) {

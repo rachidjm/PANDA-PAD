@@ -199,7 +199,12 @@ export default function PriceChart({
         labels: (k) => (k === "buy" ? t("draw.line.buy") : k === "stop" ? t("draw.line.stop") : t("draw.line.sell")),
         previewLabels: (k) => (k === "buy" ? t("draw.line.buyTarget") : k === "stop" ? t("draw.line.stopTarget") : t("draw.line.sellTarget")),
         toDisplay,
+        fromDisplay,
         formatValue,
+        grabLine: (line, price, info) => {
+          if (!line.trancheId) return;
+          draw.startTrancheDrag(line.groupId, line.trancheId, line.kind === "stop" ? "stop" : "sell", price, info);
+        },
       }
     : undefined;
 
@@ -626,7 +631,7 @@ function AreaChart({
         `}</style>
       </svg>
 
-      {overlay && <PriceTags overlay={overlay} domain={domain} />}
+      {overlay && <PriceTags overlay={overlay} domain={domain} priceAtClientY={priceAtClientY} onGrabPointer={setDragPointerId} />}
       {myTrades.length > 0 && (
         <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} toDisplay={toDisplay} />
       )}

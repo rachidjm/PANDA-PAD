@@ -28,3 +28,10 @@ export function summaryParts(legs: Legs, pct: number): SummaryPart[] {
 export function needsNoStopNotice(legs: Legs): boolean {
   return legs.buy !== undefined && legs.stop === undefined;
 }
+
+/** Every percentage tranche's own summary parts (allocation.ts), one after another — "Venta · 25% · $X · Stop
+ *  · 25% · $Y · Venta · 50% · $Z" for three tranches. A tranche never has a buy leg, so `draw.sum.noStop`
+ *  never appears here (that notice is about a BUY left unprotected, not a held-coin sell/stop). */
+export function trancheSummaryParts(tranches: { pct: number; sell?: number; stop?: number }[]): SummaryPart[] {
+  return tranches.flatMap((t) => summaryParts({ sell: t.sell, stop: t.stop }, t.pct));
+}
