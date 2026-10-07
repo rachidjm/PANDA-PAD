@@ -77,6 +77,16 @@ export function founderMinTraderVolumeUsd(env: Record<string, string | undefined
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD;
 }
 
+export const DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD = 100;
+
+/** An invited wallet pays PANDA's default 1% until its OWN cumulative trade volume reaches this — then it
+ *  drops to 0.5% for life (src/lib/pump/fee-tier.ts). A wallet grandfathered in before the two-tier system
+ *  (legacy_fee_wallets) keeps its immediate 0.5% regardless — this threshold only governs newly-referred ones. */
+export function referredDiscountMinVolumeUsd(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.REFERRED_DISCOUNT_MIN_VOLUME_USD);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD;
+}
+
 export const DEFAULT_REFERRAL_MIN_DAILY_VOLUME_SOL = 0.05;
 
 /** The daily volume (in lamports) an invitee needs for a UTC day to count toward their 3-day streak. */

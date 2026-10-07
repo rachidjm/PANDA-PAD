@@ -8,6 +8,18 @@ export async function pgGetReferrer(db: Db, wallet: string): Promise<string | nu
   return row?.referrer ?? null;
 }
 
+/** `wallet`'s own cumulative USD volume (buys + sells, each at its own historical SOL/USD price) — what
+ *  src/lib/pump/fee-tier.ts checks against referredDiscountMinVolumeUsd() to turn on an invited wallet's
+ *  lifetime 0.5% (it starts at the default 1% the moment it's bound, same as an un-referred wallet, until it
+ *  crosses that threshold). Same live-aggregate shape as pgInviteeVolumesUsd/pgCountValidInvitees, just for one wallet. */
+export async function pgOwnVolumeUsd(db: Db, wallet: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${trades.solAmount} * ${trades.solPriceUsdAtTrade}), 0)` })
+    .from(trades)
+    .where(eq(trades.wallet, wallet));
+  return Number(row?.total ?? 0);
+}
+
 /**
  * First-touch, permanent: binds `wallet` to `referrer` UNLESS it's already bound to someone (itself included) —
  * a primary-key conflict, so of two concurrent sign-ins only one ever wins. Returns whether THIS call bound it.
@@ -31,10 +43,20 @@ export async function pgBindReferral(db: Db, wallet: string, referrer: string, b
   });
 }
 
-/** This wallet's binding in full (who, through what, when) — null if it isn't bound. */
-export async function pgGetReferralBinding(db: Db, wallet: string): Promise<{ referrer: string; source: "link" | "code"; code: string | null; boundAt: number } | null> {
+/** This wallet's binding in full (who, through what, when, its own streak state) — null if it isn't bound. */
+export async function pgGetReferralBinding(
+  db: Db,
+  wallet: string
+): Promise<{ referrer: string; source: "link" | "code"; code: string | null; boundAt: number; lastQualifyingDay: string | null; streakAtLastQualifyingDay: number } | null> {
   const [row] = await db
-    .select({ referrer: referrals.referrer, source: referrals.source, code: referrals.code, boundAt: referrals.boundAt })
+    .select({
+      referrer: referrals.referrer,
+      source: referrals.source,
+      code: referrals.code,
+      boundAt: referrals.boundAt,
+      lastQualifyingDay: referrals.lastQualifyingDay,
+      streakAtLastQualifyingDay: referrals.streakAtLastQualifyingDay,
+    })
     .from(referrals)
     .where(eq(referrals.wallet, wallet));
   return row ? { ...row, source: row.source as "link" | "code" } : null;

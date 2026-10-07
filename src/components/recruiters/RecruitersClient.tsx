@@ -16,6 +16,7 @@ import {
   DEFAULT_FOUNDER_REQUIRED_TRADERS,
   DEFAULT_REFERRAL_MIN_DAILY_VOLUME_SOL,
   DEFAULT_REFERRAL_TIERS,
+  DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD,
   FOUNDER_SHARE_BPS,
 } from "@/lib/referrals/tiers-config";
 
@@ -92,7 +93,9 @@ function LoggedOut() {
         <Panda pose="success" size={88} />
         <h1 className="mt-4 font-display text-3xl font-bold leading-tight sm:text-4xl">{t("rec.heroTitle")}</h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-panda-grey sm:text-base">{t("rec.heroSubtitle")}</p>
-        <p className="mx-auto mt-3 inline-block rounded-full bg-bamboo/[0.08] px-4 py-1.5 text-sm font-semibold text-bamboo">{t("rec.halfPriceBlock")}</p>
+        <p className="mx-auto mt-3 inline-block rounded-full bg-bamboo/[0.08] px-4 py-1.5 text-sm font-semibold text-bamboo">
+          {t("rec.halfPriceBlock", { min: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD })}
+        </p>
         <div className="mt-6">
           <WalletButton />
         </div>
@@ -210,7 +213,7 @@ function LoggedIn({ address }: { address: string }) {
 
   return (
     <div>
-      <InviterLine wallet={address} className="mb-4 rounded-2xl border border-paper/10 bg-ink-raised px-4 py-3" />
+      <InviterLine wallet={address} detailed className="mb-4 rounded-2xl border border-paper/10 bg-ink-raised px-4 py-3" />
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold">{t("rec.title")}</h1>
@@ -222,7 +225,7 @@ function LoggedIn({ address }: { address: string }) {
       <section className="mt-6 rounded-[24px] border border-paper/10 bg-ink-raised p-6">
         <p className="text-xs text-panda-grey">{t("rec.yourLink")}</p>
         <CopyReferralLink wallet={address} className="mt-2" />
-        <p className="mt-2 text-xs font-medium text-bamboo">{t("rec.halfPriceNote")}</p>
+        <p className="mt-2 text-xs font-medium text-bamboo">{t("rec.halfPriceNote", { min: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD })}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <a
             href={`https://x.com/intent/tweet?text=${encodeURIComponent(shareText())}`}

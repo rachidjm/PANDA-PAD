@@ -40,8 +40,8 @@ export const dict = {
   "wallet.refCodeApplied": { en: "Code @{code} applied.", es: "Código de @{code} aplicado." },
   "wallet.refLinkApplied": { en: "Referral link applied.", es: "Enlace de recomendación aplicado." },
   "wallet.refBenefitHalfPrice": {
-    en: "Pay half the fee, for life (0.5% instead of 1%).",
-    es: "Pagas la mitad de comisión, de por vida (0,5% en vez del 1%).",
+    en: "Pay half the fee, for life (0.5% instead of 1%), once you've traded {min} $.",
+    es: "Paga la mitad de comisión, de por vida (0,5% en vez del 1%), a partir de {min} $ tradeados.",
   },
   "wallet.refBenefitRecruiter": {
     en: "You can be a recruiter too: keep 30% of our fees from every trader you invite.",
@@ -248,7 +248,10 @@ export const dict = {
     en: "Earn 30% of our fees for every trader you bring. For life. And your invitees pay half.",
     es: "Gana el 30% de nuestras comisiones por cada trader que traigas. De por vida. Y tus invitados pagan la mitad.",
   },
-  "rec.halfPriceBlock": { en: "Your invitees pay half: 0.5% instead of 1%, for life.", es: "Tus invitados pagan la mitad: 0,5% en vez del 1%, de por vida." },
+  "rec.halfPriceBlock": {
+    en: "Your invitees pay half, for life: 0.5% instead of 1%, once they've traded {min} $.",
+    es: "Tus invitados pagan la mitad, de por vida: 0,5% en vez del 1%, a partir de {min} $ tradeados.",
+  },
   "rec.heroSubtitle": {
     en: "Share your link. When someone trades on PANDA through it, you earn a share of PANDA's own fee — paid straight to your wallet, inside their own transaction, every time.",
     es: "Comparte tu enlace. Cuando alguien opera en PANDA a través de él, ganas una parte de la propia comisión de PANDA — pagada directamente a tu wallet, dentro de su propia transacción, cada vez.",
@@ -326,6 +329,11 @@ export const dict = {
   "inv.invitedByLink": { en: "You were invited via link ({wallet})", es: "Te invitó por enlace ({wallet})" },
   "inv.feeLine": { en: "You pay {pct}% fee", es: "Pagas {pct}% de comisión" },
   "inv.verifying": { en: "Code applied, verifying…", es: "Código aplicado, verificando…" },
+  "inv.discountBar": { en: "For your lifetime 0.5%", es: "Para el 0,5% de por vida" },
+  "inv.discountActive": { en: "Discount active: you pay 0.5%", es: "Descuento activado: pagas 0,5%" },
+  "inv.volume": { en: "Your volume: {amount} $", es: "Tu volumen: {amount} $" },
+  "inv.becomeRecruiter": { en: "You can earn too: invite traders and keep 30% of our fees.", es: "Tú también puedes ganar: invita traders y llévate el 30% de nuestras comisiones." },
+  "inv.becomeRecruiterCta": { en: "Get your link", es: "Consigue tu enlace" },
   "rec.statusActive": { en: "Active", es: "Activo" },
   "rec.statusInactive": { en: "Inactive", es: "Inactivo" },
   "rec.statusProgress": { en: "{n}/3 days", es: "{n}/3 días" },
@@ -335,7 +343,10 @@ export const dict = {
   "nav.recruiters": { en: "Recruiters", es: "Reclutadores" },
 
   // Recruiters — short codes
-  "rec.halfPriceNote": { en: "Anyone who comes in through your link or code pays half the fee.", es: "Quien entre con tu enlace o código paga la mitad de comisión." },
+  "rec.halfPriceNote": {
+    en: "Anyone who comes in through your link or code pays half the fee once they've traded {min} $.",
+    es: "Quien entre con tu enlace o código paga la mitad de comisión a partir de {min} $ tradeados.",
+  },
   "rec.yourCode": { en: "Your short code", es: "Tu código corto" },
   "rec.yourCodeNote": { en: "Choose it once — it can never be changed afterwards.", es: "Elígelo una vez — después no se puede cambiar." },
   "rec.setCodeCta": { en: "Set my code", es: "Elegir mi código" },
@@ -360,12 +371,12 @@ export const dict = {
 
   // Referral welcome toast — the one place outside the Recruiters pages that names the half-price rate
   "ref.welcomeWithCode": {
-    en: "You came in through @{code}'s code: you pay half the fee, for life.",
-    es: "Has entrado con el código de @{code}: pagas la mitad de comisión, de por vida.",
+    en: "You came in through @{code}'s code: once you've traded {min} $, you'll pay half the fee, for life.",
+    es: "Has entrado con el código de @{code}: a partir de {min} $ tradeados, pagarás la mitad de comisión, de por vida.",
   },
   "ref.welcomeNoCode": {
-    en: "You came in through a recruiter's link: you pay half the fee, for life.",
-    es: "Has entrado con un enlace de reclutador: pagas la mitad de comisión, de por vida.",
+    en: "You came in through a recruiter's link: once you've traded {min} $, you'll pay half the fee, for life.",
+    es: "Has entrado con un enlace de reclutador: a partir de {min} $ tradeados, pagarás la mitad de comisión, de por vida.",
   },
 
   // Trading panel — only shown when a wallet's fee is actually discounted, never as a pitch to get one

@@ -5,10 +5,29 @@ import type { Db } from "@/lib/db/client";
 import { setDbForTests } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
 import { pgBindReferral, pgReserveFounderSlot } from "@/lib/db/referrals";
+import { pgAddTrades } from "@/lib/db/trades";
 import { pgMarkLegacyFeeWallet } from "@/lib/db/fee-tier";
 import { feeTransferInstructions, MIN_SYSTEM_ACCOUNT_LAMPORTS } from "./fee-transfer";
 import { feeBpsForWallet } from "./fee-tier";
 import { PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS, PANDA_TREASURY } from "./constants";
+import { DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD } from "@/lib/referrals/tiers-config";
+
+/** Pushes `wallet`'s own cumulative USD volume past the discount threshold, so a test can exercise the
+ *  referred rate directly — feeBpsForWallet only grants it once this is reached (see fee-tier.test.ts). */
+async function crossDiscountThreshold(db: Db, wallet: string) {
+  await pgAddTrades(db, wallet, [
+    {
+      mint: "MINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      ticker: "X",
+      side: "buy",
+      solAmount: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD,
+      tokenAmount: 1,
+      solPriceUsdAtTrade: 1,
+      signature: `SIG-${wallet}-${Math.random()}`,
+      ts: 1000,
+    },
+  ]);
+}
 
 // Freshly generated keypairs, not real addresses — guaranteed distinct from each other and from PANDA_TREASURY,
 // so a test can never accidentally alias the referrer with the treasury (or with another test's trader).
@@ -117,6 +136,7 @@ test("a wallet bound via a code/link pays half the fee, and the recruiter's cut 
   const referrer = Keypair.generate().publicKey;
   const trader = Keypair.generate().publicKey;
   await pgBindReferral(db, trader.toBase58(), referrer.toBase58(), Date.now());
+  await crossDiscountThreshold(db, trader.toBase58()); // the discount isn't immediate — see fee-tier.test.ts
 
   const feeBps = await feeBpsForWallet(trader.toBase58());
   assert.equal(feeBps, PANDA_REFERRED_FEE_BPS, "half the default rate");

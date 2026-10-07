@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgGetReferralAttempt, pgGetReferralBinding } from "@/lib/db/referrals";
+import { pgGetReferralAttempt, pgGetReferralBinding, pgOwnVolumeUsd } from "@/lib/db/referrals";
+import { pgIsLegacyFeeWallet } from "@/lib/db/fee-tier";
+import { activeCutoffDay, isCurrentlyActive, referredDiscountMinVolumeUsd } from "@/lib/referrals/tiers-config";
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -26,8 +28,24 @@ export async function GET(req: Request) {
   try {
     const bound = await pgGetReferralBinding(db, wallet);
     if (bound) {
+      const [ownVolumeUsd, legacy] = await Promise.all([pgOwnVolumeUsd(db, wallet), pgIsLegacyFeeWallet(db, wallet)]);
+      const discountMinVolumeUsd = referredDiscountMinVolumeUsd();
+      const now = Date.now();
       return NextResponse.json(
-        { state: "bound", referrer: bound.referrer, source: bound.source, code: bound.source === "code" ? bound.code : null, boundAt: bound.boundAt },
+        {
+          state: "bound",
+          referrer: bound.referrer,
+          source: bound.source,
+          code: bound.source === "code" ? bound.code : null,
+          boundAt: bound.boundAt,
+          // Whether THIS wallet pays the discounted rate right now (see src/lib/pump/fee-tier.ts) — a legacy
+          // (grandfathered) wallet always does; a referred one does once its own volume crosses the threshold.
+          discountActive: legacy || ownVolumeUsd >= discountMinVolumeUsd,
+          ownVolumeUsd,
+          discountMinVolumeUsd,
+          active: isCurrentlyActive(bound, now),
+          streakDays: bound.lastQualifyingDay !== null && bound.lastQualifyingDay >= activeCutoffDay(now) ? Math.min(3, bound.streakAtLastQualifyingDay) : 0,
+        },
         { headers: { "Cache-Control": "no-store" } }
       );
     }

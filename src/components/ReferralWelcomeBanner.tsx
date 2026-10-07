@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { consumePendingWelcome } from "@/lib/referrals/client";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD } from "@/lib/referrals/tiers-config";
 
 /**
  * A one-time "you came in through a recruiter" toast — the ONLY place outside the Recruiters pages and the
@@ -51,7 +52,9 @@ export default function ReferralWelcomeBanner() {
 
   return (
     <div className="fixed inset-x-4 bottom-20 z-[60] mx-auto flex max-w-sm items-start gap-3 rounded-2xl border border-bamboo/30 bg-ink-raised p-4 shadow-2xl sm:bottom-6">
-      <p className="flex-1 text-sm">{code ? t("ref.welcomeWithCode", { code }) : t("ref.welcomeNoCode")}</p>
+      <p className="flex-1 text-sm">
+        {code ? t("ref.welcomeWithCode", { code, min: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD }) : t("ref.welcomeNoCode", { min: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD })}
+      </p>
       <button type="button" onClick={() => setVisible(false)} className="shrink-0 text-panda-grey transition-colors hover:text-paper" aria-label={t("bp.close")}>
         <span aria-hidden>✕</span>
       </button>

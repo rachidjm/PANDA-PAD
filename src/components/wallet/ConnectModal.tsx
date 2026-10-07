@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { setPendingCode } from "@/lib/referrals/client";
+import { DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD } from "@/lib/referrals/tiers-config";
 
 /** Stroke icons in the same hand-drawn style as the rest of the app (no icon library in this codebase). */
 function PercentIcon() {
@@ -172,7 +173,7 @@ export default function ConnectModal({
         <ul className="mt-5 space-y-2">
           <li className="flex items-start gap-2 text-[11px] leading-snug text-panda-grey">
             <PercentIcon />
-            {t("wallet.refBenefitHalfPrice")}
+            {t("wallet.refBenefitHalfPrice", { min: DEFAULT_REFERRED_DISCOUNT_MIN_VOLUME_USD })}
           </li>
           <li className="flex items-start gap-2 text-[11px] leading-snug text-panda-grey">
             <PeopleIcon />
