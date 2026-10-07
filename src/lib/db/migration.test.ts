@@ -51,7 +51,7 @@ before(async () => {
   await recordActivity(ev("claim:one111", "reward_claim", { wallet: A, lamports: 300_000, signature: "s".repeat(88) }), { distributions: 1, creatorFeePoolLamports: 300_000 });
   await recordActivity(ev("trade:two222", "buy", { wallet: B, lamports: 50_000_000 }), { volumeLamports: 50_000_000, trades: 1, tradeFeeLamports: 500_000 });
 
-  await setPause("claims", true, "migration rehearsal", "ADMIN");
+  await setPause("holder_payouts", true, "migration rehearsal", "ADMIN");
 });
 
 test("BACKFILL then COMPARE: Postgres ends up identical to Blob in every domain, and the report says how much moved", async () => {
@@ -107,7 +107,7 @@ test("COMPARE reports a real difference — a lamport off in one balance, a miss
   assert.ok(result.rewards.differences.some((d) => /claimed/.test(d)), "rewards: " + result.rewards.differences.join("|"));
   assert.ok(result.trades.differences.some((d) => /Blob has 3 trades, Postgres 2/.test(d)));
   assert.ok(result.activity.differences.some((d) => /trade:two222/.test(d)));
-  assert.ok(result.pause.differences.some((d) => /claims/.test(d)));
+  assert.ok(result.pause.differences.some((d) => /holder_payouts/.test(d)));
   await backfill(db, src, [...DOMAINS]); // and re-running the backfill heals all of it
   for (const r of await compare(db, src, [...DOMAINS])) assert.deepEqual(r.differences, [], r.domain);
 });
@@ -140,11 +140,11 @@ test("FROZEN BLOB (a domain in postgres mode): Postgres being ahead is a note, b
   // After the switch: a new trade and a pause change land ONLY in Postgres.
   const A = "A".repeat(43);
   await pgAddTrades(db, A, [{ mint: "M".repeat(43), ticker: "TT", side: "buy", solAmount: 0.02, tokenAmount: 192_216.9, solPriceUsdAtTrade: 100, signature: "AFTERSWITCH", ts: 1_750_000_100_000 }]);
-  await db.execute(sql`update protocol_pause set since = since + 5000, paused = not paused where subsystem = 'claims'`);
+  await db.execute(sql`update protocol_pause set since = since + 5000, paused = not paused where subsystem = 'holder_payouts'`);
   const ahead = await compare(db, src, ["trades", "pause"], modes);
   for (const r of ahead) assert.deepEqual(r.differences, [], `${r.domain}: Postgres ahead of a frozen Blob is expected`);
   assert.ok(ahead.find((r) => r.domain === "trades")!.notes.some((n) => /recorded since the switch/.test(n)));
-  assert.ok(ahead.find((r) => r.domain === "pause")!.notes.some((n) => /claims/.test(n)));
+  assert.ok(ahead.find((r) => r.domain === "pause")!.notes.some((n) => /holder_payouts/.test(n)));
   // ...while the same state read as "dual" is a difference (there a lost Blob write matters).
   assert.ok((await compare(db, src, ["trades"], {}))[0].differences.length > 0);
 

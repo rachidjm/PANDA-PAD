@@ -8,6 +8,7 @@ import { resolveOpenClaims, runHolderPayout } from "@/lib/rewards/run-payout";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { alertOps } from "@/lib/alerts";
 import { pausedResponse } from "@/lib/protocol/guard";
+import { checkActive } from "@/lib/protocol/pause-store";
 import { recordAudit } from "@/lib/audit/log";
 import { collectFeesForMint } from "@/lib/pump/distribute";
 import { getTokenHolders } from "@/lib/solana/holders";
@@ -50,13 +51,17 @@ export async function GET(req: Request) {
     const mints = await getRegisteredMints();
     const results: { mint: string; distributedLamports: number | null; holdersCredited: number; payout?: { ran: boolean; reason?: string; holdersPaid: number; lamportsPaid: number }; error?: string }[] = [];
     const payoutSigner = getRewardsPoolSigner();
+    // Checked once per run, not once per mint: an admin's "holder_payouts" pause (the admin console) stops every NEW
+    // payout immediately — resolveOpenClaims above still runs regardless, since it only confirms/releases what
+    // already happened on-chain, it never sends anything new.
+    const payoutsPaused = (await checkActive("holder_payouts")).paused;
 
     // Pays out a mint's Holders pool automatically if it's grown past the threshold — called at every exit
     // point below, whether or not THIS round collected anything new (a prior round's leftovers can cross the
     // threshold on their own once combined with a fresh collection, or a payout that failed earlier can finally
     // go through once the pool is funded again). A no-op, cheap read when there's nothing to do.
     async function tryPayout(mint: string): Promise<{ ran: boolean; reason?: string; holdersPaid: number; lamportsPaid: number } | undefined> {
-      if (!payoutSigner) return undefined;
+      if (!payoutSigner || payoutsPaused) return payoutsPaused ? { ran: false, reason: "paused", holdersPaid: 0, lamportsPaid: 0 } : undefined;
       const outcome = await runHolderPayout(connection, payoutSigner, mint);
       return { ran: outcome.ran, reason: outcome.reason, holdersPaid: outcome.holdersPaid, lamportsPaid: outcome.lamportsPaid };
     }

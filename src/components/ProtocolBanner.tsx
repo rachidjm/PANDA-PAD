@@ -8,7 +8,7 @@ import { useFeatures, type Features } from "@/components/providers/FeaturesProvi
 type PausedItem = { subsystem: string; reason: string; since: number };
 
 const LABEL_KEYS: Record<string, DictKey> = {
-  claims: "pause.claims",
+  holder_payouts: "pause.holder_payouts",
   airdrops: "pause.airdrops",
   nft_minting: "pause.nft_minting",
   nft_market: "pause.nft_market",
@@ -26,7 +26,7 @@ const NET_KEYS: Record<string, DictKey> = {
 
 /** Which feature a pause switch belongs to: a pause of a feature that is switched off on this deployment is not announced (there is nothing to pause). */
 const FEATURE_OF: Record<string, keyof Features | undefined> = {
-  claims: "holderRewards",
+  holder_payouts: "holderRewards",
   reward_calculations: "holderRewards",
   fee_processing: "holderRewards",
   airdrops: "airdrops",

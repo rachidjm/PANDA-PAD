@@ -1,14 +1,14 @@
 /**
  * Emergency pause switches, one per subsystem so a problem in one area (say,
- * claims) doesn't have to take down another (token launches). Pure state
- * transitions live here; storage is in ./pause-store.ts.
+ * holder payouts) doesn't have to take down another (token launches). Pure
+ * state transitions live here; storage is in ./pause-store.ts.
  *
  * Pausing never deletes or rewrites anything — it only makes the affected
  * routes refuse new work while the reason stays visible to users.
  */
 
 export const SUBSYSTEMS = [
-  "claims",
+  "holder_payouts",
   "airdrops",
   "nft_minting",
   "nft_market",

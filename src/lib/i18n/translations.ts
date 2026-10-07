@@ -1321,8 +1321,8 @@ export const dict = {
   // Rewards page
   "rw.title": { en: "Earn with PANDA", es: "Gana con PANDA" },
   "rw.intro": {
-    en: "When the creator of a coin sends part of its creator fees to holders, the people holding that coin can claim their share here.",
-    es: "Cuando el creador de una moneda destina parte de sus comisiones de creador a los holders, quienes tengan esa moneda pueden reclamar aquí su parte.",
+    en: "When the creator of a coin sends part of its creator fees to holders, it's sent automatically, in SOL, to everyone holding that coin — nothing to claim.",
+    es: "Cuando el creador de una moneda destina parte de sus comisiones de creador a los holders, se envía automáticamente, en SOL, a quienes tengan esa moneda — no hay nada que reclamar.",
   },
   "rw.step1": { en: "Trade", es: "Operar" },
   "rw.step1d": { en: "You buy or sell a coin.", es: "Compras o vendes una moneda." },
@@ -1337,7 +1337,7 @@ export const dict = {
     es: "Al lanzar la moneda, el creador destina una parte de esas comisiones de creador a los holders.",
   },
   "rw.step4": { en: "Rewards", es: "Recompensas" },
-  "rw.step4d": { en: "Your real share becomes claimable in your wallet.", es: "Tu parte real pasa a ser reclamable en tu wallet." },
+  "rw.step4d": { en: "Your real share is sent to your wallet automatically — nothing to claim.", es: "Tu parte real se envía a tu wallet automáticamente — no tienes que reclamar nada." },
 
   // Rewards dashboard
   "rd.poolMissingTitle": { en: "Rewards Pool isn't set up yet", es: "El Rewards Pool aún no está configurado" },
@@ -1363,7 +1363,7 @@ export const dict = {
     es: "Las recompensas se envían a tu wallet automáticamente, en SOL, directamente desde el Rewards Pool de PANDA — no hay nada que reclamar.",
   },
   "pause.title": { en: "PANDA PROTOCOL PAUSED", es: "PROTOCOLO PANDA EN PAUSA" },
-  "pause.claims": { en: "Reward claims", es: "Reclamos de recompensas" },
+  "pause.holder_payouts": { en: "Automatic holder payouts", es: "Reparto automático a holders" },
   "pause.airdrops": { en: "Airdrops", es: "Airdrops" },
   "pause.nft_minting": { en: "NFT minting", es: "Creación de NFT" },
   "pause.nft_market": { en: "NFT marketplace", es: "Mercado de NFT" },

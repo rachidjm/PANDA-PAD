@@ -9,7 +9,7 @@ import { auditEvents } from "./schema";
 import type { AuditEvent } from "@/lib/audit/log";
 
 let n = 0;
-const ev = (extra: Partial<AuditEvent> = {}): AuditEvent => ({ id: `${String(1_750_000_000_000 + ++n).padStart(13, "0")}-${n.toString(16).padStart(12, "0")}`, ts: 1_750_000_000_000 + n, actor: "ADMIN", action: "protocol.pause", object: "claims", requestId: `req-${n}`, ...extra });
+const ev = (extra: Partial<AuditEvent> = {}): AuditEvent => ({ id: `${String(1_750_000_000_000 + ++n).padStart(13, "0")}-${n.toString(16).padStart(12, "0")}`, ts: 1_750_000_000_000 + n, actor: "ADMIN", action: "protocol.pause", object: "holder_payouts", requestId: `req-${n}`, ...extra });
 
 /** A fresh database per test so chains never interfere. */
 const fresh = () => newTestDb();
@@ -36,7 +36,7 @@ test("each event's hash is sha256(previous hash + event) and the first links to 
   const rows = await d.select().from(auditEvents).orderBy(asc(auditEvents.seq));
   assert.equal(rows[0].prevHash, GENESIS_HASH);
   assert.equal(rows[1].prevHash, rows[0].hash);
-  const manual = createHash("sha256").update(`${GENESIS_HASH}\n{"action":"protocol.pause","actor":"ADMIN","id":"${e1.id}","newState":{"a":[1,2],"z":1},"object":"claims","oldState":null,"reason":null,"requestId":"${e1.requestId}","ts":${e1.ts}}`).digest("hex");
+  const manual = createHash("sha256").update(`${GENESIS_HASH}\n{"action":"protocol.pause","actor":"ADMIN","id":"${e1.id}","newState":{"a":[1,2],"z":1},"object":"holder_payouts","oldState":null,"reason":null,"requestId":"${e1.requestId}","ts":${e1.ts}}`).digest("hex");
   assert.equal(rows[0].hash, manual);
   assert.equal(rows[1].hash, eventHash(rows[0].hash, e2));
   assert.deepEqual(await pgVerifyChain(d), { ok: true, checked: 2, head: { seq: rows[1].seq, hash: rows[1].hash } });

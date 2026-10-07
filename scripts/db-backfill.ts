@@ -4,7 +4,7 @@
  *   npm run db:backfill [-- --domains rewards,trades,activity,pause] [--yes] [--force]
  *
  * Without --yes it only READS Blob and prints what would be imported (a dry run). With --yes it writes to Postgres.
- * For the money domain (rewards) it refuses to run unless the "claims" and "fee_processing" switches are PAUSED (so nothing writes to
+ * For the money domain (rewards) it refuses to run unless the "holder_payouts" and "fee_processing" switches are PAUSED (so nothing writes to
  * Blob while the snapshot is taken) — unless the Blob ledger holds no balances at all; --force skips that check and is only for an empty or throwaway database.
  *
  * Order for a domain: pause it (admin panel) → db:backfill --yes → set PANDA_STORAGE_MODES=<domain>=dual → unpause →
@@ -36,7 +36,7 @@ async function main() {
 
   if (domains.includes("rewards") && !process.argv.includes("--force")) {
     const state = await source.pause();
-    const notPaused = (["claims", "fee_processing"] as const).filter((s) => !isPaused(state, s));
+    const notPaused = (["holder_payouts", "fee_processing"] as const).filter((s) => !isPaused(state, s));
     if (notPaused.length) {
       // Nothing to protect when the ledger holds no balances at all: an empty snapshot can't lose or double anything.
       let holders = 0;

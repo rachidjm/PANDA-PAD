@@ -124,17 +124,17 @@ test("addMetrics adds directly, validates, and keeps the earliest 'since'", asyn
 // ── pause ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 test("pause: empty at first; pausing and resuming report what changed; repeating the same state changes nothing", async () => {
   assert.deepEqual(await pgGetPauseState(db), { version: 1, subsystems: {} });
-  const p = await pgSetPause(db, "claims", true, "  investigating  ", "ADMIN", 1000);
+  const p = await pgSetPause(db, "holder_payouts", true, "  investigating  ", "ADMIN", 1000);
   assert.equal(p.changed, true);
   assert.equal(p.before, null);
   assert.deepEqual(p.after, { paused: true, reason: "investigating", since: 1000, by: "ADMIN" });
-  const again = await pgSetPause(db, "claims", true, "again", "OTHER", 2000);
+  const again = await pgSetPause(db, "holder_payouts", true, "again", "OTHER", 2000);
   assert.equal(again.changed, false);
-  assert.equal((await pgGetPauseState(db)).subsystems.claims?.by, "ADMIN", "an unchanged request rewrites nothing");
-  const resumed = await pgSetPause(db, "claims", false, "", "ADMIN", 3000);
+  assert.equal((await pgGetPauseState(db)).subsystems.holder_payouts?.by, "ADMIN", "an unchanged request rewrites nothing");
+  const resumed = await pgSetPause(db, "holder_payouts", false, "", "ADMIN", 3000);
   assert.equal(resumed.changed, true);
   assert.equal(resumed.before?.paused, true);
-  assert.equal((await pgGetPauseState(db)).subsystems.claims?.paused, false);
+  assert.equal((await pgGetPauseState(db)).subsystems.holder_payouts?.paused, false);
 });
 
 test("pause: simultaneous pauses of one subsystem end in a consistent single row", async () => {
