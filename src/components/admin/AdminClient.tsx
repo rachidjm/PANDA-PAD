@@ -8,6 +8,7 @@ import ReservedMintPanel from "@/components/admin/ReservedMintPanel";
 import AuditChainPanel from "@/components/admin/AuditChainPanel";
 import SessionsPanel from "@/components/admin/SessionsPanel";
 import CspPanel from "@/components/admin/CspPanel";
+import ReferralsPanel from "@/components/admin/ReferralsPanel";
 import { SUBSYSTEMS, confirmationPhrase, type Subsystem } from "@/lib/protocol/pause";
 
 type PausedItem = { subsystem: Subsystem; reason: string; since: number };
@@ -150,6 +151,8 @@ export default function AdminClient() {
       <ReservedMintPanel sessionTick={sessionTick} />
 
       <SessionsPanel />
+
+      <ReferralsPanel />
 
       <CspPanel />
 

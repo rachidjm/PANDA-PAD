@@ -98,10 +98,10 @@ export type Reservation = { id: string; mint: string; holder: string; amount: nu
  * reserved (0 if nothing was claimable). Then: `markClaimSent`, and either
  * `confirmClaim` (it landed) or `releaseClaim` (it definitely did not).
  */
-export async function reserveClaim(mint: string, holder: string, maxLamports: number): Promise<Reservation> {
+export async function reserveClaim(mint: string, holder: string, maxLamports: number, runId?: string): Promise<Reservation> {
   const mode = storageMode("rewards");
   if (mode === "postgres") {
-    const r = await pgReserveClaim(getDb(), mint, holder, maxLamports);
+    const r = await pgReserveClaim(getDb(), mint, holder, maxLamports, runId);
     return { id: r.id, mint, holder, amount: r.amount, pgId: r.amount > 0 ? r.id : undefined };
   }
   const amount = await updateJson<Ledger, number>(ledgerPath(mint), emptyLedger(mint), (ledger) => {

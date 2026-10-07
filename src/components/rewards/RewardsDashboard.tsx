@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Tooltip from "@/components/Tooltip";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletSession } from "@/lib/auth/useWalletSession";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { PublicKey } from "@solana/web3.js";
 import Panda from "@/components/panda/Panda";
@@ -28,15 +27,11 @@ function solStr(lamports: number): string {
 export default function RewardsDashboard() {
   const connection = useReadConnection();
   const { connected, publicKey } = useWallet();
-  const { ensureSession } = useWalletSession();
   const { t } = useLanguage();
   const [state, setState] = useState<State>("loading");
   const [sources, setSources] = useState<RewardSource[]>([]);
   const [claimInfo, setClaimInfo] = useState<Record<string, ClaimInfo>>({});
   const [poolBalance, setPoolBalance] = useState<number | null>(null);
-  const [claiming, setClaiming] = useState(false);
-  const [claimError, setClaimError] = useState("");
-  const [lastClaimSignatures, setLastClaimSignatures] = useState<string[]>([]);
 
   useEffect(() => {
     if (!REWARDS_POOL) return;
@@ -127,48 +122,9 @@ export default function RewardsDashboard() {
     };
   }, [connected, publicKey, connection]);
 
-  async function claimAll() {
-    if (!publicKey || claiming) return;
-    setClaiming(true);
-    setClaimError("");
-    const signatures: string[] = [];
-    try {
-      await ensureSession(); // proves wallet ownership (one free signature) before any payout is requested
-      // Sequential — every claim is signed by the same server-side Rewards
-      // Pool key, so running them one at a time avoids blockhash/nonce races.
-      for (const s of sources) {
-        const unclaimed = claimInfo[s.coinMint]?.unclaimedLamports || 0;
-        if (unclaimed <= 0) continue;
-        const res = await fetch("/api/rewards/claim", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mint: s.coinMint, holder: publicKey.toBase58() }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || t("rd.claimFailedFor", { ticker: s.coinTicker }));
-        signatures.push(data.signature);
-      }
-      setLastClaimSignatures(signatures);
-
-      // Refresh real claim state from the ledger rather than assuming success locally.
-      const entries = await Promise.all(
-        sources.map(async (s) => {
-          const info = (await fetch(`/api/rewards/claim?mint=${s.coinMint}&holder=${publicKey.toBase58()}`)
-            .then((r) => r.json())
-            .catch(() => null)) as ClaimInfo | null;
-          return [s.coinMint, info || { entitledLamports: 0, claimedLamports: 0, unclaimedLamports: 0 }] as const;
-        })
-      );
-      setClaimInfo(Object.fromEntries(entries));
-    } catch (err) {
-      setClaimError(err instanceof Error ? err.message : t("rd.claimFailed"));
-    } finally {
-      setClaiming(false);
-    }
-  }
-
   const totalEntitled = Object.values(claimInfo).reduce((sum, c) => sum + c.entitledLamports, 0);
-  const totalUnclaimed = Object.values(claimInfo).reduce((sum, c) => sum + c.unclaimedLamports, 0);
+  const totalReceived = Object.values(claimInfo).reduce((sum, c) => sum + c.claimedLamports, 0);
+  const totalPendingSend = Object.values(claimInfo).reduce((sum, c) => sum + c.unclaimedLamports, 0);
 
   if (!REWARDS_POOL) {
     return (
@@ -214,8 +170,8 @@ export default function RewardsDashboard() {
             <p className="mt-1 font-display text-lg font-bold">{solStr(totalEntitled)}</p>
           </div>
           <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
-            <p className="text-[11px] text-panda-grey">{t("rd.available")}</p>
-            <p className="mt-1 font-display text-lg font-bold">{solStr(totalUnclaimed)}</p>
+            <p className="text-[11px] text-panda-grey">{t("rd.received")}</p>
+            <p className="mt-1 font-display text-lg font-bold">{solStr(totalReceived)}</p>
           </div>
           <div className="rounded-2xl bg-ink px-3 py-3.5 text-center">
             <div className="flex items-center justify-center gap-1 text-[11px] text-panda-grey">
@@ -224,35 +180,10 @@ export default function RewardsDashboard() {
                 <span className="cursor-help text-panda-grey">ⓘ</span>
               </Tooltip>
             </div>
-            <p className="mt-1 font-display text-lg font-bold text-paper/40">{t("rd.notTracked")}</p>
+            <p className="mt-1 font-display text-lg font-bold">{solStr(totalPendingSend)}</p>
           </div>
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4 border-t border-paper/10 pt-4">
-          <div className="text-xs text-panda-grey">
-            {claimError && <p className="text-clay-red">{claimError}</p>}
-            {!claimError && lastClaimSignatures.length > 0 && (
-              <p className="text-bamboo">
-                {t("rd.claimed")}{" "}
-                {lastClaimSignatures.map((sig, i) => (
-                  <span key={sig}>
-                    {i > 0 && ", "}
-                    <a href={`https://solscan.io/tx/${sig}`} target="_blank" rel="noreferrer" className="underline hover:text-paper">
-                      {t("rd.viewTx")}
-                    </a>
-                  </span>
-                ))}
-              </p>
-            )}
-            {!claimError && lastClaimSignatures.length === 0 && <p>{t("rd.onChainNote")}</p>}
-          </div>
-          <button
-            onClick={claimAll}
-            disabled={claiming || totalUnclaimed <= 0}
-            className="shrink-0 rounded-full bg-bamboo px-5 py-2.5 text-sm font-bold text-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-paper/10 disabled:text-paper/40"
-          >
-            {claiming ? t("rd.claiming") : t("rd.claimAll")}
-          </button>
-        </div>
+        <p className="mt-4 border-t border-paper/10 pt-4 text-xs text-panda-grey">{t("rd.autoPayNote")}</p>
       </div>
 
       {poolBalance !== null && (

@@ -79,7 +79,9 @@ export const rewardBalances = pgTable(
 export const CLAIM_STATUSES = ["reserved", "sent", "confirmed", "failed", "released"] as const;
 export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
 
-/** State machine of a payout attempt: reserved → sent → confirmed, or → released/failed (reservation given back). */
+/** State machine of a payout attempt: reserved → sent → confirmed, or → released/failed (reservation given back).
+ *  `runId` ties a batch of these back to the cron pass that created them (holder_payout_runs below) — null for
+ *  anything from before auto-payout existed (the old, now-removed manual "Reclamar" button never set it). */
 export const rewardClaims = pgTable(
   "reward_claims",
   {
@@ -89,6 +91,7 @@ export const rewardClaims = pgTable(
     lamports: lamports("lamports").notNull(),
     status: text("status").notNull(),
     signature: text("signature"),
+    runId: uuid("run_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -97,6 +100,7 @@ export const rewardClaims = pgTable(
     check("reward_claims_status", sql`${t.status} IN ('reserved','sent','confirmed','failed','released')`),
     index("reward_claims_holder").on(t.mint, t.wallet),
     index("reward_claims_open").on(t.status),
+    index("reward_claims_run").on(t.runId),
   ]
 );
 
@@ -104,6 +108,24 @@ export const rewardClaims = pgTable(
 export const payoutDays = pgTable("payout_days", { day: date("day", { mode: "string" }).primaryKey(), paidLamports: lamports("paid_lamports").notNull().default(0) }, (t) => [
   check("payout_days_nonneg", sql`${t.paidLamports} >= 0`),
 ]);
+
+/** One row per cron pass that attempted to pay a coin's holders automatically (src/lib/rewards/payout.ts) — the
+ *  "último reparto" a coin page and the admin view show. The real per-wallet facts live in reward_claims
+ *  (joined by runId); this is a summary for display, never itself the source of truth for what was paid. */
+export const holderPayoutRuns = pgTable(
+  "holder_payout_runs",
+  {
+    id: uuid("id").primaryKey(),
+    mint: text("mint").notNull(),
+    status: text("status").notNull(), // 'done' | 'failed' — a run that is still mid-flight has no row yet (see payout.ts)
+    holdersPaid: smallint("holders_paid").notNull().default(0),
+    lamportsPaid: lamports("lamports_paid").notNull().default(0),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("holder_payout_runs_status", sql`${t.status} IN ('done','failed')`), check("holder_payout_runs_nonneg", sql`${t.holdersPaid} >= 0 AND ${t.lamportsPaid} >= 0`), index("holder_payout_runs_mint").on(t.mint, t.startedAt)]
+);
 
 // ── Trades ────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** One row per real trade of a wallet ((wallet, signature) is the key, so recording twice is a no-op, as in the per-wallet log it replaces). Floats are stored exactly as the app computed them. */
@@ -330,6 +352,33 @@ export const referralAttempts = pgTable(
   ]
 );
 
+/** Append-only: EVERY attempt to apply a code or bind through a link, whatever happened — unlike
+ *  referral_attempts above (only the CURRENT pending/rejected state, one row per wallet, overwritten/deleted
+ *  as things change), this never updates or deletes a row. The "Referidos" admin view (src/app/admin) searches
+ *  this to answer "what actually happened for this code/wallet" — `reason` is the internal detail an admin
+ *  sees, never the invitee (same anti-abuse-reason secrecy src/lib/referrals/anti-abuse.ts already keeps). */
+export const referralAttemptLog = pgTable(
+  "referral_attempt_log",
+  {
+    id: uuid("id").primaryKey(),
+    wallet: text("wallet"), // null only if a code was typed before any wallet ever connected in that browser (never reaches this far today, kept nullable defensively)
+    code: text("code"),
+    referrer: text("referrer"),
+    kind: text("kind").notNull(),
+    result: text("result").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("referral_attempt_log_kind", sql`${t.kind} IN ('apply_code','sign_in')`),
+    check("referral_attempt_log_result", sql`${t.result} IN ('bound','pending','rejected','already_bound','already_traded','invalid_code','error')`),
+    index("referral_attempt_log_code").on(t.code),
+    index("referral_attempt_log_wallet").on(t.wallet),
+    index("referral_attempt_log_referrer").on(t.referrer),
+    index("referral_attempt_log_created").on(t.createdAt),
+  ]
+);
+
 /** One row per (referred wallet, UTC day) with any volume — only kept for wallets that have a referrer, so this
  *  never grows for the whole user base. Accumulated from src/app/api/portfolio/record-trade's own already-verified
  *  SOL-equivalent trade amount (never a separate, re-derived figure). Read by src/lib/referrals/streak.ts to decide
@@ -444,8 +493,8 @@ export const reservedMintKeys = pgTable("reserved_mint_keys", {
 
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
-  rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays,
+  rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays, holderPayoutRuns,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
-  referrals, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
+  referrals, referralAttemptLog, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
   legacyFeeWallets, recruiterCodes, reservedMintKeys,
 };

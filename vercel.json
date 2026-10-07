@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/collect-fees",
-      "schedule": "0 12 * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/cleanup-auth",

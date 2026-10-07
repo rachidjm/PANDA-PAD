@@ -227,8 +227,8 @@ export const dict = {
     es: "Todo lo encontrado aquí parece spam — no se te oculta nada real.",
   },
   "pf.rewards": { en: "Holder rewards", es: "Recompensas de holder" },
-  "pf.rewardsReady": { en: "SOL ready to claim", es: "SOL listos para cobrar" },
-  "pf.rewardsEarned": { en: "{earned} SOL earned in total · {claimed} SOL claimed", es: "{earned} SOL ganados en total · {claimed} SOL cobrados" },
+  "pf.rewardsReady": { en: "Received, sent automatically", es: "Recibido, enviado automáticamente" },
+  "pf.rewardsEarned": { en: "{earned} SOL earned in total · {claimed} SOL received", es: "{earned} SOL ganados en total · {claimed} SOL recibidos" },
   "pf.rewardsNone": { en: "No rewards earned yet", es: "Aún no has ganado recompensas" },
   "pf.rewardsPartial": { en: "Some coins weren't read — the real amount may be higher.", es: "Algunas monedas no se leyeron — el importe real puede ser mayor." },
   "pf.rewardsError": { en: "Couldn't read rewards right now", es: "No se pudieron leer las recompensas ahora" },
@@ -1352,21 +1352,16 @@ export const dict = {
   },
   "rd.yourRewards": { en: "Your rewards", es: "Tus recompensas" },
   "rd.totalEarned": { en: "Total earned", es: "Total ganado" },
-  "rd.available": { en: "Available to claim", es: "Disponible para reclamar" },
-  "rd.pending": { en: "Pending", es: "Pendiente" },
+  "rd.received": { en: "Received", es: "Recibido" },
+  "rd.pending": { en: "Pending send", es: "Pendiente de envío" },
   "rd.pendingHint": {
-    en: "Fees that may have accrued in Pump.fun's own vault but haven't been distributed by PANDA's daily collector yet — not tracked here.",
-    es: "Comisiones que pueden haberse acumulado en la propia bóveda de Pump.fun pero que el recolector diario de PANDA aún no ha repartido — no se rastrean aquí.",
+    en: "Already earned, waiting for the next automatic payout round to actually send it — nothing for you to do.",
+    es: "Ya ganado, esperando a la próxima ronda de reparto automático para enviarse de verdad — no tienes que hacer nada.",
   },
-  "rd.notTracked": { en: "Not tracked", es: "Sin rastrear" },
-  "rd.claimed": { en: "Claimed —", es: "Reclamado —" },
-  "rd.viewTx": { en: "view tx", es: "ver tx" },
-  "rd.onChainNote": {
-    en: "Real, on-chain payouts — signed and sent the moment you claim.",
-    es: "Pagos reales on-chain — firmados y enviados en el momento en que reclamas.",
+  "rd.autoPayNote": {
+    en: "Rewards are sent to your wallet automatically, in SOL, straight from PANDA's Rewards Pool — there's nothing to claim.",
+    es: "Las recompensas se envían a tu wallet automáticamente, en SOL, directamente desde el Rewards Pool de PANDA — no hay nada que reclamar.",
   },
-  "rd.claiming": { en: "Claiming…", es: "Reclamando…" },
-  "rd.claimAll": { en: "Claim all", es: "Reclamar todo" },
   "pause.title": { en: "PANDA PROTOCOL PAUSED", es: "PROTOCOLO PANDA EN PAUSA" },
   "pause.claims": { en: "Reward claims", es: "Reclamos de recompensas" },
   "pause.airdrops": { en: "Airdrops", es: "Airdrops" },
@@ -1538,8 +1533,6 @@ export const dict = {
   },
   "auth.failed": { en: "Sign-in failed — please try again.", es: "Falló el inicio de sesión — inténtalo de nuevo." },
   "auth.rejected": { en: "Sign-in cancelled.", es: "Inicio de sesión cancelado." },
-  "rd.claimFailed": { en: "Claim failed.", es: "Fallo al reclamar." },
-  "rd.claimFailedFor": { en: "Claim failed for ${ticker}.", es: "Fallo al reclamar ${ticker}." },
   "rd.poolTotal": {
     en: "PANDA Rewards Pool — total balance (all coins combined)",
     es: "PANDA Rewards Pool — saldo total (todas las monedas juntas)",
@@ -1555,7 +1548,7 @@ export const dict = {
     es: "Ahora mismo no tienes más de {min} de ninguna moneda con el reparto de comisiones activado. Las monedas que destinan comisiones del creador a los holders aparecerán aquí cuando los tengas.",
   },
   "rd.heldOfSupply": { en: "{value} held — {pct}% of supply", es: "{value} en cartera — {pct}% del supply" },
-  "rd.unclaimed": { en: "Unclaimed", es: "Sin reclamar" },
+  "rd.unclaimed": { en: "Pending send", es: "Pendiente de envío" },
   "rd.earnings": { en: "Earnings", es: "Ganancias" },
   "rd.earningsEmpty": {
     en: "Not enough reward history to chart yet — this fills in as payouts accumulate.",
@@ -1686,8 +1679,8 @@ export const dict = {
   "fd.presetAllMe": { en: "All to me", es: "Todo para mí" },
   "fd.presetHolders": { en: "Share with holders", es: "Compartir con holders" },
   "fd.holdersInfo": {
-    en: "Anyone holding more than ${min} of your coin can claim the Holders share.",
-    es: "Cualquiera que tenga más de ${min} de tu moneda puede reclamar la parte de Holders.",
+    en: "Part of your fees is sent automatically to your coin's holders (holding more than ${min}). They don't have to claim anything.",
+    es: "Una parte de tus comisiones se envía automáticamente a los holders de tu moneda (con más de ${min}). No tienen que reclamar nada.",
   },
   "fd.total": { en: "PANDA {panda}% + your allocations {rest}% = {total}%", es: "PANDA {panda}% + tus asignaciones {rest}% = {total}%" },
   "fd.err.number": { en: "Enter valid percentages (up to 2 decimals).", es: "Introduce porcentajes válidos (hasta 2 decimales)." },
@@ -1767,10 +1760,13 @@ export const dict = {
 
   // Rewards tab (on coin page)
   "coin.rewardsTab.blurb": {
-    en: "If the creator of ${ticker} sends part of its creator fees to holders, holders can claim their share of them, paid in SOL.",
-    es: "Si el creador de ${ticker} destina parte de sus comisiones de creador a los holders, estos pueden reclamar su parte, pagada en SOL.",
+    en: "If the creator of ${ticker} sends part of its creator fees to holders, it's sent to them automatically, in SOL — nothing to claim.",
+    es: "Si el creador de ${ticker} destina parte de sus comisiones de creador a los holders, se les envía automáticamente, en SOL — no tienen que reclamar nada.",
   },
   "coin.rewardsTab.link": { en: "See how rewards work", es: "Ver cómo funcionan las recompensas" },
+  "coin.rewardsTab.paidTotal": { en: "Paid to holders so far", es: "Repartido a holders hasta ahora" },
+  "coin.rewardsTab.lastRun": { en: "Last payout", es: "Último reparto" },
+  "coin.rewardsTab.lastRunDetail": { en: "to {n} holder(s) · {date}", es: "a {n} holder(s) · {date}" },
 
   // Market activity card
   "coin.activity.title": { en: "Market activity", es: "Actividad del mercado" },
@@ -2117,6 +2113,20 @@ export const dict = {
   "admin.sessions.reason": { en: "Reason (recorded)", es: "Motivo (queda registrado)" },
   "admin.sessions.revoke": { en: "Revoke sessions", es: "Revocar sesiones" },
   "admin.sessions.done": { en: "Revoked {n} session(s).", es: "Sesiones revocadas: {n}." },
+  "admin.referrals.title": { en: "Referrals", es: "Referidos" },
+  "admin.referrals.help": {
+    en: "Searches every code-apply and bind attempt ever logged (not just the current state) and a recruiter's full invitee list.",
+    es: "Busca en todos los intentos de aplicar un código o vincularse que se han registrado (no solo el estado actual) y en la lista completa de invitados de un reclutador.",
+  },
+  "admin.referrals.searchPlaceholder": { en: "Code or wallet", es: "Código o wallet" },
+  "admin.referrals.referrerPlaceholder": { en: "Recruiter's wallet (lists their invitees)", es: "Wallet del reclutador (lista sus invitados)" },
+  "admin.referrals.search": { en: "Search", es: "Buscar" },
+  "admin.referrals.invitees": { en: "Invitees ({n})", es: "Invitados ({n})" },
+  "admin.referrals.noInvitees": { en: "This wallet has no invitees bound.", es: "Esta wallet no tiene invitados vinculados." },
+  "admin.referrals.attempts": { en: "Attempts ({n})", es: "Intentos ({n})" },
+  "admin.referrals.noAttempts": { en: "No attempts match this search.", es: "Ningún intento coincide con esta búsqueda." },
+  "admin.referrals.retry": { en: "Retry bind", es: "Reintentar vínculo" },
+  "admin.referrals.retryDone": { en: "Retried — outcome: {outcome}", es: "Reintentado — resultado: {outcome}" },
 
   // Admin: CSP reports
   "admin.csp.title": { en: "Content-Security-Policy reports", es: "Informes de Content-Security-Policy" },

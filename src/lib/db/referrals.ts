@@ -1,6 +1,7 @@
-import { and, count, eq, gte, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, count, desc, eq, gte, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm";
 import type { Db } from "./client";
-import { founderAllocations, pandaLaunches, referralAttempts, referralDailyVolume, referralPayouts, referrals, trades } from "./schema";
+import { founderAllocations, pandaLaunches, referralAttemptLog, referralAttempts, referralDailyVolume, referralPayouts, referrals, trades } from "./schema";
 
 /** This wallet's referrer, or null if it was never bound (came in without a link, failed anti-abuse, ...). */
 export async function pgGetReferrer(db: Db, wallet: string): Promise<string | null> {
@@ -74,9 +75,9 @@ export async function pgUpsertReferralAttempt(
     .onConflictDoUpdate({ target: referralAttempts.wallet, set: { referrer: row.referrer, source: row.source, code: row.code, status: row.status, updatedAt: row.updatedAt } });
 }
 
-export async function pgGetReferralAttempt(db: Db, wallet: string): Promise<{ referrer: string; status: "pending" | "rejected" } | null> {
-  const [row] = await db.select({ referrer: referralAttempts.referrer, status: referralAttempts.status }).from(referralAttempts).where(eq(referralAttempts.wallet, wallet));
-  return row ? { referrer: row.referrer, status: row.status as "pending" | "rejected" } : null;
+export async function pgGetReferralAttempt(db: Db, wallet: string): Promise<{ referrer: string; status: "pending" | "rejected"; source: "link" | "code"; code: string | null } | null> {
+  const [row] = await db.select().from(referralAttempts).where(eq(referralAttempts.wallet, wallet));
+  return row ? { referrer: row.referrer, status: row.status as "pending" | "rejected", source: row.source as "link" | "code", code: row.code } : null;
 }
 
 /** Records one verified on-chain referral payment (informational — see schema.ts). Returns false if it was already recorded. */
@@ -387,4 +388,23 @@ export async function pgGetPandaLaunchesForMints(db: Db, mints: string[]): Promi
   if (mints.length === 0) return new Map();
   const rows = await db.select({ mint: pandaLaunches.mint, creator: pandaLaunches.creator, launchedAt: pandaLaunches.launchedAt }).from(pandaLaunches).where(inArray(pandaLaunches.mint, mints));
   return new Map(rows.map((r) => [r.mint, { creator: r.creator, launchedAt: r.launchedAt }]));
+}
+
+// ── Referral attempt log (admin "Referidos" — every attempt, append-only) ──────────────────────────────────────────
+
+export type ReferralAttemptLogRow = { id: string; wallet: string | null; code: string | null; referrer: string | null; kind: "apply_code" | "sign_in"; result: string; reason: string | null; createdAt: number };
+
+/** One row per attempt, whatever happened — see src/lib/referrals/bind.ts's logAttempt, the only caller. Never throws its own id collision: `randomUUID()` is generated here, not by the caller. */
+export async function pgLogReferralAttempt(db: Db, row: { wallet: string | null; code: string | null; referrer: string | null; kind: "apply_code" | "sign_in"; result: string; reason?: string | null }): Promise<void> {
+  await db.insert(referralAttemptLog).values({ id: randomUUID(), wallet: row.wallet, code: row.code, referrer: row.referrer, kind: row.kind, result: row.result, reason: row.reason ?? null });
+}
+
+/** Newest first. `q` (a code or a wallet/referrer address, whichever the admin typed) matches any of the three
+ *  columns — the search box doesn't ask which kind of thing it is. Omitted `q` just lists the most recent attempts. */
+export async function pgSearchReferralAttemptLog(db: Db, opts: { q?: string; limit: number }): Promise<ReferralAttemptLogRow[]> {
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit)), 200);
+  const needle = opts.q?.trim();
+  const where = needle ? or(sql`${referralAttemptLog.code} ilike ${`%${needle}%`}`, sql`${referralAttemptLog.wallet} ilike ${`%${needle}%`}`, sql`${referralAttemptLog.referrer} ilike ${`%${needle}%`}`) : undefined;
+  const rows = await db.select().from(referralAttemptLog).where(where).orderBy(desc(referralAttemptLog.createdAt)).limit(limit);
+  return rows.map((r) => ({ id: r.id, wallet: r.wallet, code: r.code, referrer: r.referrer, kind: r.kind as "apply_code" | "sign_in", result: r.result, reason: r.reason, createdAt: r.createdAt.getTime() }));
 }

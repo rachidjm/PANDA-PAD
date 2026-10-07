@@ -285,7 +285,7 @@ export default function PortfolioView(p: PortfolioViewProps) {
                 <span className="text-sm font-medium text-panda-grey">{t("pf.rewardsNone")}</span>
               ) : (
                 <span>
-                  {sol(p.rewards.claimableLamports, lang)} <span className="text-sm font-medium text-panda-grey">SOL</span>
+                  {sol(p.rewards.claimedLamports, lang)} <span className="text-sm font-medium text-panda-grey">SOL</span>
                 </span>
               )}
             </Stat>

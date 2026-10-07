@@ -15,12 +15,14 @@ import {
   pgInviteeLastTradeAt,
   pgInviteeVolumesUsd,
   pgListReferralPayouts,
+  pgLogReferralAttempt,
   pgPayoutsSummary,
   pgRecordPandaLaunch,
   pgRecordReferralPayout,
   pgReferralStats,
   pgReleaseFounderSlot,
   pgReserveFounderSlot,
+  pgSearchReferralAttemptLog,
 } from "./referrals";
 import { pgAddTrades } from "./trades";
 import { pgLegacyWalletsAmong, pgMarkLegacyFeeWallet } from "./fee-tier";
@@ -286,4 +288,43 @@ test("pgLegacyWalletsAmong: only the grandfathered wallets come back, an empty l
   const found = await pgLegacyWalletsAmong(db, [legacy, fresh]);
   assert.deepEqual([...found], [legacy]);
   assert.deepEqual([...(await pgLegacyWalletsAmong(db, []))], []);
+});
+
+// ── Referral attempt log (admin "Referidos") ────────────────────────────────────────────────────────────────────
+
+test("pgLogReferralAttempt + pgSearchReferralAttemptLog: newest first, every field round-trips", async () => {
+  const code = `code${Math.random().toString(36).slice(2, 10)}`;
+  const w = wallet();
+  const r = wallet();
+  await pgLogReferralAttempt(db, { wallet: w, code, referrer: r, kind: "apply_code", result: "pending", reason: "anti_abuse_check_inconclusive" });
+  const rows = await pgSearchReferralAttemptLog(db, { q: code, limit: 10 });
+  assert.equal(rows.length, 1);
+  assert.deepEqual(
+    { wallet: rows[0].wallet, code: rows[0].code, referrer: rows[0].referrer, kind: rows[0].kind, result: rows[0].result, reason: rows[0].reason },
+    { wallet: w, code, referrer: r, kind: "apply_code", result: "pending", reason: "anti_abuse_check_inconclusive" }
+  );
+});
+
+test("pgSearchReferralAttemptLog: q matches a SUBSTRING of the code, the wallet, OR the referrer", async () => {
+  const w = wallet();
+  const r = wallet();
+  await pgLogReferralAttempt(db, { wallet: w, code: "panda2026", referrer: r, kind: "apply_code", result: "bound" });
+  assert.equal((await pgSearchReferralAttemptLog(db, { q: "anda202", limit: 10 })).length, 1, "substring of the code");
+  assert.equal((await pgSearchReferralAttemptLog(db, { q: w.slice(2, 10), limit: 10 })).length, 1, "substring of the wallet");
+  assert.equal((await pgSearchReferralAttemptLog(db, { q: r.slice(2, 10), limit: 10 })).length, 1, "substring of the referrer");
+  assert.equal((await pgSearchReferralAttemptLog(db, { q: "NOPE-NOT-THERE", limit: 10 })).length, 0);
+});
+
+test("pgSearchReferralAttemptLog: no q just lists the most recent attempts, newest first", async () => {
+  const w = wallet();
+  await pgLogReferralAttempt(db, { wallet: w, code: null, referrer: wallet(), kind: "sign_in", result: "bound" });
+  await pgLogReferralAttempt(db, { wallet: w, code: null, referrer: wallet(), kind: "sign_in", result: "already_bound" });
+  const rows = await pgSearchReferralAttemptLog(db, { limit: 2 });
+  assert.equal(rows.length, 2);
+  assert.ok(rows[0].createdAt >= rows[1].createdAt);
+});
+
+test("pgLogReferralAttempt: wallet/code/referrer can all be null (a rejected attempt with no referrer to blame)", async () => {
+  await pgLogReferralAttempt(db, { wallet: wallet(), code: null, referrer: null, kind: "sign_in", result: "rejected", reason: "no_referrer" });
+  // Doesn't throw, and the row is findable by wallet.
 });

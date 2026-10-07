@@ -136,11 +136,14 @@ test("the limiter is async everywhere: no call site forgets to await it (an un-a
   assert.deepEqual(bad, []);
 });
 
-/** Routes that move money, create coins/assets or place orders: they must use the fail-closed gate, never the fail-open one. */
+/** Routes that move money, create coins/assets or place orders: they must use the fail-closed gate, never the
+ *  fail-open one. Holder rewards are no longer in this list: paying holders is now the collect-fees cron's own
+ *  job (src/lib/rewards/run-payout.ts, a secret-gated cron route, not a public rate-limited one) — the old
+ *  /api/rewards/claim is a read-only status check plus a 410 stub now, nothing left in it that moves money. */
 const MONEY_FILES = [
   "app/api/jupiter/swap/route.ts", "app/api/pump/buy/route.ts", "app/api/pump/sell/route.ts", "app/api/pump/create/route.ts",
   "app/api/otc/launch/build/route.ts", "app/api/otc/metadata/route.ts", "app/api/otc/register/route.ts",
-  "app/api/rewards/claim/route.ts", "app/api/airdrop/claim/route.ts", "app/api/nft/prepare/route.ts", "app/api/nft/confirm/route.ts",
+  "app/api/airdrop/claim/route.ts", "app/api/nft/prepare/route.ts", "app/api/nft/confirm/route.ts",
   "lib/market/route-helpers.ts", "lib/strategy/route.ts",
 ];
 test("money routes use the FAIL-CLOSED gate and never the fail-open one", () => {

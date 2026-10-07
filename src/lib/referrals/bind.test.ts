@@ -4,7 +4,7 @@ import { Keypair } from "@solana/web3.js";
 import type { Db } from "@/lib/db/client";
 import { setDbForTests } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
-import { pgFounderAllocation, pgGetReferrer } from "@/lib/db/referrals";
+import { pgFounderAllocation, pgGetReferrer, pgSearchReferralAttemptLog } from "@/lib/db/referrals";
 import { pgGetCodeForWallet, pgSetRecruiterCode } from "@/lib/db/fee-tier";
 import { pgAddTrades } from "@/lib/db/trades";
 import { canApplyRecruiterCode, tryApplyRecruiterCode, tryBindReferral } from "./bind";
@@ -66,6 +66,57 @@ test("tryBindReferral: 'rejected' (terminal) when the anti-abuse check finds the
   const w = `W${Math.random()}`;
   assert.equal(await tryBindReferral(w, REFERRER, selfFundedFunder(w, REFERRER)), "rejected");
   assert.equal(await pgGetReferrer(db, w), null);
+});
+
+// ── Every attempt is logged, whatever happened (src/app/admin's "Referidos" search reads this) ────────────────────
+
+test("tryBindReferral: a successful bind is logged as 'bound', with the referrer, under kind 'sign_in'", async () => {
+  const w = `W${Math.random()}`;
+  await tryBindReferral(w, REFERRER, cleanFunder(w));
+  const rows = await pgSearchReferralAttemptLog(db, { q: w, limit: 10 });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].result, "bound");
+  assert.equal(rows[0].kind, "sign_in");
+  assert.equal(rows[0].referrer, REFERRER);
+});
+
+test("tryBindReferral: a self-funded rejection is logged with its internal reason", async () => {
+  const w = `W${Math.random()}`;
+  await tryBindReferral(w, REFERRER, selfFundedFunder(w, REFERRER));
+  const rows = await pgSearchReferralAttemptLog(db, { q: w, limit: 10 });
+  assert.equal(rows[0].result, "rejected");
+  assert.equal(rows[0].reason, "self_funded");
+});
+
+test("tryBindReferral: an inconclusive check is logged as 'pending', retrying it later logs a SECOND row, not a rewrite of the first", async () => {
+  const w = `W${Math.random()}`;
+  await tryBindReferral(w, REFERRER, unknownFunder);
+  await tryBindReferral(w, REFERRER, cleanFunder(w));
+  const rows = await pgSearchReferralAttemptLog(db, { q: w, limit: 10 });
+  assert.equal(rows.length, 2);
+  assert.ok(rows.some((r) => r.result === "pending"));
+  assert.ok(rows.some((r) => r.result === "bound"));
+});
+
+test("tryApplyRecruiterCode: an invalid code is logged under kind 'apply_code', with no referrer resolved", async () => {
+  const w = `W${Math.random()}`;
+  await tryApplyRecruiterCode(w, "NOSUCHCODE", cleanFunder(w));
+  const rows = await pgSearchReferralAttemptLog(db, { q: w, limit: 10 });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].result, "invalid_code");
+  assert.equal(rows[0].kind, "apply_code");
+  assert.equal(rows[0].referrer, null);
+});
+
+test("tryApplyRecruiterCode: a successful code bind is logged once (by tryBindReferral), with the code and the resolved referrer", async () => {
+  await pgSetRecruiterCode(db, REFERRER, "logtest1", Date.now());
+  const w = `W${Math.random()}`;
+  await tryApplyRecruiterCode(w, "logtest1", cleanFunder(w));
+  const rows = await pgSearchReferralAttemptLog(db, { q: w, limit: 10 });
+  assert.equal(rows.length, 1, "no duplicate row from tryApplyRecruiterCode itself");
+  assert.equal(rows[0].result, "bound");
+  assert.equal(rows[0].code, "logtest1");
+  assert.equal(rows[0].referrer, REFERRER);
 });
 
 test("tryBindReferral: 'retry_later' (not terminal) when the anti-abuse check is inconclusive", async () => {

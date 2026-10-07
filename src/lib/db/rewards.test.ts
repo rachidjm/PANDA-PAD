@@ -9,8 +9,13 @@ import {
   pgGetLedger,
   pgGetPayoutDay,
   pgGetRegisteredMints,
+  pgHolderRewardsPaidForMint,
+  pgHolderRewardsReceivedByWallet,
+  pgLastPayoutRun,
   pgMarkClaimSent,
   pgOpenClaims,
+  pgPayoutRunClaims,
+  pgRecordPayoutRun,
   pgRegisterMint,
   pgReleaseClaim,
   pgReleaseDailyPayout,
@@ -169,6 +174,61 @@ test("the dual-write mirror reserves exactly what Blob decided, or refuses and l
   assert.equal(ok.amount, 300);
   await assert.rejects(pgReserveExact(db, mint, holder, 300), /only 200 of the 300/);
   assert.equal((await pgGetLedger(db, mint)).holders[holder].claimedLamports, 300, "the failed mirror left no partial reservation");
+});
+
+// ── Automatic payout runs ────────────────────────────────────────────────────────────────────────────────────────
+
+test("pgReserveClaim tags its claim with the given runId, so the run's own claims can be listed back", async () => {
+  const { mint, holder, sig } = fresh();
+  await credit(mint, sig, [{ address: holder, lamports: 1000 }]);
+  const runId = crypto.randomUUID();
+  const r = await pgReserveClaim(db, mint, holder, 1000, runId);
+  const claims = await pgPayoutRunClaims(db, runId);
+  assert.deepEqual(claims, [{ wallet: holder, lamports: 1000, signature: null }]);
+  assert.notEqual(r.amount, 0);
+});
+
+test("pgPayoutRunClaims: empty for a run that never reserved anything", async () => {
+  assert.deepEqual(await pgPayoutRunClaims(db, crypto.randomUUID()), []);
+});
+
+test("pgRecordPayoutRun + pgLastPayoutRun: the most recent run for a mint, never another mint's", async () => {
+  const { mint } = fresh();
+  const other = fresh().mint;
+  await pgRecordPayoutRun(db, { id: crypto.randomUUID(), mint, status: "done", holdersPaid: 3, lamportsPaid: 9000, startedAt: new Date(Date.now() - 10_000), finishedAt: new Date(Date.now() - 9_000) });
+  const second = crypto.randomUUID();
+  await pgRecordPayoutRun(db, { id: second, mint, status: "failed", holdersPaid: 0, lamportsPaid: 0, error: "RPC timeout", startedAt: new Date(), finishedAt: new Date() });
+  await pgRecordPayoutRun(db, { id: crypto.randomUUID(), mint: other, status: "done", holdersPaid: 99, lamportsPaid: 123, startedAt: new Date(), finishedAt: new Date() });
+  const last = await pgLastPayoutRun(db, mint);
+  assert.equal(last?.id, second);
+  assert.equal(last?.status, "failed");
+  assert.equal(last?.error, "RPC timeout");
+});
+
+test("pgLastPayoutRun: null for a mint that has never had a run", async () => {
+  assert.equal(await pgLastPayoutRun(db, fresh().mint), null);
+});
+
+test("pgHolderRewardsPaidForMint: sums only CONFIRMED (claimed) lamports, not merely credited or reserved", async () => {
+  const { mint, sig, holder: a } = fresh();
+  const b = fresh().holder;
+  await credit(mint, sig, [{ address: a, lamports: 1000 }, { address: b, lamports: 2000 }]);
+  const ra = await pgReserveClaim(db, mint, a, 1000);
+  await pgConfirmClaim(db, ra.id);
+  await pgReserveClaim(db, mint, b, 2000); // reserved, never confirmed — not "paid" yet
+  assert.equal(await pgHolderRewardsPaidForMint(db, mint), 1000);
+});
+
+test("pgHolderRewardsReceivedByWallet: every mint that wallet has actually been paid from, zero-balance mints absent", async () => {
+  const { mint: mintA, sig: sigA, holder } = fresh();
+  const { mint: mintB, sig: sigB } = fresh();
+  await credit(mintA, sigA, [{ address: holder, lamports: 500 }]);
+  await credit(mintB, sigB, [{ address: holder, lamports: 700 }]);
+  const ra = await pgReserveClaim(db, mintA, holder, 500);
+  await pgConfirmClaim(db, ra.id); // mintA: paid
+  await pgReserveClaim(db, mintB, holder, 700); // mintB: reserved only, never confirmed
+  const received = await pgHolderRewardsReceivedByWallet(db, holder);
+  assert.deepEqual(received, [{ mint: mintA, lamports: 500 }]);
 });
 
 test("CONCURRENCY: the daily cap holds under simultaneous bookings", async () => {

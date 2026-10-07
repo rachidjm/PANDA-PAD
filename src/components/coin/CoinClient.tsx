@@ -407,11 +407,48 @@ function HoldersTab() {
 }
 
 function RewardsTab({ coin }: { coin: Coin }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  const [summary, setSummary] = useState<{ paidTotalLamports: number; lastRun: { finishedAt: number; holdersPaid: number; lamportsPaid: number } | null; lastSignature: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/rewards/mint-summary?mint=${coin.mint}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => !cancelled && setSummary(d))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [coin.mint]);
+  const sol = (lamports: number) => `${(lamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL`;
   return (
     <div className="rounded-2xl border border-paper/10 bg-ink-raised p-6">
       <p className="text-sm text-paper/80">{t("coin.rewardsTab.blurb", { ticker: coin.ticker })}</p>
-      <a href="/rewards" className="mt-3 inline-block text-sm font-semibold text-meme-orange hover:brightness-110">
+      {summary && summary.paidTotalLamports > 0 && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl bg-ink px-3.5 py-3">
+            <p className="text-[11px] text-panda-grey">{t("coin.rewardsTab.paidTotal")}</p>
+            <p className="mt-1 font-display text-base font-bold">{sol(summary.paidTotalLamports)}</p>
+          </div>
+          {summary.lastRun && (
+            <div className="rounded-xl bg-ink px-3.5 py-3">
+              <p className="text-[11px] text-panda-grey">{t("coin.rewardsTab.lastRun")}</p>
+              <p className="mt-1 font-display text-base font-bold">{sol(summary.lastRun.lamportsPaid)}</p>
+              <p className="mt-0.5 text-[11px] text-panda-grey">
+                {t("coin.rewardsTab.lastRunDetail", { n: summary.lastRun.holdersPaid, date: new Date(summary.lastRun.finishedAt).toLocaleString(lang, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) })}
+                {summary.lastSignature && (
+                  <>
+                    {" · "}
+                    <a href={`https://solscan.io/tx/${summary.lastSignature}`} target="_blank" rel="noreferrer" className="font-semibold text-bamboo hover:underline">
+                      Solscan
+                    </a>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+      <a href="/rewards" className="mt-4 inline-block text-sm font-semibold text-meme-orange hover:brightness-110">
         {t("coin.rewardsTab.link")}
       </a>
     </div>

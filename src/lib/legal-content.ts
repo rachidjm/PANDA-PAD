@@ -3,6 +3,7 @@ import { PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS } from "@/lib/pump/constants";
 import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { MARKET_CONFIG } from "@/lib/market/config";
 import { strategyFeeBps } from "@/lib/strategy/plan";
+import { HOLDER_PAYOUT_MIN_LAMPORTS } from "@/lib/rewards/limits";
 import {
   DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD,
   DEFAULT_FOUNDER_REQUIRED_TRADERS,
@@ -41,6 +42,7 @@ const REST = both(10_000 - PANDA_SHARE_BPS);
 const STRATEGY = both(strategyFeeBps(PANDA_FEE_BPS)); // Draw Your Trade at the default rate: the buy's and the sell's fee together
 const STRATEGY_REFERRED = both(strategyFeeBps(PANDA_REFERRED_FEE_BPS)); // same, at the referred/legacy rate
 const MARKET = both(MARKET_CONFIG.feeBps); // NFT marketplace
+const HOLDER_PAYOUT_MIN_SOL = HOLDER_PAYOUT_MIN_LAMPORTS / 1e9; // the real threshold src/lib/rewards/run-payout.ts waits for before paying a coin's holders
 // Recruiters: marginal tiers, by a recruiter's live count of active invitees (src/lib/referrals/tiers.ts) — each
 // expressed both as a share of PANDA's own trade fee and as that same share's % of the trade itself. A
 // recruiter only ever earns from a REFERRED trade (that's who their invitees are, by definition), so the base
@@ -305,30 +307,43 @@ export const CUSTODY_ADDENDA: Addenda = {
 };
 
 /**
- * Paragraphs that exist ONLY while FEATURE_HOLDER_REWARDS is on: the Holders share of a coin's creator fees is paid to a
- * wallet whose key is held by PANDA's servers, so this is the one place PANDA itself holds funds. With the flag off there is no
+ * Paragraphs that exist ONLY while FEATURE_HOLDER_REWARDS is on: the Holders share of a coin's creator fees is
+ * paid to a wallet whose key is held by PANDA's servers, so this is the one place PANDA itself ever holds
+ * funds — but only in transit, automatically, never waiting on anyone to claim. With the flag off there is no
  * such flow and these must not appear (see getLegalPage).
  */
 export const HOLDER_ADDENDA: Addenda = {
   "legal-notice": {
-    en: ["Holder rewards are the one feature in which PANDA itself holds funds. If a coin's creator assigns part of its creator fees to \"Holders\", those fees are paid on-chain to PANDA's Rewards Pool wallet, whose key is held by PANDA's servers; PANDA then pays each holder their share when they claim it (claiming needs a free message signature from your wallet, not a transaction). Until claimed, those funds sit in that wallet — you are trusting PANDA's infrastructure with them."],
-    es: ["Las recompensas de holders son la única función en la que PANDA retiene fondos por sí misma. Si el creador de una moneda asigna parte de sus comisiones a \"Holders\", esas comisiones se pagan on-chain a la wallet del Rewards Pool de PANDA, cuya clave custodian los servidores de PANDA; PANDA paga después a cada holder su parte cuando la reclama (reclamar requiere una firma gratuita de un mensaje desde tu wallet, no una transacción). Hasta que se reclaman, esos fondos están en esa wallet — confías su custodia a la infraestructura de PANDA."],
+    en: [
+      `Holder rewards are the one feature in which PANDA itself briefly holds funds, only in transit. If a coin's creator assigns part of its creator fees to "Holders", those fees are paid on-chain to PANDA's Rewards Pool wallet (whose key is held by PANDA's servers), and sent straight on to the coin's holders, in SOL and in proportion to what each one holds, automatically — nothing to claim, no signature needed from a holder's wallet. A coin's own Holders share only pays out once it has built up at least ${HOLDER_PAYOUT_MIN_SOL} SOL; below that it simply waits in the Rewards Pool wallet for the next collection to add to it.`,
+    ],
+    es: [
+      `Las recompensas de holders son la única función en la que PANDA retiene fondos por sí misma, y solo de paso. Si el creador de una moneda asigna parte de sus comisiones a "Holders", esas comisiones se pagan on-chain a la wallet del Rewards Pool de PANDA (cuya clave custodian los servidores de PANDA), y se envían directamente a los holders de la moneda, en SOL y en proporción a lo que tiene cada uno, de forma automática — no hay nada que reclamar, ni se necesita ninguna firma de la wallet de un holder. La parte de Holders de una moneda solo se reparte cuando acumula al menos ${HOLDER_PAYOUT_MIN_SOL} SOL; por debajo de eso, simplemente espera en la wallet del Rewards Pool a que la siguiente recolección la aumente.`,
+    ],
   },
   "terms-of-service": {
-    en: ["Holder rewards are custodied by PANDA. Fees a creator assigns to \"Holders\" are paid to PANDA's Rewards Pool wallet, controlled by PANDA's servers, and paid out when holders claim them (a free message signature, not a transaction). Until then those funds are in that wallet. PANDA takes no fee when a holder claims."],
-    es: ["Las recompensas de holders las custodia PANDA. Las comisiones que un creador asigna a \"Holders\" se pagan a la wallet del Rewards Pool de PANDA, controlada por sus servidores, y se pagan cuando los holders las reclaman (una firma gratuita de un mensaje, no una transacción). Hasta entonces esos fondos están en esa wallet. PANDA no cobra ninguna comisión cuando un holder reclama."],
+    en: [
+      `Holder rewards are paid automatically. Fees a creator assigns to "Holders" are paid to PANDA's Rewards Pool wallet, controlled by PANDA's servers, and sent on to every eligible holder automatically, in SOL, the same run that collects them, once a coin's own Holders balance reaches ${HOLDER_PAYOUT_MIN_SOL} SOL — nothing for a holder to claim or sign. A payout this small it wouldn't survive as a transfer, or that belongs to the bonding curve, the trading pool, a program-owned account, or anyone already paid directly by the coin's own fee split (the creator, PANDA, the Rewards Pool itself), is never sent — it's simply left for the next round. PANDA takes no fee from a holder payout.`,
+    ],
+    es: [
+      `Las recompensas de holders se pagan automáticamente. Las comisiones que un creador asigna a "Holders" se pagan a la wallet del Rewards Pool de PANDA, controlada por sus servidores, y se envían a cada holder que corresponda de forma automática, en SOL, en la misma ejecución en que se recolectan, en cuanto la parte de Holders de una moneda llega a ${HOLDER_PAYOUT_MIN_SOL} SOL — no hay nada que un holder deba reclamar ni firmar. Un pago tan pequeño que no sobreviviría como transferencia, o que pertenezca a la bonding curve, al pool de trading, a una cuenta de un programa, o a quien ya cobra directamente del propio reparto de comisiones de la moneda (el creador, PANDA, el propio Rewards Pool), nunca se envía — simplemente queda para la siguiente ronda. PANDA no cobra ninguna comisión sobre un pago a holders.`,
+    ],
   },
   "privacy-policy": {
-    en: ["Holder rewards. PANDA keeps a ledger of the rewards owed to and claimed by each wallet address, in its database, and the claims in progress."],
-    es: ["Recompensas de holders. PANDA guarda en su base de datos un libro de las recompensas pendientes y reclamadas por cada dirección de wallet, y de los reclamos en curso."],
+    en: ["Holder rewards. PANDA keeps a record, in its database, of the rewards owed to and already paid to each wallet address, and of each automatic payout round."],
+    es: ["Recompensas de holders. PANDA guarda en su base de datos un registro de las recompensas pendientes y ya pagadas a cada dirección de wallet, y de cada ronda de reparto automático."],
   },
   "risk-disclosure": {
-    en: ["Fee distribution and holder rewards are real but still evolving. A coin's on-chain \"Holder\" fee share (see Fee Distribution in Create) determines how much of its creator fees route toward holders; those fees are paid to PANDA's Rewards Pool wallet, which PANDA's servers control, and PANDA pays them out when holders claim — so for holder rewards you are trusting PANDA's infrastructure and key management. Collection only happens above a minimum on-chain dust threshold, and payouts depend on that automated collection actually running — past fee activity is never a guarantee of future rewards, and \"entitled\" amounts can lag real-time trading until the next collection cycle."],
-    es: ["El reparto de comisiones y las recompensas a holders son reales, pero siguen evolucionando. El porcentaje on-chain de \"Holders\" de una moneda (ver Fee Distribution en Create) determina qué parte de las comisiones del creador va a los holders; esas comisiones se pagan a la wallet del Rewards Pool de PANDA, que controlan los servidores de PANDA, y PANDA las paga cuando los holders las reclaman — así que, para las recompensas de holders, confías en la infraestructura y la gestión de claves de PANDA. La recolección solo ocurre por encima de un umbral mínimo on-chain, y los pagos dependen de que esa recolección automática se ejecute realmente — la actividad pasada de comisiones nunca garantiza recompensas futuras, y los importes \"pendientes de cobro\" pueden ir por detrás del trading en tiempo real hasta el siguiente ciclo de recolección."],
+    en: [
+      `Fee distribution and holder rewards are real but still evolving. A coin's on-chain "Holder" fee share (see Fee Distribution in Create) determines how much of its creator fees route toward holders; those fees are paid to PANDA's Rewards Pool wallet, which PANDA's servers control, and PANDA sends them straight on to holders automatically — so for holder rewards you are trusting PANDA's infrastructure and key management, even though funds only ever pass through briefly rather than sitting there waiting to be claimed. Payouts depend on the automated collection and payout job actually running on schedule, and only happen once a coin's Holders balance crosses ${HOLDER_PAYOUT_MIN_SOL} SOL — past fee activity is never a guarantee of future rewards, and a balance below that threshold can sit unpaid for a while.`,
+    ],
+    es: [
+      `El reparto de comisiones y las recompensas a holders son reales, pero siguen evolucionando. El porcentaje on-chain de "Holders" de una moneda (ver Fee Distribution en Create) determina qué parte de las comisiones del creador va a los holders; esas comisiones se pagan a la wallet del Rewards Pool de PANDA, que controlan los servidores de PANDA, y PANDA las envía directamente a los holders de forma automática — así que, para las recompensas de holders, confías en la infraestructura y la gestión de claves de PANDA, aunque los fondos solo pasan por ahí brevemente en vez de quedarse esperando a que alguien los reclame. Los pagos dependen de que la tarea automática de recolección y reparto se ejecute según lo previsto, y solo ocurren cuando la parte de Holders de una moneda supera los ${HOLDER_PAYOUT_MIN_SOL} SOL — la actividad pasada de comisiones nunca garantiza recompensas futuras, y un saldo por debajo de ese umbral puede quedar sin pagar durante un tiempo.`,
+    ],
   },
   disclaimer: {
-    en: ["Holder rewards are the exception to PANDA's non-custodial design: their fees sit in a wallet controlled by PANDA's servers until claimed (see Risk Disclosure and Legal Notice)."],
-    es: ["Las recompensas de holders son la excepción al diseño no custodial de PANDA: sus comisiones están en una wallet controlada por los servidores de PANDA hasta que se reclaman (ver Divulgación de Riesgos y Aviso Legal)."],
+    en: ["Holder rewards are the one exception to PANDA's non-custodial design: their fees pass briefly through a wallet controlled by PANDA's servers before being sent on to holders automatically (see Risk Disclosure and Legal Notice)."],
+    es: ["Las recompensas de holders son la única excepción al diseño no custodial de PANDA: sus comisiones pasan brevemente por una wallet controlada por los servidores de PANDA antes de enviarse a los holders de forma automática (ver Divulgación de Riesgos y Aviso Legal)."],
   },
 };
 

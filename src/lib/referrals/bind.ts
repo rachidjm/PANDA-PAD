@@ -1,11 +1,23 @@
 import { PublicKey } from "@solana/web3.js";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgBindReferral, pgGetReferralAttempt, pgGetReferrer, pgUpsertReferralAttempt, type BindOrigin } from "@/lib/db/referrals";
+import { pgBindReferral, pgGetReferralAttempt, pgGetReferrer, pgLogReferralAttempt, pgUpsertReferralAttempt, type BindOrigin } from "@/lib/db/referrals";
 import { pgGetWalletByCode } from "@/lib/db/fee-tier";
 import { pgHasAnyTrade } from "@/lib/db/trades";
 import { normalizeRecruiterCode } from "./codes";
 import { firstFunderCheck } from "./anti-abuse";
+
+/** Awaited by every caller (so it's already visible to a search the instant the request finishes), but never
+ *  throws and never changes the real outcome: a logging hiccup must not turn a successful bind into a failed
+ *  one. Every attempt — through a link, a typed code, successful or not — lands here, for /admin's own
+ *  "Referidos" search (src/app/api/admin/referrals/route.ts) to answer "what actually happened for this code/wallet". */
+async function logAttempt(row: { wallet: string | null; code: string | null; referrer: string | null; kind: "apply_code" | "sign_in"; result: string; reason?: string }): Promise<void> {
+  try {
+    await pgLogReferralAttempt(getDb(), row);
+  } catch (err) {
+    if (!(err instanceof DbNotConfiguredError)) console.error("[PANDA referrals] couldn't log an attempt", err);
+  }
+}
 
 /**
  * "bound"           a brand-new referral link was created.
@@ -40,18 +52,34 @@ export async function tryBindReferral(
   fetchImpl: typeof fetch = fetch,
   origin: BindOrigin = { source: "link" }
 ): Promise<BindOutcome> {
-  if (!isEnabled("REFERRALS")) return "rejected";
-  if (!referrerCandidate || !isRealAddress(referrerCandidate) || referrerCandidate === wallet) return "rejected";
+  const kind = origin.source === "code" ? "apply_code" : "sign_in";
+  const code = origin.source === "code" ? (origin.code ?? null) : null;
+  const log = (result: string, reason?: string) => logAttempt({ wallet, code, referrer: referrerCandidate ?? null, kind, result, reason });
+
+  if (!isEnabled("REFERRALS")) {
+    await log("rejected", "referrals_off");
+    return "rejected";
+  }
+  if (!referrerCandidate || !isRealAddress(referrerCandidate) || referrerCandidate === wallet) {
+    await log("rejected", !referrerCandidate ? "no_referrer" : referrerCandidate === wallet ? "self_referral" : "invalid_referrer_address");
+    return "rejected";
+  }
 
   let db;
   try {
     db = getDb();
   } catch (err) {
-    if (err instanceof DbNotConfiguredError) return "retry_later";
+    if (err instanceof DbNotConfiguredError) {
+      await log("error", "no_database");
+      return "retry_later";
+    }
     throw err;
   }
 
-  if (await pgGetReferrer(db, wallet)) return "already_bound";
+  if (await pgGetReferrer(db, wallet)) {
+    await log("already_bound");
+    return "already_bound";
+  }
 
   const now = Date.now();
   const funder = await firstFunderCheck(wallet, referrerCandidate, fetchImpl);
@@ -66,15 +94,20 @@ export async function tryBindReferral(
       status: funder === "unknown" ? "pending" : "rejected",
       updatedAt: now,
     });
+    await log(funder === "unknown" ? "pending" : "rejected", funder === "unknown" ? "anti_abuse_check_inconclusive" : "self_funded");
     return funder === "unknown" ? "retry_later" : "rejected";
   }
 
   const bound = await pgBindReferral(db, wallet, referrerCandidate, now, origin);
-  if (!bound) return "already_bound"; // lost a race to a concurrent sign-in
+  if (!bound) {
+    await log("already_bound", "lost_race_to_concurrent_sign_in");
+    return "already_bound"; // lost a race to a concurrent sign-in
+  }
 
   // Founder slots (src/lib/db/schema.ts's founderAllocations) are no longer triggered by binding itself — a
   // freshly-bound invitee hasn't traded yet, so they can't make a recruiter cross the valid-invitee threshold.
   // See src/lib/referrals/founder.ts, called from the trade-confirmation route instead.
+  await log("bound");
   return "bound";
 }
 
@@ -112,22 +145,41 @@ export async function tryApplyRecruiterCode(
   rawCode: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<ApplyCodeOutcome> {
-  if (!isEnabled("REFERRALS")) return "rejected";
+  const normalizedForLog = normalizeRecruiterCode(rawCode);
+  const log = (result: string, reason?: string) => logAttempt({ wallet, code: normalizedForLog, referrer: null, kind: "apply_code", result, reason });
+
+  if (!isEnabled("REFERRALS")) {
+    await log("rejected", "referrals_off");
+    return "rejected";
+  }
 
   let db;
   try {
     db = getDb();
   } catch (err) {
-    if (err instanceof DbNotConfiguredError) return "retry_later";
+    if (err instanceof DbNotConfiguredError) {
+      await log("error", "no_database");
+      return "retry_later";
+    }
     throw err;
   }
 
-  if (await pgGetReferrer(db, wallet)) return "already_bound";
-  if (await pgHasAnyTrade(db, wallet)) return "already_traded";
+  if (await pgGetReferrer(db, wallet)) {
+    await log("already_bound");
+    return "already_bound";
+  }
+  if (await pgHasAnyTrade(db, wallet)) {
+    await log("rejected", "already_traded");
+    return "already_traded";
+  }
 
   const code = normalizeRecruiterCode(rawCode);
   const referrer = await pgGetWalletByCode(db, code);
-  if (!referrer) return "invalid_code";
+  if (!referrer) {
+    await log("invalid_code");
+    return "invalid_code";
+  }
 
+  // tryBindReferral logs its own outcome (it knows the resolved referrer, this function doesn't duplicate it).
   return tryBindReferral(wallet, referrer, fetchImpl, { source: "code", code });
 }

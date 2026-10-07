@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client";
-import { payoutDays, rewardBalances, rewardClaims, rewardCredits, rewardDistributions, rewardLedgers, rewardRegistry } from "./schema";
+import { holderPayoutRuns, payoutDays, rewardBalances, rewardClaims, rewardCredits, rewardDistributions, rewardLedgers, rewardRegistry } from "./schema";
 import type { Ledger } from "@/lib/rewards/ledger";
 
 /**
@@ -96,7 +96,7 @@ export type PgReservation = { id: string; amount: number };
  * (FOR UPDATE) for the whole transaction, so two simultaneous claims can never both see the same balance; the CHECK on
  * reward_balances is the backstop. `amount` is 0 (and nothing is written) when there is nothing claimable.
  */
-export async function pgReserveClaim(db: Db, mint: string, wallet: string, maxLamports: number): Promise<PgReservation> {
+export async function pgReserveClaim(db: Db, mint: string, wallet: string, maxLamports: number, runId?: string): Promise<PgReservation> {
   if (!isSafeInt(maxLamports) || maxLamports <= 0) return { id: randomUUID(), amount: 0 };
   return db.transaction(async (tx) => {
     const [bal] = await tx.select().from(rewardBalances).where(and(eq(rewardBalances.mint, mint), eq(rewardBalances.wallet, wallet))).for("update");
@@ -105,7 +105,7 @@ export async function pgReserveClaim(db: Db, mint: string, wallet: string, maxLa
     const id = randomUUID();
     if (!bal || amount <= 0) return { id, amount: 0 };
     await tx.update(rewardBalances).set({ reservedLamports: sql`${rewardBalances.reservedLamports} + ${amount}` }).where(and(eq(rewardBalances.mint, mint), eq(rewardBalances.wallet, wallet)));
-    await tx.insert(rewardClaims).values({ id, mint, wallet, lamports: amount, status: "reserved" });
+    await tx.insert(rewardClaims).values({ id, mint, wallet, lamports: amount, status: "reserved", ...(runId ? { runId } : {}) });
     return { id, amount };
   });
 }
@@ -177,4 +177,43 @@ export async function pgReleaseDailyPayout(db: Db, day: string, lamports: number
 export async function pgGetPayoutDay(db: Db, day: string): Promise<number> {
   const [row] = await db.select().from(payoutDays).where(eq(payoutDays.day, day));
   return row?.paidLamports ?? 0;
+}
+
+// ── Automatic holder payout runs ─────────────────────────────────────────────────────────────────────────────────────
+export type PayoutRunRow = { id: string; mint: string; status: "done" | "failed"; holdersPaid: number; lamportsPaid: number; error: string | null; startedAt: number; finishedAt: number };
+
+/** One row per cron pass over one mint (src/lib/rewards/payout.ts) — written once the pass is over, success or not. */
+export async function pgRecordPayoutRun(
+  db: Db,
+  row: { id: string; mint: string; status: "done" | "failed"; holdersPaid: number; lamportsPaid: number; error?: string | null; startedAt: Date; finishedAt?: Date }
+): Promise<void> {
+  await db
+    .insert(holderPayoutRuns)
+    .values({ id: row.id, mint: row.mint, status: row.status, holdersPaid: row.holdersPaid, lamportsPaid: row.lamportsPaid, error: row.error ?? null, startedAt: row.startedAt, ...(row.finishedAt ? { finishedAt: row.finishedAt } : {}) });
+}
+
+export async function pgLastPayoutRun(db: Db, mint: string): Promise<PayoutRunRow | null> {
+  const [row] = await db.select().from(holderPayoutRuns).where(eq(holderPayoutRuns.mint, mint)).orderBy(desc(holderPayoutRuns.finishedAt)).limit(1);
+  if (!row) return null;
+  return { id: row.id, mint: row.mint, status: row.status as "done" | "failed", holdersPaid: row.holdersPaid, lamportsPaid: row.lamportsPaid, error: row.error, startedAt: row.startedAt.getTime(), finishedAt: row.finishedAt.getTime() };
+}
+
+/** Every payout this run made, for the admin/coin-page detail view (each is also one reward_claims row). */
+export async function pgPayoutRunClaims(db: Db, runId: string): Promise<{ wallet: string; lamports: number; signature: string | null }[]> {
+  return db.select({ wallet: rewardClaims.wallet, lamports: rewardClaims.lamports, signature: rewardClaims.signature }).from(rewardClaims).where(eq(rewardClaims.runId, runId));
+}
+
+/** What has actually been paid out to a coin's holders so far — the coin page's "Recompensas" tab total. */
+export async function pgHolderRewardsPaidForMint(db: Db, mint: string): Promise<number> {
+  const [row] = await db.select({ total: sql<number>`coalesce(sum(${rewardBalances.claimedLamports}), 0)` }).from(rewardBalances).where(eq(rewardBalances.mint, mint));
+  return Number(row?.total ?? 0);
+}
+
+/** What one wallet has received across every coin — the portfolio's "holder rewards received" line. */
+export async function pgHolderRewardsReceivedByWallet(db: Db, wallet: string): Promise<{ mint: string; lamports: number }[]> {
+  const rows = await db
+    .select({ mint: rewardBalances.mint, lamports: rewardBalances.claimedLamports })
+    .from(rewardBalances)
+    .where(and(eq(rewardBalances.wallet, wallet), sql`${rewardBalances.claimedLamports} > 0`));
+  return rows;
 }

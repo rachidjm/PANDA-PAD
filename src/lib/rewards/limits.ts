@@ -17,6 +17,11 @@ function envSol(name: string, fallback: number): number {
 export const MAX_CLAIM_LAMPORTS = Math.round(envSol("REWARDS_MAX_CLAIM_SOL", 2) * LAMPORTS_PER_SOL);
 /** Most the Rewards Pool may pay out in total per UTC day, across every holder and coin. */
 export const DAILY_CAP_LAMPORTS = Math.round(envSol("REWARDS_DAILY_CAP_SOL", 20) * LAMPORTS_PER_SOL);
+/** How much a coin's Holders pool must have waiting before an automatic payout round is even attempted
+ *  (src/lib/rewards/run-payout.ts) — below this, the SOL simply stays in the Rewards Pool wallet until a
+ *  later collection tips it over. Exported from here (not run-payout.ts itself) so legal-content.ts can state
+ *  the real number without importing the whole payout orchestrator. */
+export const HOLDER_PAYOUT_MIN_LAMPORTS = Math.round(envSol("HOLDER_PAYOUT_MIN_SOL", 0.1) * LAMPORTS_PER_SOL);
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);

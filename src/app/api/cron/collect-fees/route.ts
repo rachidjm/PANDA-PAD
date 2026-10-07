@@ -4,6 +4,7 @@ import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
 import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
+import { resolveOpenClaims, runHolderPayout } from "@/lib/rewards/run-payout";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { alertOps } from "@/lib/alerts";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -16,10 +17,11 @@ import { breakdown } from "@/lib/economy/shares";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 import { resolveAllPending } from "@/lib/pump/fee-lock";
 
-// Vercel Hobby's function timeout is 30s — leave a real safety margin so a
-// slow mint mid-batch can't blow past it; unstarted mints just wait for the
-// next daily run instead of failing the whole invocation.
-const TIME_BUDGET_MS = 25_000;
+// Runs every 5 minutes now (Vercel Pro) — a wide margin under maxDuration below, so a slow mint mid-batch
+// can't blow past it; an unstarted mint just waits for the next run (5 minutes away) instead of failing the
+// whole invocation.
+const TIME_BUDGET_MS = 50_000;
+export const maxDuration = 60;
 
 function isAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -41,8 +43,23 @@ export async function GET(req: Request) {
     const started = Date.now();
     const connection = new Connection(serverRpcUrl(), "confirmed");
 
+    // Resolve anything a prior run left "sent" with no confirmed outcome BEFORE trying anything new — see
+    // src/lib/rewards/run-payout.ts's resolveOpenClaims for why this always runs first.
+    await resolveOpenClaims(connection).catch((err) => console.error("[PANDA holder-payout] resolving open claims failed", err));
+
     const mints = await getRegisteredMints();
-    const results: { mint: string; distributedLamports: number | null; holdersCredited: number; error?: string }[] = [];
+    const results: { mint: string; distributedLamports: number | null; holdersCredited: number; payout?: { ran: boolean; reason?: string; holdersPaid: number; lamportsPaid: number }; error?: string }[] = [];
+    const payoutSigner = getRewardsPoolSigner();
+
+    // Pays out a mint's Holders pool automatically if it's grown past the threshold — called at every exit
+    // point below, whether or not THIS round collected anything new (a prior round's leftovers can cross the
+    // threshold on their own once combined with a fresh collection, or a payout that failed earlier can finally
+    // go through once the pool is funded again). A no-op, cheap read when there's nothing to do.
+    async function tryPayout(mint: string): Promise<{ ran: boolean; reason?: string; holdersPaid: number; lamportsPaid: number } | undefined> {
+      if (!payoutSigner) return undefined;
+      const outcome = await runHolderPayout(connection, payoutSigner, mint);
+      return { ran: outcome.ran, reason: outcome.reason, holdersPaid: outcome.holdersPaid, lamportsPaid: outcome.lamportsPaid };
+    }
 
     for (const mint of mints) {
       if (Date.now() - started > TIME_BUDGET_MS) break;
@@ -52,7 +69,7 @@ export async function GET(req: Request) {
         // requires nothing else touching that balance while it's in flight.
         const distributed = await collectFeesForMint(connection, mint);
         if (!distributed || distributed.lamports <= 0) {
-          results.push({ mint, distributedLamports: null, holdersCredited: 0 });
+          results.push({ mint, distributedLamports: null, holdersCredited: 0, payout: await tryPayout(mint) });
           continue;
         }
         // The distribution transaction is confirmed on-chain and its effect on the pool was measured: a verified event.
@@ -78,14 +95,14 @@ export async function GET(req: Request) {
 
         const holders = await getTokenHolders(connection, mint);
         if (holders.length === 0) {
-          results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: 0 });
+          results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: 0, payout: await tryPayout(mint) });
           continue;
         }
 
         // Integer-exact split by raw token balance; the rounding remainder is recorded as dust, never lost.
         const { credits, dust } = computeHolderCredits(holders, distributed.lamports);
         await creditHolders(mint, distributed.lamports, credits, dust, distributed.signature);
-        results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: credits.length });
+        results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: credits.length, payout: await tryPayout(mint) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error.";
         results.push({ mint, distributedLamports: null, holdersCredited: 0, error });
@@ -94,15 +111,14 @@ export async function GET(req: Request) {
     }
 
     // Solvency check: what the pool owes holders vs what it holds. Cheap (one ledger read per coin), skipped if out of time.
-    const pool = getRewardsPoolSigner();
-    if (pool && Date.now() - started < TIME_BUDGET_MS) {
+    if (payoutSigner && Date.now() - started < TIME_BUDGET_MS) {
       try {
         let owedLamports = 0;
         for (const mint of mints) {
           const ledger = await getLedger(mint);
           for (const holder of Object.keys(ledger.holders)) owedLamports += unclaimedLamports(ledger, holder);
         }
-        const balance = await connection.getBalance(pool.publicKey);
+        const balance = await connection.getBalance(payoutSigner.publicKey);
         if (balance < owedLamports) {
           await alertOps("Rewards Pool holds LESS than it owes holders", {
             poolSol: balance / 1e9,
@@ -116,6 +132,8 @@ export async function GET(req: Request) {
       }
     }
 
+    const payoutHolders = results.reduce((sum, r) => sum + (r.payout?.holdersPaid ?? 0), 0);
+    const payoutLamports = results.reduce((sum, r) => sum + (r.payout?.lamportsPaid ?? 0), 0);
     await recordAudit({
       actor: "system:cron",
       action: "cron.collect_fees",
@@ -125,9 +143,11 @@ export async function GET(req: Request) {
         ofRegistered: mints.length,
         failed: results.filter((r) => r.error).length,
         distributedLamports: results.reduce((sum, r) => sum + (r.distributedLamports ?? 0), 0),
+        payoutHolders,
+        payoutLamports,
       },
     });
-    return NextResponse.json({ processed: results.length, ofRegistered: mints.length, results });
+    return NextResponse.json({ processed: results.length, ofRegistered: mints.length, payoutHolders, payoutLamports, results });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Cron run failed.";
     await alertOps("collect-fees cron run failed", { error: message });
