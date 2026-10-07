@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgCountValidInvitees, pgFounderAllocation, pgFounderSlotsTaken, pgReferralStats } from "@/lib/db/referrals";
+import { pgCountValidInvitees, pgFounderAllocation, pgFounderSlotsTaken, pgPayoutsSummary, pgReferralStats } from "@/lib/db/referrals";
 import { solPriceUsd } from "@/lib/solana/prices";
 import { eurUsdRate } from "@/lib/strategy/market";
 import { founderMinTraderVolumeUsd, founderRequiredTraders } from "@/lib/referrals/tiers-config";
+import { isPeriodKey, periodRange, previousPeriodRange } from "@/lib/referrals/period";
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -13,9 +14,14 @@ const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
  *  it on-chain), plus its Founder allocation if it has one and how many of the 1,000 slots remain. */
 export async function GET(req: Request) {
   if (!isEnabled("REFERRALS")) return NextResponse.json({ error: "The Recruiters program isn't on." }, { status: 404 });
-  const wallet = new URL(req.url).searchParams.get("wallet");
+  const url = new URL(req.url);
+  const wallet = url.searchParams.get("wallet");
   if (!wallet || !ADDRESS.test(wallet)) return NextResponse.json({ error: "Missing or invalid wallet." }, { status: 400 });
   if (await rateLimited(`referrals-stats:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+
+  const periodParam = url.searchParams.get("period");
+  const range = isPeriodKey(periodParam) ? periodRange({ key: periodParam }, Date.now()) : null;
+  const prevRange = previousPeriodRange(range);
 
   try {
     const readDb = async <T>(fallback: T, read: (db: ReturnType<typeof getDb>) => Promise<T>) => {
@@ -26,7 +32,7 @@ export async function GET(req: Request) {
         throw err;
       }
     };
-    const [stats, founder, founderSlotsTaken, solUsd, eurUsd, validInviteeCount] = await Promise.all([
+    const [stats, founder, founderSlotsTaken, solUsd, eurUsd, validInviteeCount, periodSummary, prevPeriodSummary] = await Promise.all([
       readDb<{ referredCount: number; earnedLamports: number }>({ referredCount: 0, earnedLamports: 0 }, (db) => pgReferralStats(db, wallet)),
       readDb<Awaited<ReturnType<typeof pgFounderAllocation>>>(null, (db) => pgFounderAllocation(db, wallet)),
       readDb<number>(0, (db) => pgFounderSlotsTaken(db)),
@@ -34,6 +40,11 @@ export async function GET(req: Request) {
       eurUsdRate(),
       // Only meaningful before becoming a Founder — the Recruiters page's "X/N traders válidos" progress line.
       readDb<number>(0, (db) => pgCountValidInvitees(db, wallet, founderMinTraderVolumeUsd())),
+      readDb<Awaited<ReturnType<typeof pgPayoutsSummary>>>({ earnedLamports: 0, bestDay: null, topInvitee: null }, (db) => pgPayoutsSummary(db, wallet, range?.from, range?.to)),
+      // Only computed when a real (non-"all") period was asked for — "all" has no previous window to compare against.
+      prevRange
+        ? readDb<Awaited<ReturnType<typeof pgPayoutsSummary>>>({ earnedLamports: 0, bestDay: null, topInvitee: null }, (db) => pgPayoutsSummary(db, wallet, prevRange.from, prevRange.to))
+        : Promise.resolve(null),
     ]);
     return NextResponse.json(
       {
@@ -45,6 +56,7 @@ export async function GET(req: Request) {
         validInviteeCount,
         founderRequiredTraders: founderRequiredTraders(),
         founderMinTraderVolumeUsd: founderMinTraderVolumeUsd(),
+        period: { earnedLamports: periodSummary.earnedLamports, bestDay: periodSummary.bestDay, topInvitee: periodSummary.topInvitee, previousEarnedLamports: prevPeriodSummary?.earnedLamports ?? null },
       },
       { headers: { "Cache-Control": "no-store" } }
     );

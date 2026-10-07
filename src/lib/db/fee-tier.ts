@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "./client";
 import { legacyFeeWallets, recruiterCodes } from "./schema";
 
@@ -7,6 +7,14 @@ import { legacyFeeWallets, recruiterCodes } from "./schema";
 export async function pgIsLegacyFeeWallet(db: Db, wallet: string): Promise<boolean> {
   const [row] = await db.select({ wallet: legacyFeeWallets.wallet }).from(legacyFeeWallets).where(eq(legacyFeeWallets.wallet, wallet));
   return !!row;
+}
+
+/** Which of `wallets` are grandfathered — one query for a whole invitee list instead of one per invitee
+ *  (src/app/api/referrals/invitees shows each invitee's discount status, same rule as feeBpsForWallet). */
+export async function pgLegacyWalletsAmong(db: Db, wallets: string[]): Promise<Set<string>> {
+  if (wallets.length === 0) return new Set();
+  const rows = await db.select({ wallet: legacyFeeWallets.wallet }).from(legacyFeeWallets).where(inArray(legacyFeeWallets.wallet, wallets));
+  return new Set(rows.map((r) => r.wallet));
 }
 
 /** Used only by scripts/backfill-legacy-fee-wallets.ts — the one-time snapshot. Returns false if already marked. */

@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { isEnabled } from "@/lib/config/flags";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
-import { pgInviteeEarnings, pgInviteeVolumesUsd, pgListInvitees, pgListReferralAttempts } from "@/lib/db/referrals";
-import { activeCutoffDay, isCurrentlyActive } from "@/lib/referrals/tiers-config";
+import { pgInviteeEarnings, pgInviteeLastTradeAt, pgInviteeVolumesUsd, pgListInvitees, pgListReferralAttempts } from "@/lib/db/referrals";
+import { pgLegacyWalletsAmong } from "@/lib/db/fee-tier";
+import { activeCutoffDay, isCurrentlyActive, referredDiscountMinVolumeUsd } from "@/lib/referrals/tiers-config";
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -26,27 +27,36 @@ export async function GET(req: Request) {
       if (err instanceof DbNotConfiguredError) return NextResponse.json({ invitees: [] });
       throw err;
     }
-    const [rows, attempts, earnings, volumesUsd] = await Promise.all([
+    const [rows, attempts, earnings, volumesUsd, lastTradeAt] = await Promise.all([
       pgListInvitees(db, wallet),
       pgListReferralAttempts(db, wallet),
       pgInviteeEarnings(db, wallet),
       pgInviteeVolumesUsd(db, wallet),
+      pgInviteeLastTradeAt(db, wallet),
     ]);
+    const legacy = await pgLegacyWalletsAmong(db, rows.map((r) => r.wallet));
+    const discountMinVolumeUsd = referredDiscountMinVolumeUsd();
     const now = Date.now();
     const cutoff = activeCutoffDay(now);
-    const bound = rows.map((r) => ({
-      wallet: r.wallet,
-      state: "bound" as InviteeState,
-      boundAt: r.boundAt,
-      source: r.source,
-      code: r.source === "code" ? r.code : null,
-      active: isCurrentlyActive(r, now),
-      everActivated: r.firstActivatedAt !== null,
-      // The streak as it stands TODAY: a streak whose last counting day is older than the active window has lapsed.
-      streakDays: r.lastQualifyingDay !== null && r.lastQualifyingDay >= cutoff ? Math.min(3, r.streakAtLastQualifyingDay) : 0,
-      earnedLamports: earnings[r.wallet] ?? 0,
-      tradedVolumeUsd: volumesUsd[r.wallet] ?? 0,
-    }));
+    const bound = rows.map((r) => {
+      const tradedVolumeUsd = volumesUsd[r.wallet] ?? 0;
+      return {
+        wallet: r.wallet,
+        state: "bound" as InviteeState,
+        boundAt: r.boundAt,
+        source: r.source,
+        code: r.source === "code" ? r.code : null,
+        active: isCurrentlyActive(r, now),
+        everActivated: r.firstActivatedAt !== null,
+        // The streak as it stands TODAY: a streak whose last counting day is older than the active window has lapsed.
+        streakDays: r.lastQualifyingDay !== null && r.lastQualifyingDay >= cutoff ? Math.min(3, r.streakAtLastQualifyingDay) : 0,
+        earnedLamports: earnings[r.wallet] ?? 0,
+        tradedVolumeUsd,
+        // What this invitee pays right now (src/lib/pump/fee-tier.ts's exact rule) — never assumed from being bound alone.
+        discountActive: legacy.has(r.wallet) || tradedVolumeUsd >= discountMinVolumeUsd,
+        lastTradeAt: lastTradeAt[r.wallet] ?? null,
+      };
+    });
     const notBound = attempts.map((a) => ({
       wallet: a.wallet,
       state: a.status as InviteeState,
@@ -58,6 +68,8 @@ export async function GET(req: Request) {
       streakDays: 0,
       earnedLamports: 0,
       tradedVolumeUsd: 0,
+      discountActive: false,
+      lastTradeAt: null,
     }));
     return NextResponse.json({ invitees: [...bound, ...notBound] }, { headers: { "Cache-Control": "no-store" } });
   } catch {

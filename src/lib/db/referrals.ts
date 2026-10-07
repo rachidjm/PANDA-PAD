@@ -99,6 +99,79 @@ export async function pgReferralStats(db: Db, referrer: string): Promise<Referra
   return { referredCount: n, earnedLamports: Number(total ?? 0) };
 }
 
+export type PayoutRow = { signature: string; referred: string; mint: string; lamports: number; ts: number };
+
+/** A time/mint/wallet-filtered window of `referrer`'s own verified payouts, newest first, with the total count
+ *  the same filters would return (for pagination) — the Recruiters page's payment history AND its CSV export
+ *  both read this, just with a bigger `limit` for the export. */
+export async function pgListReferralPayouts(
+  db: Db,
+  referrer: string,
+  opts: { from?: number; to?: number; mint?: string; q?: string; limit: number; offset: number }
+): Promise<{ rows: PayoutRow[]; total: number }> {
+  const conds = [eq(referralPayouts.referrer, referrer)];
+  if (opts.from !== undefined) conds.push(gte(referralPayouts.ts, opts.from));
+  if (opts.to !== undefined) conds.push(lt(referralPayouts.ts, opts.to));
+  if (opts.mint) conds.push(eq(referralPayouts.mint, opts.mint));
+  if (opts.q) conds.push(sql`${referralPayouts.referred} ilike ${`%${opts.q}%`}`);
+  const where = and(...conds);
+  const [rows, [{ n }]] = await Promise.all([
+    db
+      .select({ signature: referralPayouts.signature, referred: referralPayouts.referred, mint: referralPayouts.mint, lamports: referralPayouts.lamports, ts: referralPayouts.ts })
+      .from(referralPayouts)
+      .where(where)
+      .orderBy(sql`${referralPayouts.ts} desc`)
+      .limit(opts.limit)
+      .offset(opts.offset),
+    db.select({ n: count() }).from(referralPayouts).where(where),
+  ]);
+  return { rows, total: n };
+}
+
+export type PayoutsSummary = {
+  earnedLamports: number;
+  bestDay: { day: string; lamports: number } | null;
+  topInvitee: { wallet: string; lamports: number } | null;
+};
+
+/** Earned total, best single UTC day, and single invitee who generated the most — all within the SAME
+ *  [from, to) window the caller's filters already narrowed to (both optional: omitted = unbounded on that side).
+ *  Three small aggregate queries rather than pulling every row into the app to group and sum by hand. */
+export async function pgPayoutsSummary(db: Db, referrer: string, from?: number, to?: number): Promise<PayoutsSummary> {
+  const conds = [eq(referralPayouts.referrer, referrer)];
+  if (from !== undefined) conds.push(gte(referralPayouts.ts, from));
+  if (to !== undefined) conds.push(lt(referralPayouts.ts, to));
+  const where = and(...conds);
+  const [[totalRow], dayRows, inviteeRows] = await Promise.all([
+    db.select({ total: sum(referralPayouts.lamports) }).from(referralPayouts).where(where),
+    db
+      .select({ day: sql<string>`to_char(to_timestamp(${referralPayouts.ts} / 1000.0) at time zone 'UTC', 'YYYY-MM-DD')`, lamports: sum(referralPayouts.lamports) })
+      .from(referralPayouts)
+      .where(where)
+      .groupBy(sql`1`)
+      .orderBy(sql`2 desc`)
+      .limit(1),
+    db.select({ wallet: referralPayouts.referred, lamports: sum(referralPayouts.lamports) }).from(referralPayouts).where(where).groupBy(referralPayouts.referred).orderBy(sql`2 desc`).limit(1),
+  ]);
+  return {
+    earnedLamports: Number(totalRow?.total ?? 0),
+    bestDay: dayRows[0] ? { day: dayRows[0].day, lamports: Number(dayRows[0].lamports ?? 0) } : null,
+    topInvitee: inviteeRows[0] ? { wallet: inviteeRows[0].wallet, lamports: Number(inviteeRows[0].lamports ?? 0) } : null,
+  };
+}
+
+/** Every one of `referrer`'s invitees' MOST RECENT trade (any coin, buy or sell), keyed by wallet — an invitee
+ *  with no trades yet is simply absent. One query for the whole invitee list, same shape as pgInviteeVolumesUsd. */
+export async function pgInviteeLastTradeAt(db: Db, referrer: string): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ wallet: trades.wallet, last: sql<number>`max(${trades.ts})` })
+    .from(trades)
+    .innerJoin(referrals, eq(referrals.wallet, trades.wallet))
+    .where(eq(referrals.referrer, referrer))
+    .groupBy(trades.wallet);
+  return Object.fromEntries(rows.map((r) => [r.wallet, Number(r.last)]));
+}
+
 // ── Trader-active streak (src/lib/referrals/streak.ts is the orchestrator; these are the raw reads/writes) ─────────
 
 export type StreakState = { lastQualifyingDay: string | null; streakAtLastQualifyingDay: number; firstActivatedAt: number | null };

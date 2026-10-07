@@ -12,7 +12,10 @@ import {
   pgGetPandaLaunch,
   pgGetPandaLaunchesForMints,
   pgGetReferrer,
+  pgInviteeLastTradeAt,
   pgInviteeVolumesUsd,
+  pgListReferralPayouts,
+  pgPayoutsSummary,
   pgRecordPandaLaunch,
   pgRecordReferralPayout,
   pgReferralStats,
@@ -20,6 +23,7 @@ import {
   pgReserveFounderSlot,
 } from "./referrals";
 import { pgAddTrades } from "./trades";
+import { pgLegacyWalletsAmong, pgMarkLegacyFeeWallet } from "./fee-tier";
 
 let db: Db;
 before(async () => {
@@ -194,4 +198,92 @@ test("pgInviteeVolumesUsd: one map for the whole referrer, invitees with no trad
   const volumes = await pgInviteeVolumesUsd(db, referrer);
   assert.equal(volumes[traded], 73);
   assert.equal(untraded in volumes, false);
+});
+
+// ── Payouts: listing, filtering, the period summary ─────────────────────────────────────────────────────────────
+
+async function seedPayout(referrer: string, referred: string, lamports: number, ts: number, mint = "MINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") {
+  await pgRecordReferralPayout(db, { signature: `SIG-${referrer}-${referred}-${ts}-${Math.random()}`, referrer, referred, mint, lamports, ts });
+}
+
+test("pgListReferralPayouts: newest first, with the matching total count for pagination", async () => {
+  const referrer = addr();
+  const a = wallet();
+  await seedPayout(referrer, a, 100, 1000);
+  await seedPayout(referrer, a, 300, 3000);
+  await seedPayout(referrer, a, 200, 2000);
+  const { rows, total } = await pgListReferralPayouts(db, referrer, { limit: 10, offset: 0 });
+  assert.equal(total, 3);
+  assert.deepEqual(rows.map((r) => r.lamports), [300, 200, 100]);
+});
+
+test("pgListReferralPayouts: from/to narrows by time, mint and q (a substring of the invitee's wallet) narrow further", async () => {
+  const referrer = addr();
+  const a = wallet();
+  const b = wallet();
+  await seedPayout(referrer, a, 100, 1000, "MINTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+  await seedPayout(referrer, b, 200, 5000, "MINTBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
+  assert.equal((await pgListReferralPayouts(db, referrer, { from: 0, to: 2000, limit: 10, offset: 0 })).total, 1);
+  assert.equal((await pgListReferralPayouts(db, referrer, { mint: "MINTBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", limit: 10, offset: 0 })).total, 1);
+  assert.equal((await pgListReferralPayouts(db, referrer, { q: a, limit: 10, offset: 0 })).total, 1);
+  assert.equal((await pgListReferralPayouts(db, referrer, { limit: 10, offset: 0 })).total, 2);
+});
+
+test("pgListReferralPayouts: another referrer's payouts never show up", async () => {
+  const referrer = addr();
+  await seedPayout(addr(), wallet(), 100, 1000);
+  assert.equal((await pgListReferralPayouts(db, referrer, { limit: 10, offset: 0 })).total, 0);
+});
+
+test("pgPayoutsSummary: total, best UTC day, and the single top-earning invitee — all within the given window", async () => {
+  const referrer = addr();
+  const a = wallet();
+  const b = wallet();
+  const DAY = 86_400_000;
+  await seedPayout(referrer, a, 100, 10 * DAY); // day 10: 100
+  await seedPayout(referrer, a, 50, 10 * DAY + 1000); // day 10: +50 = 150 total that day
+  await seedPayout(referrer, b, 400, 11 * DAY); // day 11: 400 — the best day
+  const summary = await pgPayoutsSummary(db, referrer);
+  assert.equal(summary.earnedLamports, 550);
+  assert.equal(summary.bestDay?.lamports, 400);
+  assert.equal(summary.topInvitee?.wallet, b);
+  assert.equal(summary.topInvitee?.lamports, 400);
+});
+
+test("pgPayoutsSummary: a [from, to) window excludes what falls outside it", async () => {
+  const referrer = addr();
+  const a = wallet();
+  await seedPayout(referrer, a, 100, 1000);
+  await seedPayout(referrer, a, 900, 9000);
+  const summary = await pgPayoutsSummary(db, referrer, 0, 5000);
+  assert.equal(summary.earnedLamports, 100);
+});
+
+test("pgPayoutsSummary: no payouts at all — zero/null, never a crash", async () => {
+  const summary = await pgPayoutsSummary(db, addr());
+  assert.deepEqual(summary, { earnedLamports: 0, bestDay: null, topInvitee: null });
+});
+
+test("pgInviteeLastTradeAt: the MOST RECENT trade per invitee, absent for one with none", async () => {
+  const referrer = addr();
+  const traded = wallet();
+  const untraded = wallet();
+  await pgBindReferral(db, traded, referrer, 1000);
+  await pgBindReferral(db, untraded, referrer, 1000);
+  await pgAddTrades(db, traded, [
+    { mint: "MINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", ticker: "X", side: "buy", solAmount: 1, tokenAmount: 1, solPriceUsdAtTrade: 1, signature: "SIGOLD", ts: 1000 },
+    { mint: "MINTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", ticker: "X", side: "sell", solAmount: 1, tokenAmount: 1, solPriceUsdAtTrade: 1, signature: "SIGNEW", ts: 9000 },
+  ]);
+  const lastTrade = await pgInviteeLastTradeAt(db, referrer);
+  assert.equal(lastTrade[traded], 9000);
+  assert.equal(untraded in lastTrade, false);
+});
+
+test("pgLegacyWalletsAmong: only the grandfathered wallets come back, an empty list asks nothing", async () => {
+  const legacy = wallet();
+  const fresh = wallet();
+  await pgMarkLegacyFeeWallet(db, legacy, Date.now());
+  const found = await pgLegacyWalletsAmong(db, [legacy, fresh]);
+  assert.deepEqual([...found], [legacy]);
+  assert.deepEqual([...(await pgLegacyWalletsAmong(db, []))], []);
 });
