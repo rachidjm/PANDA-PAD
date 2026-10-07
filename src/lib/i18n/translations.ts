@@ -982,6 +982,12 @@ export const dict = {
   "draw.apply": { en: "Apply", es: "Aplicar" },
   "draw.tapChart": { en: "Now tap the chart", es: "Ahora toca el gráfico" },
   "draw.remainingPct": { en: "Available: {pct}%", es: "Disponible: {pct}%" },
+  "notif.bell": { en: "Notifications", es: "Avisos" },
+  "notif.bellUnread": { en: "Notifications ({n} unread)", es: "Avisos ({n} sin leer)" },
+  "notif.title": { en: "Draw Your Trade", es: "Draw Your Trade" },
+  "notif.empty": { en: "Nothing executed yet.", es: "Aún no se ha ejecutado nada." },
+  "notif.buyFilled": { en: "Your ${ticker} buy filled at {price}", es: "Tu compra de ${ticker} se ha ejecutado a {price}" },
+  "notif.sellFilled": { en: "Your ${ticker} sell filled at {price}", es: "Tu venta de ${ticker} se ha ejecutado a {price}" },
   "draw.err.batchRolledBack": {
     en: "One of the batch's orders failed, so the ones already created were cancelled. Nothing is live — try again.",
     es: "Una de las órdenes del lote ha fallado, así que se han cancelado las que ya se habían creado. No queda nada activo — inténtalo de nuevo.",

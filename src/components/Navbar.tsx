@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import WalletButton from "@/components/WalletButton";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import Logo from "@/components/Logo";
 import CoinSearchBox from "@/components/CoinSearchBox";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -90,6 +91,7 @@ export default function Navbar() {
               {t("ai.modeButton")}
             </button>
           )}
+          <NotificationBell />
           <LanguageSwitcher />
           <WalletButton />
         </div>

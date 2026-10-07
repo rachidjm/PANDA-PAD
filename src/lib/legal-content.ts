@@ -272,8 +272,14 @@ export const CUSTODY_ADDENDA: Addenda = {
     ],
   },
   "cookie-policy": {
-    en: ["Draw Your Trade also keeps, in your browser's local storage, the drafts of strategies you have drawn but not confirmed, under a key named panda.draw.v1 followed by the coin's address. It stays in your browser until you delete it or clear your data."],
-    es: ["Draw Your Trade guarda además, en el almacenamiento local de tu navegador, los borradores de las estrategias que has dibujado pero no confirmado, bajo una clave llamada panda.draw.v1 seguida de la dirección de la moneda. Permanece en tu navegador hasta que la borres o borres tus datos."],
+    en: [
+      "Draw Your Trade also keeps, in your browser's local storage, the drafts of strategies you have drawn but not confirmed, under a key named panda.draw.v1 followed by the coin's address. It stays in your browser until you delete it or clear your data.",
+      "The notification bell keeps, in your browser's local storage, how far you have read its history, under a key named panda.notif.seen followed by your wallet address. It stays until you delete it or clear your data; the notifications themselves are not stored there, only that marker.",
+    ],
+    es: [
+      "Draw Your Trade guarda además, en el almacenamiento local de tu navegador, los borradores de las estrategias que has dibujado pero no confirmado, bajo una clave llamada panda.draw.v1 seguida de la dirección de la moneda. Permanece en tu navegador hasta que la borres o borres tus datos.",
+      "La campana de avisos guarda, en el almacenamiento local de tu navegador, hasta dónde has leído su historial, bajo una clave llamada panda.notif.seen seguida de tu dirección de wallet. Permanece hasta que la borres o borres tus datos; los avisos en sí no se guardan ahí, solo esa marca.",
+    ],
   },
   "risk-disclosure": {
     en: [
