@@ -1699,6 +1699,13 @@ export const dict = {
     es: 'Ninguna moneda coincide con "{query}". Prueba otra búsqueda, o créala tú mismo.',
   },
   "discover.empty": { en: "No coins to show right now.", es: "No hay monedas que mostrar ahora mismo." },
+  "discover.sameName": { en: "+ {n} coins with this name", es: "+ {n} monedas con el mismo nombre" },
+  "discover.showHidden": { en: "Show hidden results ({n})", es: "Mostrar resultados ocultos ({n})" },
+  "discover.hideHidden": { en: "Hide them again", es: "Volver a ocultarlos" },
+  "discover.hiddenNote": {
+    en: "Low liquidity and no trading in the last 24h, or already flagged as a likely copy.",
+    es: "Poca liquidez y sin operaciones en las últimas 24h, o ya marcada como posible copia.",
+  },
 
   // Live badge / refresh
   "live.live": { en: "Live from Solana", es: "En vivo desde Solana" },

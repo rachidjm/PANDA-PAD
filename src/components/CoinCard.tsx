@@ -10,7 +10,19 @@ import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
-export default function CoinCard({ coin, priority = false, verified = false }: { coin: Coin; priority?: boolean; verified?: boolean }) {
+export default function CoinCard({
+  coin,
+  priority = false,
+  verified = false,
+  footer,
+}: {
+  coin: Coin;
+  priority?: boolean;
+  verified?: boolean;
+  /** Rendered below the card's own content, OUTSIDE the <Link> — for a per-card control (like the "+N coins
+   *  with this name" group toggle) that must not count as clicking through to the coin page. */
+  footer?: React.ReactNode;
+}) {
   const { t } = useLanguage();
   const positive = coin.changePct >= 0;
 
@@ -76,6 +88,7 @@ export default function CoinCard({ coin, priority = false, verified = false }: {
         </div>
       </div>
     </Link>
+    {footer}
     </div>
   );
 }
