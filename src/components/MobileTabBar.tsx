@@ -6,6 +6,7 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useAIAssistant } from "@/components/ai/AIAssistantProvider";
+import SparkleIcon from "@/components/icons/SparkleIcon";
 
 /**
  * The phone's main navigation: the five places people go most, at thumb height (spec §28). Everything else
@@ -62,8 +63,8 @@ export default function MobileTabBar() {
               onClick={() => showAI()}
               className="flex min-h-14 w-full flex-col items-center justify-center gap-0.5 px-0 text-[11px] font-medium tracking-tight text-paper/60 transition-colors hover:text-paper"
             >
-              <span className="flex h-7 w-12 items-center justify-center rounded-full text-base" aria-hidden>
-                ✨
+              <span className="flex h-7 w-12 items-center justify-center rounded-full" aria-hidden>
+                <SparkleIcon size={18} />
               </span>
               <span className="whitespace-nowrap">{t("ai.modeButton")}</span>
             </button>

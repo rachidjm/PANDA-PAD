@@ -6,6 +6,7 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import WalletButton from "@/components/WalletButton";
 import Panda from "@/components/panda/Panda";
+import ImagePlaceholderIcon from "@/components/icons/ImagePlaceholderIcon";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
@@ -239,7 +240,7 @@ export default function CreateNftClient({ slug, branch = false }: { slug: string
               <img src={preview} alt="" className="max-h-64 rounded-xl" />
             ) : (
               <>
-                <span className="text-3xl" aria-hidden>🖼️</span>
+                <ImagePlaceholderIcon className="text-panda-grey" />
                 <span className="font-medium">{t("cn.dropTitle")}</span>
                 <span className="text-xs text-panda-grey">{t("cn.dropHint")}</span>
               </>

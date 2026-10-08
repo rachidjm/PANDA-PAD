@@ -8,6 +8,7 @@ import CoinAge from "@/components/CoinAge";
 import Sparkline from "@/components/Sparkline";
 import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
+import LaunchedOnPandaBadge from "@/components/LaunchedOnPandaBadge";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function CoinCard({
@@ -37,15 +38,7 @@ export default function CoinCard({
         <span className="absolute right-1.5 top-1.5 rounded-full bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper/80 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           <CoinAge createdAt={coin.createdAt} source={coin.source} verified={coin.launchVerified} />
         </span>
-        {coin.launchedOnPanda && (
-          <span
-            title={t("coinCard.launchedOnPanda")}
-            className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full border border-paper/20 bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-paper backdrop-blur sm:bottom-3 sm:left-3 sm:px-2 sm:text-[11px]"
-          >
-            <span aria-hidden>🐼</span>
-            {t("coinCard.launchedOnPanda")}
-          </span>
-        )}
+        {coin.launchedOnPanda && <LaunchedOnPandaBadge size="compact" className="absolute bottom-1.5 left-1.5 sm:bottom-3 sm:left-3" />}
         {verified && (
           <span
             title={t("coinCard.verified")}

@@ -2,6 +2,7 @@
 
 import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
+import LaunchedOnPandaBadge from "@/components/LaunchedOnPandaBadge";
 import { useEffect, useState } from "react";
 import { capturePandaLaunchReferral } from "@/lib/referrals/client";
 import { Coin, Trade } from "@/lib/types";
@@ -86,12 +87,7 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
             {coin.twitter && <IconLink href={`https://x.com/${coin.twitter}`} label="X" icon="x" />}
             {coin.telegram && <IconLink href={`https://t.me/${coin.telegram}`} label="Telegram" icon="telegram" />}
             <RugBadge mint={coin.mint} variant="pill" className="ml-1" />
-            {coin.launchedOnPanda && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-paper/10 px-2.5 py-1 text-xs font-semibold text-paper/80">
-                <span aria-hidden>🐼</span>
-                {t("coinCard.launchedOnPanda")}
-              </span>
-            )}
+            {coin.launchedOnPanda && <LaunchedOnPandaBadge />}
             {!live && <span className="text-xs text-panda-grey">{t("live.demo")}</span>}
           </div>
 

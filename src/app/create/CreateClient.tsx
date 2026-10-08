@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Keypair } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
+import ImagePlaceholderIcon from "@/components/icons/ImagePlaceholderIcon";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { applyFeeSplit, registerFeeDistribution } from "@/lib/pump/fee-split-client";
 import FeeDistributionStep, { FeeDistributionResult } from "@/components/create/FeeDistributionStep";
@@ -416,7 +417,7 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
               <img src={imagePreview} alt={t("cr.previewAlt")} className="max-h-48 rounded-2xl" />
             ) : (
               <>
-                <span className="text-3xl">🖼️</span>
+                <ImagePlaceholderIcon className="text-panda-grey" />
                 <span className="font-medium">{t("cr.uploadImage")}</span>
                 <span className="text-xs text-panda-grey">{t("cr.uploadHint")}</span>
               </>

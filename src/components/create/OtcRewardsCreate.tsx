@@ -7,6 +7,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import { base64ToTransaction } from "@/lib/pump/wire";
 import Panda from "@/components/panda/Panda";
+import ImagePlaceholderIcon from "@/components/icons/ImagePlaceholderIcon";
 import RewardAssetPicker from "@/components/create/RewardAssetPicker";
 import { otcRewardAssetByMint } from "@/lib/otc/reward-assets";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -288,7 +289,7 @@ export default function OtcRewardsCreate({ blocked = false }: { blocked?: boolea
             <img src={imagePreview} alt={t("cr.previewAlt")} className="max-h-48 rounded-2xl" />
           ) : (
             <>
-              <span className="text-3xl">🖼️</span>
+              <ImagePlaceholderIcon className="text-panda-grey" />
               <span className="font-medium">{t("cr.uploadImage")}</span>
               <span className="text-xs text-panda-grey">{t("cr.uploadHint")}</span>
             </>

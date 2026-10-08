@@ -17,19 +17,21 @@ const CheckIcon = () => (
   </svg>
 );
 
-/** A wallet's recruiter link (`<canonical site>/?ref=<wallet>`), shown and copyable — used on the Recruiters page and on a creator's own coin
+/** A wallet's recruiter link, shown and copyable — used on the Recruiters page and on a creator's own coin
  *  page. Always the canonical domain (`siteUrl()`), never `window.location.origin` — a link copied from an old-domain tab must still read
- *  the same everywhere it's shared, not whichever host 301-redirected the visitor there. */
-export default function CopyReferralLink({ wallet, className = "" }: { wallet: string; className?: string }) {
+ *  the same everywhere it's shared, not whichever host 301-redirected the visitor there. With a `code` (the
+ *  wallet's own short recruiter code, when it has set one), shows the short `/r/<code>` form instead of the
+ *  long `/?ref=<wallet>` one — shorter to read and to paste, same destination either way. */
+export default function CopyReferralLink({ wallet, code, className = "" }: { wallet: string; code?: string | null; className?: string }) {
   const { t } = useLanguage();
   const [link, setLink] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    Promise.resolve().then(() => setLink(`${siteUrl()}/?ref=${wallet}`));
+    Promise.resolve().then(() => setLink(code ? `${siteUrl()}/r/${code}` : `${siteUrl()}/?ref=${wallet}`));
     return () => void (timer.current && clearTimeout(timer.current));
-  }, [wallet]);
+  }, [wallet, code]);
 
   async function onCopy() {
     if (!link) return;

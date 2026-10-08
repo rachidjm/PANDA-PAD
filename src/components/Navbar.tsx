@@ -11,6 +11,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAIAssistant } from "@/components/ai/AIAssistantProvider";
+import SparkleIcon from "@/components/icons/SparkleIcon";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -87,7 +88,7 @@ export default function Navbar() {
               onClick={() => showAI()}
               className="hidden shrink-0 items-center gap-1.5 rounded-full border border-meme-orange/40 px-3.5 py-1.5 text-sm font-semibold text-paper transition-colors hover:border-meme-orange sm:flex 2xl:px-4 2xl:py-2 2xl:text-base"
             >
-              <span aria-hidden>✨</span>
+              <SparkleIcon size={14} className="text-meme-orange" />
               {t("ai.modeButton")}
             </button>
           )}
