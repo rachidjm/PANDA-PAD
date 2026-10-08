@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 import { CREATOR_CONFIGURABLE_MAX_BPS, PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { FeeLine, PlanIssue, formatBps, parsePercentToBps, planIssue, planLines } from "@/lib/pump/fee-plan";
-import { MIN_HOLDING_USD_FOR_REWARDS } from "@/lib/rewards";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 
@@ -62,8 +61,6 @@ export default function FeeDistributionStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lines, issue, parsed.invalidNumber]);
 
-  const assigned = (parsed.c ?? 0) + (parsed.h ?? 0) + (parsed.p ?? 0);
-
   function preset(creatorBps: number, holdersBps: number) {
     setCreatorPct(formatBps(creatorBps));
     setHoldersPct(formatBps(holdersBps));
@@ -72,6 +69,22 @@ export default function FeeDistributionStep({
   }
 
   const problem = parsed.invalidNumber ? t("fd.err.number") : issueMessage(issue, t);
+
+  const label = (kind: FeeLine["kind"]) =>
+    kind === "panda" ? t("fd.protocol") : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
+  const legend = lines.map((l) => `${label(l.kind)} ${formatBps(l.bps)}%`).join(" · ");
+
+  // Which bar segment shows its tooltip — hover on desktop, tap to toggle (and tap outside to close) on mobile.
+  const [activeBar, setActiveBar] = useState<number | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeBar === null) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (barRef.current && !barRef.current.contains(e.target as Node)) setActiveBar(null);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [activeBar]);
 
   return (
     <div>
@@ -91,32 +104,46 @@ export default function FeeDistributionStep({
       </div>
       <p className="mt-1.5 text-xs text-panda-grey">{t("fd.protocolNote")}</p>
 
-      {/* Where the whole 100% goes, at a glance. */}
-      <div className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full bg-ink" aria-hidden>
-        {lines.map((l) => (
-          <div key={l.kind} className={`h-full ${BAR_COLOR[l.kind]} transition-all`} style={{ width: `${l.bps / 100}%` }} />
+      {/* Where the whole 100% goes, at a glance — hover (or tap) a segment for its name and share. */}
+      <div ref={barRef} className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full bg-ink">
+        {lines.map((l, i) => (
+          <div
+            key={l.kind}
+            onMouseEnter={() => setActiveBar(i)}
+            onMouseLeave={() => setActiveBar((cur) => (cur === i ? null : cur))}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveBar((cur) => (cur === i ? null : i));
+            }}
+            className={`relative h-full cursor-pointer transition-all ${BAR_COLOR[l.kind]} ${activeBar === i ? "brightness-125" : ""}`}
+            style={{ width: `${l.bps / 100}%` }}
+            role="img"
+            aria-label={`${label(l.kind)} ${formatBps(l.bps)}%`}
+          >
+            {activeBar === i && (
+              <span className="absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1 text-[11px] font-medium text-paper shadow-lg">
+                {label(l.kind)} · {formatBps(l.bps)}%
+              </span>
+            )}
+          </div>
         ))}
       </div>
+      <p className="mt-2 text-xs text-panda-grey">{legend}</p>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-panda-grey">
-          {t("fd.yourAllocation")} · {formatBps(CREATOR_CONFIGURABLE_MAX_BPS)}%
-        </span>
-        <div className="flex gap-1.5">
-          <button type="button" onClick={() => preset(CREATOR_CONFIGURABLE_MAX_BPS, 0)} className={CHIP}>
-            {t("fd.presetAllMe")}
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+        <button type="button" onClick={() => preset(CREATOR_CONFIGURABLE_MAX_BPS, 0)} className={CHIP}>
+          {t("fd.presetAllMe")}
+        </button>
+        {holderRewards && (
+          <button
+            type="button"
+            disabled={!REWARDS_POOL}
+            onClick={() => preset(5000, 4500)}
+            className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            {t("fd.presetHolders")}
           </button>
-          {holderRewards && (
-            <button
-              type="button"
-              disabled={!REWARDS_POOL}
-              onClick={() => preset(5000, 4500)}
-              className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {t("fd.presetHolders")}
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="mt-2 space-y-1.5">
@@ -126,6 +153,7 @@ export default function FeeDistributionStep({
             dot={BAR_COLOR.holders}
             icon={<PeopleIcon />}
             label={t("fd.holders")}
+            tooltip={t("fd.holdersInfo")}
             value={holdersPct}
             onChange={setHoldersPct}
             disabled={!REWARDS_POOL}
@@ -171,15 +199,13 @@ export default function FeeDistributionStep({
         )}
       </div>
 
-      {(parsed.h ?? 0) > 0 && (
-        <p className="mt-2 text-xs text-panda-grey">{t("fd.holdersInfo", { min: MIN_HOLDING_USD_FOR_REWARDS })}</p>
-      )}
       {holderRewards && !REWARDS_POOL && <p className="mt-2 text-xs text-panda-grey">{t("fd.notConfigured")}</p>}
 
-      <p className={`mt-3 text-xs ${problem ? "text-clay-red" : "text-bamboo"}`} role={problem ? "alert" : undefined}>
-        {problem ??
-          t("fd.total", { panda: PANDA_SHARE_BPS / 100, rest: formatBps(assigned), total: formatBps(PANDA_SHARE_BPS + assigned) })}
-      </p>
+      {problem && (
+        <p className="mt-3 text-xs text-clay-red" role="alert">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }
@@ -197,9 +223,7 @@ function issueMessage(issue: PlanIssue | null, t: ReturnType<typeof useLanguage>
   if (!issue) return null;
   switch (issue.code) {
     case "TOTAL_MISMATCH":
-      return issue.deltaBps > 0
-        ? t("fd.err.under", { pct: formatBps(issue.deltaBps) })
-        : t("fd.err.over", { pct: formatBps(-issue.deltaBps) });
+      return t("fd.err.totalMismatch");
     case "HOLDERS_UNAVAILABLE":
       return t("fd.notConfigured");
     case "PARTNER_ADDRESS_INVALID":
@@ -213,6 +237,7 @@ function Row({
   dot,
   icon,
   label,
+  tooltip,
   value,
   onChange,
   disabled,
@@ -220,6 +245,8 @@ function Row({
   dot: string;
   icon: React.ReactNode;
   label: string;
+  /** An info icon next to the label, revealing this on hover (or tap). */
+  tooltip?: string;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
@@ -227,11 +254,48 @@ function Row({
   return (
     <div className={`flex items-center gap-3 rounded-xl bg-ink px-3.5 py-2.5 ${disabled ? "opacity-40" : ""}`}>
       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-      <span className="flex flex-1 items-center gap-2 text-sm">
+      <span className="flex flex-1 items-center gap-1.5 text-sm">
         {icon} {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
       </span>
       <PercentInput value={value} onChange={onChange} label={label} disabled={disabled} />
     </div>
+  );
+}
+
+/** A small info icon that reveals `text` on hover (desktop) or tap (mobile, closing on a tap outside). */
+function InfoTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [open]);
+  return (
+    <span
+      ref={ref}
+      className="relative inline-flex shrink-0 cursor-pointer text-panda-grey transition-colors hover:text-paper"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setOpen((o) => !o);
+      }}
+    >
+      <InfoIcon />
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute bottom-full left-1/2 z-10 mb-1.5 w-max max-w-[220px] -translate-x-1/2 rounded-lg bg-ink px-2.5 py-1.5 text-[11px] font-normal leading-snug text-paper shadow-lg"
+        >
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -258,6 +322,16 @@ function PercentInput({
       />
       <span className="text-xs text-panda-grey">%</span>
     </span>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-5" />
+      <path d="M12 8h.01" />
+    </svg>
   );
 }
 

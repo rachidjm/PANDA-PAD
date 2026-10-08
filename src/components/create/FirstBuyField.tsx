@@ -20,6 +20,7 @@ export default function FirstBuyField({
   onUnit,
   rates,
   description,
+  minSol,
 }: {
   value: string;
   unit: BuyUnit;
@@ -27,10 +28,14 @@ export default function FirstBuyField({
   onUnit: (u: BuyUnit) => void;
   rates: BuyRates;
   description: string;
+  /** The launch is held back below this (see CREATE_MIN_FIRST_BUY_SOL) — shown as a hint, and as an error once something insufficient is typed. */
+  minSol: number;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { sol, noRate } = firstBuyFromInput(unit, value, rates);
   const typed = parseFloat(value) > 0;
+  const minLabel = minSol.toLocaleString(lang, { maximumFractionDigits: 4 });
+  const belowMin = !noRate && sol < minSol;
   const [remembered, setRemembered] = useState(false);
   useEffect(() => {
     if (remembered) return;
@@ -85,14 +90,7 @@ export default function FirstBuyField({
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-5 gap-1.5">
-        <button
-          type="button"
-          onClick={() => onValue("")}
-          className={`rounded-xl py-2 text-xs font-semibold transition-colors ${!value ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"}`}
-        >
-          {t("cr.none")}
-        </button>
+      <div className="mt-2 grid grid-cols-4 gap-1.5">
         {FIRST_BUY_PRESETS[unit].map((p) => (
           <button
             type="button"
@@ -105,7 +103,7 @@ export default function FirstBuyField({
         ))}
       </div>
 
-      {typed && !noRate && (
+      {typed && !noRate && !belowMin && (
         <p className="mt-2 text-xs text-panda-grey" aria-live="polite">
           {unit === "SOL"
             ? others.map((u) => solToUnit(u, sol, rates)).every((v) => v !== null)
@@ -115,6 +113,11 @@ export default function FirstBuyField({
         </p>
       )}
       {noRate && <p className="mt-2 text-xs text-clay-red">{t("trading.noRate")}</p>}
+      {!noRate && belowMin && (
+        <p className={`mt-2 text-xs ${typed ? "text-clay-red" : "text-panda-grey"}`} aria-live="polite">
+          {typed ? t("cr.firstBuyBelowMin", { min: minLabel }) : t("cr.firstBuyMinHint", { min: minLabel })}
+        </p>
+      )}
       <p className="mt-2 text-[11px] leading-relaxed text-panda-grey">{t("cr.firstBuyUnitHint")}</p>
     </div>
   );

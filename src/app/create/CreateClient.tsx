@@ -27,7 +27,7 @@ type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fee
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
-export default function CreateClient() {
+export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: number }) {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
@@ -93,7 +93,8 @@ export default function CreateClient() {
 
   // The split must be complete and valid: an empty or broken plan never falls through to "no fee distribution".
   const feeReady = !!feeResult && feeResult.lines.length > 0 && !feeResult.issue && !feeResult.invalidNumber;
-  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked && !firstBuy.noRate;
+  // The first buy is mandatory now, not optional — it must clear the configured minimum before Launch unlocks.
+  const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked && !firstBuy.noRate && firstBuy.sol >= minFirstBuySol;
 
   const kindLabel = (kind: "panda" | "creator" | "holders" | "partner") =>
     kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
@@ -173,6 +174,7 @@ export default function CreateClient() {
           symbol: ticker.trim(),
           uri: uploadData.uri,
           shareholders: shareholders.length ? shareholders : undefined,
+          firstBuySol: firstBuy.sol,
         }),
       });
       const buildData = await buildRes.json();
@@ -488,7 +490,8 @@ export default function CreateClient() {
           onValue={setFirstBuyAmount}
           onUnit={setFirstBuyUnit}
           rates={rates}
-          description={t(singleTx ? "cr.firstBuyDescOne" : "cr.firstBuyDesc", { coin: ticker ? `$${ticker}` : t("cr.yourCoin") })}
+          description={t("cr.firstBuyDesc")}
+          minSol={minFirstBuySol}
         />
 
         {connected && publicKey ? (

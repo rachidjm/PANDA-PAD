@@ -80,6 +80,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["REWARDS_MAX_CLAIM_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the per-claim payout cap (default applies)" },
   { names: ["REWARDS_DAILY_CAP_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the daily payout cap (default applies)" },
   { names: ["HOLDER_PAYOUT_MIN_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "how much a coin's Holders pool must accumulate before an automatic payout round pays it out (default 0.1 SOL)" },
+  { names: ["CREATE_MIN_FIRST_BUY_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the smallest first buy a new coin's launch may declare (default 0.01 SOL) — Launch stays disabled below it" },
   { names: ["REFERRAL_TIERS"], group: "referrals", required: never, valid: isReferralTiersJson, affects: "the Recruiters program's marginal commission tiers (FEATURE_REFERRALS): unset or invalid, the built-in default (30%/25%/20% at 500/1,500) is used" },
   { names: ["REFERRAL_MIN_DAILY_VOLUME_SOL"], group: "referrals", required: never, valid: isPositiveNumber, affects: "the daily volume an invitee needs to count a day toward their 3-day active streak (default 0.05 SOL)" },
   { names: ["REFERRED_DISCOUNT_MIN_VOLUME_USD"], group: "referrals", required: never, valid: isPositiveNumber, affects: "the own trade volume a referred wallet needs before it drops from 1% to 0.5% for life (default 100 USD)" },

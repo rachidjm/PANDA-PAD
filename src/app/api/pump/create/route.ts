@@ -13,6 +13,7 @@ import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
 import { holderShareIssue } from "@/lib/pump/holder-rewards";
 import { recordAudit } from "@/lib/audit/log";
 import { claimLaunchMintKeypair } from "@/lib/reserved-mint/stock";
+import { createMinFirstBuySol } from "@/lib/config/create-limits";
 
 export async function POST(req: Request) {
   const moneyBlocked = await moneyFlowGuardResponse();
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     if (limited) return limited;
   }
   try {
-    const { mint: clientMint, user, name, symbol, uri, shareholders, step } = await req.json();
+    const { mint: clientMint, user, name, symbol, uri, shareholders, step, firstBuySol } = await req.json();
     // A launch is ONE transaction (create + fee split, as a v0 message using PANDA's lookup table) when the table is available;
     // otherwise two: "create" (the coin) and then "fees" (its on-chain SharingConfig).
     const forFees = step === "fees";
@@ -45,6 +46,17 @@ export async function POST(req: Request) {
       (!forFees && ([name, symbol, uri].some((v) => typeof v !== "string") || name.length > 64 || symbol.length > 16 || uri.length > 400))
     ) {
       return NextResponse.json({ error: "Invalid coin details." }, { status: 400 });
+    }
+
+    // The first buy is now a mandatory part of a launch, not an afterthought: the "create" step itself is
+    // refused without one that clears the configured minimum, so the requirement can't be skipped by calling
+    // this API directly. The buy itself still happens afterwards, as its own transaction (see buyFirst in
+    // CreateClient.tsx) — this only checks that the client declared a qualifying amount before the coin exists.
+    if (!forFees) {
+      const minFirstBuy = createMinFirstBuySol();
+      if (typeof firstBuySol !== "number" || !Number.isFinite(firstBuySol) || firstBuySol < minFirstBuy) {
+        return NextResponse.json({ error: `A first buy of at least ${minFirstBuy} SOL is required to launch.`, code: "FIRST_BUY_REQUIRED" }, { status: 400 });
+      }
     }
 
     // Fee Distribution is required on both steps — every PANDA coin carries PANDA's locked 5% — and is validated up front so a
