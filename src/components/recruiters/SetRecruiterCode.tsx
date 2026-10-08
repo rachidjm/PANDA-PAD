@@ -5,6 +5,7 @@ import { useWalletSession } from "@/lib/auth/useWalletSession";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { normalizeRecruiterCode, recruiterCodeProblem, type CodeProblem } from "@/lib/referrals/codes";
+import { siteUrl } from "@/lib/config/site";
 
 const PROBLEM_KEY: Record<CodeProblem, DictKey> = {
   too_short: "rec.codeErrTooShort",
@@ -43,7 +44,7 @@ export default function SetRecruiterCode({ wallet }: { wallet: string }) {
   }, [wallet]);
 
   useEffect(() => {
-    if (code) Promise.resolve().then(() => setLink(`${window.location.origin}/r/${code}`));
+    if (code) Promise.resolve().then(() => setLink(`${siteUrl()}/r/${code}`));
   }, [code]);
 
   async function submit() {

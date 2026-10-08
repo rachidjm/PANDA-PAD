@@ -13,6 +13,7 @@ import { useCurrency } from "@/components/portfolio/useCurrency";
 import { formatMoney } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { siteUrl } from "@/lib/config/site";
 import {
   bpsForRank,
   DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD,
@@ -288,7 +289,7 @@ function LoggedIn({ address }: { address: string }) {
       : undefined; // "all" period, or not computed — never shown
 
   function shareText() {
-    const link = `${typeof window !== "undefined" ? window.location.origin : ""}/?ref=${address}`;
+    const link = `${siteUrl()}/?ref=${address}`;
     return `${t("rec.shareText")} ${link}`;
   }
 
@@ -321,7 +322,7 @@ function LoggedIn({ address }: { address: string }) {
             {t("rec.shareX")}
           </a>
           <a
-            href={`https://t.me/share/url?url=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/?ref=${address}`)}&text=${encodeURIComponent(t("rec.shareText"))}`}
+            href={`https://t.me/share/url?url=${encodeURIComponent(`${siteUrl()}/?ref=${address}`)}&text=${encodeURIComponent(t("rec.shareText"))}`}
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-full bg-paper/10 px-3.5 py-1.5 text-xs font-semibold transition-colors hover:bg-paper/15"
