@@ -103,13 +103,14 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
 
           {coin.description && <ClampedDescription text={coin.description} />}
 
-          {/* Stats in one row, no boxes — thin dividing lines, small grey label over the value. */}
+          {/* Mobile: a 2×2 grid of bordered tiles (never a lone 4th stat wrapping onto its own misaligned row).
+              Desktop: the original single row with thin dividing lines, unchanged. */}
           {stats.length > 0 && (
-            <div className="mt-4 flex flex-wrap divide-x divide-paper/10 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5">
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-paper/10 pt-4 sm:mt-5 sm:flex sm:flex-wrap sm:gap-0 sm:divide-x sm:divide-paper/10 sm:pt-5">
               {stats.map((s, i) => (
-                <div key={s.label} className={`pr-5 ${i === 0 ? "" : "pl-5"}`}>
-                  <p className="text-[11px] text-panda-grey">{s.label}</p>
-                  <p className="mt-0.5 font-display text-sm font-bold tabular-nums sm:text-base">{s.value}</p>
+                <div key={s.label} className={`min-w-0 rounded-xl border border-paper/10 p-3 sm:rounded-none sm:border-0 sm:p-0 sm:pr-5 ${i === 0 ? "" : "sm:pl-5"}`}>
+                  <p className="truncate text-[11px] text-panda-grey">{s.label}</p>
+                  <p className="mt-0.5 truncate font-display text-sm font-bold tabular-nums sm:text-base">{s.value}</p>
                 </div>
               ))}
             </div>

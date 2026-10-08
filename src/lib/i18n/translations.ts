@@ -393,7 +393,6 @@ export const dict = {
   "rec.statusInactive": { en: "Inactive", es: "Inactivo" },
   "rec.statusProgress": { en: "{n}/3 days", es: "{n}/3 días" },
   "rec.founderVolumeMissing": { en: "${amount} more to count toward Founder", es: "Le faltan {amount} $ para ser válido" },
-  "rec.shareCoin": { en: "Share your coin and earn on every trade", es: "Comparte tu moneda y gana con cada trade" },
   "rec.shareCoinLink": { en: "Open Recruiters →", es: "Abrir Reclutadores →" },
   "nav.recruiters": { en: "Recruiters", es: "Reclutadores" },
 
