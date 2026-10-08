@@ -19,6 +19,8 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 
+const PANDA_MINT = process.env.NEXT_PUBLIC_PANDA_TOKEN_MINT || null;
+
 const tabs = ["Trades", "Holders", "Rewards"] as const;
 type Tab = (typeof tabs)[number];
 const tabKeys: Record<Tab, DictKey> = { Trades: "coin.tab.trades", Holders: "coin.tab.holders", Rewards: "coin.tab.rewards" };
@@ -66,6 +68,11 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                 <h1 className="font-display text-xl font-bold sm:text-2xl">${coin.ticker}</h1>
                 <span className="truncate text-sm text-panda-grey">{coin.name}</span>
+                {PANDA_MINT && coin.mint === PANDA_MINT && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-bamboo/40 bg-bamboo/15 px-2 py-0.5 text-[11px] font-bold text-bamboo">
+                    {t("panda.officialToken")}
+                  </span>
+                )}
                 <CoinStatusDot coin={coin} />
               </div>
             </div>

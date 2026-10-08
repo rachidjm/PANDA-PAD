@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import CoinAvatar from "@/components/CoinAvatar";
 import CoinAge from "@/components/CoinAge";
+import BuyPandaWidget from "@/components/BuyPandaWidget";
 import type { Position } from "@/lib/portfolio/positions";
 import type { Launch } from "@/app/api/launches/route";
-import { formatCompact, formatPct, formatUsd } from "@/lib/format";
+import { Coin } from "@/lib/types";
+import { formatCompact, formatPct, formatPrice, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const PAGE_SIZE = 3;
@@ -20,7 +22,7 @@ type LoadState = "loading" | "ready" | "error";
  * newest real launches with the X profile each project published. Nothing
  * here is padded or invented — an empty wallet gets an honest empty state.
  */
-export default function ActivitySidebar() {
+export default function ActivitySidebar({ pandaCoin }: { pandaCoin: Coin | null }) {
   const { connected, publicKey } = useWallet();
   const { t } = useLanguage();
   const [state, setState] = useState<LoadState>("loading");
@@ -75,6 +77,8 @@ export default function ActivitySidebar() {
 
   return (
     <aside className="space-y-10">
+      {pandaCoin && <PandaFeaturedCard coin={pandaCoin} />}
+
       <section>
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-bold">{t("side.topTrades")}</h2>
@@ -131,6 +135,54 @@ export default function ActivitySidebar() {
         </section>
       )}
     </aside>
+  );
+}
+
+/** Fixed, featured $PANDA card at the top of the sidebar — distinct from an ordinary coin card (an "Official"
+ *  badge and a bamboo-green border) since it's PANDA's own token, not a trade result or a random launch. */
+function PandaFeaturedCard({ coin }: { coin: Coin }) {
+  const { t } = useLanguage();
+  const positive = coin.changePct >= 0;
+
+  return (
+    <section>
+      <Link
+        href={`/coin/${coin.mint}`}
+        className="block overflow-hidden rounded-[22px] border border-bamboo/40 bg-ink-raised p-4 transition-colors hover:border-bamboo/70"
+      >
+        <div className="flex items-center gap-3">
+          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-ink">
+            <CoinAvatar image={coin.image} ticker={coin.ticker} mint={coin.mint} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="mb-0.5 inline-flex items-center gap-1 rounded-full bg-bamboo/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-bamboo">
+              {t("panda.official")}
+            </span>
+            <p className="truncate font-display text-lg font-bold leading-tight">{t("panda.sidebarTitle")}</p>
+          </div>
+          <div className="text-right">
+            <p className={`font-semibold ${positive ? "text-bamboo" : "text-clay-red"}`}>
+              {coin.livePriceUsd !== undefined ? formatPrice(coin.livePriceUsd) : "—"}
+            </p>
+            <p className={`text-xs ${positive ? "text-bamboo" : "text-clay-red"}`}>{formatPct(coin.changePct)}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-xl bg-ink px-2 pt-2">
+          <PositionChart data={coin.priceHistory} positive={positive} />
+          <p className="pb-1.5 pt-0.5 text-center text-[10px] text-panda-grey">{t("panda.sidebarNote")}</p>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+          <p className="text-panda-grey">
+            {t("coinCard.mc")} <span className="font-semibold text-paper">{formatCompact(coin.marketCap)}</span>
+          </p>
+        </div>
+      </Link>
+      <div className="mt-2.5 flex justify-end">
+        <BuyPandaWidget />
+      </div>
+    </section>
   );
 }
 

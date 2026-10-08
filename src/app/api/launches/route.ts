@@ -5,6 +5,8 @@ import { fetchDexTokensBatch, type DexPair } from "@/lib/dexscreener/client";
 import { fetchNewestPumpCoins } from "@/lib/pump/frontend-api";
 import type { CoinSource } from "@/lib/types";
 import { withoutPendingFeeLock } from "@/lib/pump/fee-lock";
+import { getPandaToken } from "@/lib/panda-token";
+import { ensurePandaLaunchFirst } from "@/lib/panda-showcase";
 
 export type Launch = {
   mint: string;
@@ -118,6 +120,25 @@ async function fromLiveList(): Promise<Launch[]> {
   }));
 }
 
+/** $PANDA, shaped like any other Launch — fetched the same guaranteed way the home showcase is (never
+ *  dependent on Pump.fun's own feed or Dexscreener having indexed it yet). `null` when unconfigured/unreadable. */
+async function pandaLaunch(): Promise<Launch | null> {
+  const coin = await getPandaToken();
+  if (!coin) return null;
+  return {
+    mint: coin.mint,
+    ticker: coin.ticker,
+    name: coin.name,
+    image: coin.image,
+    bg: coin.bg,
+    marketCap: coin.marketCap,
+    createdAt: coin.createdAt,
+    verified: true,
+    source: coin.source,
+    twitterUrl: coin.twitter ?? undefined,
+  };
+}
+
 export async function GET() {
   if (cache && cache.expires > Date.now()) return NextResponse.json({ launches: cache.launches });
 
@@ -128,6 +149,9 @@ export async function GET() {
     console.error("Pump.fun launch feed failed", err);
   }
   if (launches.length === 0) launches = await fromLiveList();
+
+  const panda = await pandaLaunch().catch(() => null);
+  launches = ensurePandaLaunchFirst(launches, panda, SHOWN);
 
   if (launches.length > 0) cache = { launches, expires: Date.now() + CACHE_MS };
   return NextResponse.json({ launches });

@@ -10,6 +10,7 @@ import PandaEcosystemCard from "@/components/home/PandaEcosystemCard";
 import BannerCarousel from "@/components/home/banners/BannerCarousel";
 import ActivitySidebar from "@/components/home/ActivitySidebar";
 import { buildHomeSections, SECTION_TITLE_KEYS, SectionId } from "@/lib/home-sections";
+import { ensurePandaLaunchedFirst } from "@/lib/panda-showcase";
 import { ActivityEvent, Coin } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
@@ -20,10 +21,15 @@ export default function HomeFeed({
   coins: initialCoins,
   live: initialLive,
   activityEvents,
+  pandaCoin,
 }: {
   coins: Coin[];
   live: boolean;
   activityEvents: ActivityEvent[];
+  /** $PANDA's own live Coin (src/lib/panda-token.ts) — null when NEXT_PUBLIC_PANDA_TOKEN_MINT isn't set yet, or
+   *  it genuinely couldn't be read this request. Guarantees $PANDA a spot in "Launched on PANDA", first,
+   *  regardless of whether the general feed's filters would have kept it. */
+  pandaCoin: Coin | null;
 }) {
   const [coins, setCoins] = useState(initialCoins);
   const [live, setLive] = useState(initialLive);
@@ -81,7 +87,7 @@ export default function HomeFeed({
   // A coin with no picture at all isn't shown here (a missing logo looks broken); Discover and search still list everything.
   // 12 per section (not the default 6): desktop has room for up to 2 full rows at the widest column count — see
   // HomeSection.tsx, which still only ever SHOWS 6 below the `xl` breakpoint, so mobile looks exactly as before.
-  const sections = buildHomeSections(coins.filter((c) => !!c.image), 12);
+  const sections = ensurePandaLaunchedFirst(buildHomeSections(coins.filter((c) => !!c.image), 12), pandaCoin);
 
   return (
     <section className="pb-24">
@@ -89,7 +95,7 @@ export default function HomeFeed({
           The tall, click-through box only defines how long it sticks; the negative margin gives the space back, so nothing is left empty. */}
       <div className="pointer-events-none relative z-30 -mb-[528px] h-[600px]">
         <div className="pointer-events-auto sticky top-[calc(var(--header-h,68px)+8px)]">
-          <PandaEcosystemCard />
+          <PandaEcosystemCard coin={pandaCoin} />
         </div>
       </div>
 
@@ -128,7 +134,7 @@ export default function HomeFeed({
           </div>
         </div>
 
-        <ActivitySidebar />
+        <ActivitySidebar pandaCoin={pandaCoin} />
       </div>
     </section>
   );
