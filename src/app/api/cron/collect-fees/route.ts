@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
-import { Connection } from "@solana/web3.js";
+import { Connection, Keypair } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
 import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
 import { resolveOpenClaims, runHolderPayout } from "@/lib/rewards/run-payout";
@@ -10,7 +10,7 @@ import { alertOps } from "@/lib/alerts";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { checkActive } from "@/lib/protocol/pause-store";
 import { recordAudit } from "@/lib/audit/log";
-import { collectFeesForMint } from "@/lib/pump/distribute";
+import { collectFeesForMint, CREATOR_FEE_DISTRIBUTE_MIN_LAMPORTS } from "@/lib/pump/distribute";
 import { getTokenHolders } from "@/lib/solana/holders";
 import { computeHolderCredits } from "@/lib/rewards/split";
 import { recordActivity } from "@/lib/activity/record";
@@ -50,7 +50,17 @@ export async function GET(req: Request) {
 
     const mints = await getRegisteredMints();
     const results: { mint: string; distributedLamports: number | null; holdersCredited: number; payout?: { ran: boolean; reason?: string; holdersPaid: number; lamportsPaid: number }; error?: string }[] = [];
-    const payoutSigner = getRewardsPoolSigner();
+    // A misconfigured signer (recovery phrase, or a secret that doesn't match NEXT_PUBLIC_PANDA_REWARDS_POOL —
+    // see rewards-pool-signer.ts) must stop every real money movement below, not just the next thing that
+    // happens to call it: checked ONCE here, loud, instead of letting each per-mint call fail separately.
+    let payoutSigner: Keypair | null;
+    try {
+      payoutSigner = getRewardsPoolSigner();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Rewards Pool signer is invalid.";
+      await alertOps("Rewards Pool signer is misconfigured — cron skipped, nothing was collected or paid out", { error: message });
+      return NextResponse.json({ skipped: "rewards_pool_signer_invalid", error: message });
+    }
     // Checked once per run, not once per mint: an admin's "holder_payouts" pause (the admin console) stops every NEW
     // payout immediately — resolveOpenClaims above still runs regardless, since it only confirms/releases what
     // already happened on-chain, it never sends anything new.
@@ -72,7 +82,7 @@ export async function GET(req: Request) {
         // Sequential, not concurrent — the Rewards Pool wallet's balance is
         // shared across every mint, so measuring one mint's real contribution
         // requires nothing else touching that balance while it's in flight.
-        const distributed = await collectFeesForMint(connection, mint);
+        const distributed = await collectFeesForMint(connection, mint, { minLamports: CREATOR_FEE_DISTRIBUTE_MIN_LAMPORTS });
         if (!distributed || distributed.lamports <= 0) {
           results.push({ mint, distributedLamports: null, holdersCredited: 0, payout: await tryPayout(mint) });
           continue;

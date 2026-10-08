@@ -5,6 +5,21 @@ import { getRewardsPoolSigner } from "./rewards-pool-signer";
 import { distributionShares, Share } from "@/lib/economy/shares";
 
 const TYPICAL_BASE_FEE_LAMPORTS = 5000;
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
+function envSol(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+/**
+ * Below this, the cron skips a mint entirely rather than sending a real `distributeCreatorFees` — the
+ * instruction's own on-chain dust floor (checked via `canDistribute` below) is far smaller than a real network
+ * fee is worth paying hundreds of times a day across every registered coin. Doesn't apply to a creator's own
+ * voluntary "collect my fees" (buildCollectCreatorFeesTransaction): they're choosing to pay their own gas for
+ * however much there is, which is their call, not the cron's.
+ */
+export const CREATOR_FEE_DISTRIBUTE_MIN_LAMPORTS = Math.round(envSol("CREATOR_FEE_DISTRIBUTE_MIN_SOL", 0.01) * LAMPORTS_PER_SOL);
 
 /**
  * Triggers a coin's real, on-chain, permissionless `distributeCreatorFees`
@@ -24,7 +39,8 @@ const TYPICAL_BASE_FEE_LAMPORTS = 5000;
  */
 export async function collectFeesForMint(
   connection: Connection,
-  mint: string
+  mint: string,
+  opts: { minLamports?: number } = {}
 ): Promise<{ lamports: number; signature: string; blockTimeMs: number | null; shares: Share[] } | null> {
   const signer = getRewardsPoolSigner();
   if (!signer) throw new Error("Rewards Pool signer isn't configured (PANDA_REWARDS_POOL_SECRET_KEY).");
@@ -36,6 +52,9 @@ export async function collectFeesForMint(
   const online = getOnlinePumpSdk(connection);
   const minFee = await online.getMinimumDistributableFee(mintKey, signer.publicKey, { payer: signer.publicKey });
   if (!minFee.canDistribute) return null;
+  // Same read this call already made above — no extra RPC round trip — just a stricter floor than the SDK's
+  // own dust check, so hundreds of coins with a few thousand lamports each don't each burn a real network fee.
+  if ((opts.minLamports ?? 0) > 0 && minFee.distributableFees.toNumber() < opts.minLamports!) return null;
 
   const before = await connection.getBalance(signer.publicKey);
 

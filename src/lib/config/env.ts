@@ -81,6 +81,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["REWARDS_MAX_CLAIM_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the per-claim payout cap (default applies)" },
   { names: ["REWARDS_DAILY_CAP_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the daily payout cap (default applies)" },
   { names: ["HOLDER_PAYOUT_MIN_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "how much a coin's Holders pool must accumulate before an automatic payout round pays it out (default 0.1 SOL)" },
+  { names: ["CREATOR_FEE_DISTRIBUTE_MIN_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the collect-fees cron skips a mint's distributeCreatorFees below this (default 0.01 SOL) so hundreds of coins don't each burn a network fee on dust" },
   { names: ["CREATE_MIN_FIRST_BUY_SOL"], group: "limits", required: never, valid: isPositiveNumber, affects: "the smallest first buy a new coin's launch may declare (default 0.01 SOL) — Launch stays disabled below it" },
   { names: ["SEARCH_MIN_LIQUIDITY_USD"], group: "limits", required: never, valid: isPositiveNumber, affects: "below this (and with no 24h volume), a search result is collapsed into \"Mostrar resultados ocultos\" (default $1,000)" },
   { names: ["SEARCH_DOMINANT_LIQUIDITY_RATIO"], group: "limits", required: never, valid: isPositiveNumber, affects: "how many times more liquidity an unverified search result needs over a verified one to still lead its group (default 3x)" },

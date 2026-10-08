@@ -9,6 +9,7 @@ import AuditChainPanel from "@/components/admin/AuditChainPanel";
 import SessionsPanel from "@/components/admin/SessionsPanel";
 import CspPanel from "@/components/admin/CspPanel";
 import ReferralsPanel from "@/components/admin/ReferralsPanel";
+import RewardsPoolPanel from "@/components/admin/RewardsPoolPanel";
 import { SUBSYSTEMS, confirmationPhrase, type Subsystem } from "@/lib/protocol/pause";
 
 type PausedItem = { subsystem: Subsystem; reason: string; since: number };
@@ -153,6 +154,8 @@ export default function AdminClient() {
       <SessionsPanel />
 
       <ReferralsPanel />
+
+      <RewardsPoolPanel />
 
       <CspPanel />
 
