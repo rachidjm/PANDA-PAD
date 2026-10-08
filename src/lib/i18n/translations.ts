@@ -35,6 +35,8 @@ export const dict = {
   "wallet.codeCheckError": { en: "We can't check the code right now. Try again.", es: "No podemos comprobar el código ahora. Inténtalo de nuevo." },
   "wallet.closeModal": { en: "Close", es: "Cerrar" },
   "wallet.connectModalHint": { en: "Optional — you can skip it.", es: "Opcional — puedes saltarlo." },
+  "wallet.installHint": { en: "No wallet found on this device.", es: "No se encontró ninguna wallet en este dispositivo." },
+  "wallet.installToFinish": { en: "Install it to finish connecting.", es: "Instálalo para terminar de conectar." },
   "wallet.installPhantomToConnect": { en: "Install Phantom to connect", es: "Instala Phantom para conectar" },
   "wallet.refCodeTitle": { en: "Got a referral code?", es: "¿Tienes un código de referido?" },
   "wallet.refCodeApplied": { en: "Code @{code} applied.", es: "Código de @{code} aplicado." },

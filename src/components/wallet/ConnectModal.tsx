@@ -40,13 +40,17 @@ function StarIcon() {
  * without saving anything. Closing with the X, a tap outside, or Escape connects nothing.
  *
  * `installNeeded`: the continue step found no wallet on a desktop — the modal stays open and shows the install link.
+ * `appliedLabel`: a recruiter's code or link was already found (before this click even happened) — the install
+ *  dead-end then says so instead of asking the question again, since the answer is already known.
  */
 export default function ConnectModal({
   installNeeded,
+  appliedLabel,
   onClose,
   onContinue,
 }: {
   installNeeded: boolean;
+  appliedLabel?: string | null;
   onClose: () => void;
   onContinue: (code: string | null) => void;
 }) {
@@ -118,9 +122,11 @@ export default function ConnectModal({
         </button>
 
         <h2 id="connect-modal-title" className="pr-10 font-display text-lg font-bold leading-tight">
-          {t("wallet.refCodeTitle")}
+          {appliedLabel || (installNeeded ? t("wallet.installPhantomToConnect") : t("wallet.refCodeTitle"))}
         </h2>
-        <p className="mt-1 text-xs text-panda-grey">{t("wallet.connectModalHint")}</p>
+        <p className="mt-1 text-xs text-panda-grey">
+          {installNeeded ? (appliedLabel ? t("wallet.installToFinish") : t("wallet.installHint")) : t("wallet.connectModalHint")}
+        </p>
 
         {installNeeded ? (
           <a href="https://phantom.app/" target="_blank" rel="noreferrer" className={`${primary} mt-5`}>

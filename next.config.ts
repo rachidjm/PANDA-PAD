@@ -16,11 +16,14 @@ const securityHeaders = [
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
 ];
 
-// The site's own domain moved from the old Vercel-assigned one to this custom domain. Kept as a plain literal
-// (not imported from src/lib/config/site.ts) so this file stays dependency-free, same as the rest of it — if
-// NEXT_PUBLIC_SITE_URL is ever set to something else, update this to match.
+// The canonical domain — apex, no "www". Kept as a plain literal (not imported from src/lib/config/site.ts) so
+// this file stays dependency-free, same as the rest of it — if NEXT_PUBLIC_SITE_URL is ever set to something
+// else, update this to match. Every other host PANDA is reachable on (the old Vercel-assigned domain, and
+// "www." — Vercel serves both of those as their own domain today, not as an automatic alias of this one)
+// 301s here, path and query intact, so a referral link never dies just because of which host it was shared on.
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://launchonpanda.app";
-const OLD_DOMAIN = "panda-pad.vercel.app";
+const CANONICAL_HOST = new URL(SITE_URL).host;
+const OTHER_HOSTS = ["panda-pad.vercel.app", `www.${CANONICAL_HOST}`];
 
 const nextConfig: NextConfig = {
   turbopack: {
@@ -34,14 +37,12 @@ const nextConfig: NextConfig = {
     formats: ["image/webp"],
   },
   async redirects() {
-    return [
-      {
-        source: "/:path*",
-        has: [{ type: "host", value: OLD_DOMAIN }],
-        destination: `${SITE_URL}/:path*`,
-        permanent: true,
-      },
-    ];
+    return OTHER_HOSTS.map((host) => ({
+      source: "/:path*",
+      has: [{ type: "host" as const, value: host }],
+      destination: `${SITE_URL}/:path*`,
+      permanent: true,
+    }));
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

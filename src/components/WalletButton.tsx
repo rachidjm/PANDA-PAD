@@ -28,6 +28,10 @@ export default function WalletButton() {
   const [modalOpen, setModalOpen] = useState(false);
   const [installNeeded, setInstallNeeded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Set only when a recruiter's link or code was already found (localStorage) at the moment of the click — shown
+  // inside the install dead-end (see run()) so that screen reads "your code is applied, install Phantom to finish"
+  // instead of looking like the ordinary "have a code?" ask, which it must never show again once one is known.
+  const [appliedLabel, setAppliedLabel] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,9 +73,11 @@ export default function WalletButton() {
     select(PHANTOM as WalletName);
   }, [wallet, connect, select]);
 
-  /** Runs the chosen step. The phone redirect is a plain navigation in the same click, so it isn't blocked. */
+  /** Runs the chosen step. The phone redirect is a plain navigation in the same click, so it isn't blocked.
+   *  `applied`: the recruiter label already resolved for this click (see startConnect) — carried into the
+   *  install dead-end so that screen never looks like the ordinary "have a code?" ask once one is known. */
   const run = useCallback(
-    (step: Exclude<ConnectStep, "modal">) => {
+    (step: Exclude<ConnectStep, "modal">, applied: string | null) => {
       if (step === "connect") {
         connectPhantom();
         return;
@@ -80,11 +86,26 @@ export default function WalletButton() {
         window.location.href = phantomBrowseUrl(window.location.href, window.location.origin, { code: pendingCode(), ref: pendingReferrer() });
         return;
       }
+      setAppliedLabel(applied);
       setInstallNeeded(true);
       setModalOpen(true);
     },
     [connectPhantom]
   );
+
+  /** What to say when a recruiter's link or code is already here — a code by preference (it names the
+   *  recruiter directly), else the code behind the stored wallet if one exists, else a generic "link applied". */
+  async function resolveAppliedLabel(): Promise<string | null> {
+    const code = pendingCode();
+    if (code) return t("wallet.refCodeApplied", { code });
+    const owner = pendingReferrer();
+    if (!owner) return null;
+    const ownerCode = await fetch(`/api/referrals/code?wallet=${owner}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { code?: string | null } | null) => d?.code ?? null)
+      .catch(() => null);
+    return ownerCode ? t("wallet.refCodeApplied", { code: ownerCode }) : t("wallet.refLinkApplied");
+  }
 
   /** The decision on click (also used by "Cambiar de cuenta"). */
   const startConnect = useCallback(async () => {
@@ -98,39 +119,31 @@ export default function WalletButton() {
     };
     const step = connectStep(input);
     if (step === "modal") {
+      setAppliedLabel(null);
       setInstallNeeded(false);
       setModalOpen(true);
       return;
     }
-    // A recruiter's link or code is already here: say so briefly before connecting.
-    if (referrals && (input.hasPendingCode || input.hasPendingLink)) {
-      const code = pendingCode();
-      if (code) {
-        setNotice(t("wallet.refCodeApplied", { code }));
-      } else {
-        const owner = pendingReferrer();
-        const ownerCode = owner
-          ? await fetch(`/api/referrals/code?wallet=${owner}`, { cache: "no-store" })
-              .then((r) => (r.ok ? r.json() : null))
-              .then((d: { code?: string | null } | null) => d?.code ?? null)
-              .catch(() => null)
-          : null;
-        setNotice(ownerCode ? t("wallet.refCodeApplied", { code: ownerCode }) : t("wallet.refLinkApplied"));
-      }
-    }
-    run(step);
+    // A recruiter's link or code is already here: say so — as a toast before connecting straight away, or
+    // (when there's no wallet to connect to yet) inside the install dead-end itself, where it's actually seen.
+    const applied = referrals && (input.hasPendingCode || input.hasPendingLink) ? await resolveAppliedLabel() : null;
+    if (applied && step === "connect") setNotice(applied);
+    run(step, applied);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referrals, installed, mobile, t, run]);
 
-  /** The modal's answer: a valid code (already saved by the modal) or "No tengo código". */
-  function onModalContinue() {
+  /** The modal's answer: a valid code (already saved by the modal, by setPendingCode) or "No tengo código". */
+  function onModalContinue(code: string | null) {
     markConnectModalAnswered();
     const step = afterAnswer({ walletInstalled: installed, mobile });
+    const applied = code ? t("wallet.refCodeApplied", { code }) : null;
     if (step === "install") {
+      setAppliedLabel(applied);
       setInstallNeeded(true);
       return;
     }
     setModalOpen(false);
-    run(step);
+    run(step, applied);
   }
 
   async function switchAccount() {
@@ -188,9 +201,11 @@ export default function WalletButton() {
       {modalOpen && (
         <ConnectModal
           installNeeded={installNeeded}
+          appliedLabel={appliedLabel}
           onClose={() => {
             setModalOpen(false);
             setInstallNeeded(false);
+            setAppliedLabel(null);
           }}
           onContinue={onModalContinue}
         />
