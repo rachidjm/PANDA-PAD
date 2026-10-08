@@ -1361,8 +1361,8 @@ export const dict = {
     es: "Ya ganado, esperando a la próxima ronda de reparto automático para enviarse de verdad — no tienes que hacer nada.",
   },
   "rd.autoPayNote": {
-    en: "Rewards are sent to your wallet automatically, in SOL, straight from PANDA's Rewards Pool — there's nothing to claim.",
-    es: "Las recompensas se envían a tu wallet automáticamente, en SOL, directamente desde el Rewards Pool de PANDA — no hay nada que reclamar.",
+    en: "Rewards are sent to your wallet automatically, in SOL, straight from PANDA's Rewards Pool — there's nothing to claim, and nothing is ever deducted from your share for the Solana network fee of collecting or sending it; PANDA covers that itself.",
+    es: "Las recompensas se envían a tu wallet automáticamente, en SOL, directamente desde el Rewards Pool de PANDA — no hay nada que reclamar, y no se te descuenta nada de tu parte por la comisión de red de Solana de recolectarla o enviarla; eso lo cubre PANDA.",
   },
   "pause.title": { en: "PANDA PROTOCOL PAUSED", es: "PROTOCOLO PANDA EN PAUSA" },
   "pause.holder_payouts": { en: "Automatic holder payouts", es: "Reparto automático a holders" },
@@ -1676,8 +1676,8 @@ export const dict = {
   "fd.presetAllMe": { en: "All to creator", es: "Todo para el creador" },
   "fd.presetHolders": { en: "Share with holders", es: "Compartir con holders" },
   "fd.holdersInfo": {
-    en: "Sent automatically to your coin's holders. They don't have to claim anything.",
-    es: "Se envía automáticamente a los holders de tu moneda. No tienen que reclamar nada.",
+    en: "Sent automatically to your coin's holders, in full. They don't have to claim anything, and no network fee is ever taken out of their share.",
+    es: "Se envía automáticamente a los holders de tu moneda, íntegro. No tienen que reclamar nada, y no se les descuenta ninguna comisión de red de su parte.",
   },
   "fd.err.number": { en: "Enter valid percentages (up to 2 decimals).", es: "Introduce porcentajes válidos (hasta 2 decimales)." },
   "fd.err.totalMismatch": { en: "The split must add up to 100%.", es: "El reparto debe sumar 100%." },
