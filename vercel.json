@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/cleanup-auth",
       "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/cron/warm-coins",
+      "schedule": "* * * * *"
     }
   ]
 }

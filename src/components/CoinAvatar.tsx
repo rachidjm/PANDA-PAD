@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { isPumpCoin, pumpImageUrl } from "@/lib/coin-image";
+
+// Pump.fun's own CDN is already a fast, purpose-built, pre-sized source (?variant=600x600) — routing it
+// through Next's image optimizer too would just add a redundant resize/recompress hop for no benefit, so
+// only THIS one is served unoptimized, straight from Pump.fun. Everything else (other feeds' CDNs, a
+// creator's own image host, IPFS once it already slipped past the gateway rewrite above) gets Next's
+// built-in on-demand optimizer: resized to whatever box it's actually rendered in and served as WebP,
+// cached after the first request. That is "our own optimized copy" without a separate background job or
+// storage of our own — Next generates and caches it, and a cache miss just means this one request pays the
+// (small) cost of generating it, the original is never shown as an intermediate state.
+const isPumpCdnUrl = (url: string) => url.startsWith("https://images.pump.fun/");
 
 // Same tinted-chip palette already used for badges elsewhere on the site (KindChip, RugBadge): a
 // tint background with the same color as solid text, never a color that isn't already brand-approved.
@@ -55,17 +66,19 @@ export default function CoinAvatar({
 
   if (src) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        key={src}
-        src={src}
-        alt=""
-        loading={priority ? "eager" : "lazy"}
-        fetchPriority={priority ? "high" : "auto"}
-        decoding={priority ? "sync" : "async"}
-        onError={() => setFailed((f) => [...f, src])}
-        className="h-full w-full object-cover"
-      />
+      <span className="relative block h-full w-full">
+        <Image
+          key={src}
+          src={src}
+          alt=""
+          fill
+          sizes={size === "lg" ? "(max-width: 1023px) 50vw, 25vw" : "56px"}
+          priority={priority}
+          unoptimized={isPumpCdnUrl(src)}
+          onError={() => setFailed((f) => [...f, src])}
+          className="object-cover"
+        />
+      </span>
     );
   }
 

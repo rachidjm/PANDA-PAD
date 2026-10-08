@@ -14,6 +14,7 @@ import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
 import { PANDA_TREASURY } from "@/lib/pump/constants";
 import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import type { FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
+import { siteUrl } from "@/lib/config/site";
 
 /**
  * Admin-only. Actions (POST, JSON):
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
       const user = new PublicKey(RESERVED_PANDA_CREATOR);
       const name = typeof body.name === "string" && body.name ? body.name : "PANDA";
       const symbol = "PANDA";
-      const uri = typeof body.uri === "string" && body.uri ? body.uri : "https://panda-pad.vercel.app/panda-metadata.json";
+      const uri = typeof body.uri === "string" && body.uri ? body.uri : `${siteUrl()}/panda-metadata.json`;
       const shareholders: FeeShareholderInput[] = [
         { address: PANDA_TREASURY.toBase58(), shareBps: PANDA_SHARE_BPS },
         { address: RESERVED_PANDA_CREATOR, shareBps: 10_000 - PANDA_SHARE_BPS },

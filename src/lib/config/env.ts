@@ -55,6 +55,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["SOLANA_RPC_URL"], group: "core", required: always, valid: isHttpUrl, affects: "every trade, launch and read of the chain (a dedicated provider; the public RPC drops trades)" },
   { names: ["NETWORK"], group: "core", required: always, valid: (v) => v === "mainnet" || v === "devnet", affects: "the network guard: without it no money-moving flow is allowed" },
   { names: ["NEXT_PUBLIC_PANDA_TREASURY"], group: "core", required: always, valid: isPubkey, affects: "where PANDA's 0.5% trading fee is paid (unset, a built-in default address would receive it)" },
+  { names: ["NEXT_PUBLIC_SITE_URL"], group: "core", required: never, valid: isHttpUrl, affects: "OG/canonical metadata, the sitemap, robots.txt and the Recruiters legal text's example link (unset, defaults to https://launchonpanda.app)" },
   { names: ["AUTH_SESSION_SECRET"], group: "core", required: always, valid: (v) => v.length >= 32, affects: "wallet sign-in: without it nobody can sign in or claim rewards" },
   { names: ["ADMIN_WALLETS"], group: "core", required: always, valid: (v) => v.split(",").map((s) => s.trim()).filter(Boolean).length > 0 && v.split(",").map((s) => s.trim()).filter(Boolean).every(isPubkey), affects: "/admin and the pause switches: without it nobody is admin" },
   { names: ["CRON_SECRET"], group: "core", required: always, valid: (v) => v.length >= 16, affects: "the fee-collection and holder-payout cron (every 5 minutes): without it the cron refuses to run" },

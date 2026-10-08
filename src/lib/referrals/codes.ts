@@ -1,5 +1,5 @@
 /**
- * A recruiter's own short code (`panda-pad.vercel.app/r/<code>`). Format and the reserved/offensive-word check
+ * A recruiter's own short code (`launchonpanda.app/r/<code>`). Format and the reserved/offensive-word check
  * are pure and client-safe; uniqueness itself is the database's job (src/lib/db/fee-tier.ts).
  */
 

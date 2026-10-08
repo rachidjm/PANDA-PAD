@@ -288,7 +288,7 @@ export const legacyFeeWallets = pgTable("legacy_fee_wallets", {
   markedAt: bigint("marked_at", { mode: "number" }).notNull(),
 });
 
-/** A recruiter's own short code (`panda-pad.vercel.app/r/<code>`, and applicable by hand on the Recruiters page
+/** A recruiter's own short code (`launchonpanda.app/r/<code>`, and applicable by hand on the Recruiters page
  *  or at sign-in) — one per wallet, chosen once, permanent (so an already-shared link never breaks). Validated
  *  by src/lib/referrals/codes.ts before it ever reaches here; the DB only enforces uniqueness. */
 export const recruiterCodes = pgTable("recruiter_codes", {

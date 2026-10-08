@@ -20,6 +20,7 @@ import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
 import { connection } from "next/server";
 import { cspMode } from "@/lib/security/csp";
+import { siteUrl } from "@/lib/config/site";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -33,9 +34,18 @@ const inter = Inter({
   weight: ["400", "500", "600", "700"],
 });
 
+const TITLE = "PANDA — The Solana Coin Launchpad";
+const DESCRIPTION = "Create and trade coins on Solana — GIFs, memes, or your own idea, all in one place.";
+
 export const metadata: Metadata = {
-  title: "PANDA — The Solana Coin Launchpad",
-  description: "Create and trade coins on Solana — GIFs, memes, or your own idea, all in one place.",
+  // Lets every page's relative OG image / canonical URL resolve against the real domain — a page that sets
+  // its own `openGraph`/`alternates` (e.g. /recruiters) only needs to give a path, never the full origin.
+  metadataBase: new URL(siteUrl()),
+  title: TITLE,
+  description: DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/", siteName: "PANDA", type: "website" },
+  twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
