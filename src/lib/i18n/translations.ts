@@ -1714,6 +1714,7 @@ export const dict = {
   "coinCard.mc": { en: "MC", es: "Cap." },
   "coinCard.vol": { en: "Vol", es: "Vol" },
   "coinCard.launchedOnPanda": { en: "Launched on PANDA", es: "Lanzada en PANDA" },
+  "coinCard.verified": { en: "Verified", es: "Verificada" },
 
   // Search box
   "search.searching": { en: "Searching…", es: "Buscando…" },

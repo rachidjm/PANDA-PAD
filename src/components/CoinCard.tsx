@@ -10,7 +10,7 @@ import RugBadge from "@/components/RugBadge";
 import CopyCa from "@/components/CopyCa";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
-export default function CoinCard({ coin, priority = false }: { coin: Coin; priority?: boolean }) {
+export default function CoinCard({ coin, priority = false, verified = false }: { coin: Coin; priority?: boolean; verified?: boolean }) {
   const { t } = useLanguage();
   const positive = coin.changePct >= 0;
 
@@ -32,6 +32,17 @@ export default function CoinCard({ coin, priority = false }: { coin: Coin; prior
           >
             <span aria-hidden>🐼</span>
             {t("coinCard.launchedOnPanda")}
+          </span>
+        )}
+        {verified && (
+          <span
+            title={t("coinCard.verified")}
+            className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full border border-bamboo/40 bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-bamboo backdrop-blur sm:bottom-3 sm:right-3 sm:px-2 sm:text-[11px]"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5 sm:h-3 sm:w-3" aria-hidden>
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            {t("coinCard.verified")}
           </span>
         )}
       </div>

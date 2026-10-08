@@ -140,8 +140,8 @@ test("mergeMeta and getTokenMeta: Gecko wins, Jupiter fills only the gaps, and J
 test("Jupiter's answer is parsed defensively (usdPrice, stats24h.priceChange, https icon) and any failure is 'nothing'", async () => {
   const ok = (async () => new Response(JSON.stringify([{ id: "A", name: "Alpha", symbol: "ALP", icon: "https://x.test/a.png", usdPrice: 2, stats24h: { priceChange: 5.5 } }, { id: "B", icon: "http://insecure.test/b.png", usdPrice: 0 }, { nope: 1 }]))) as unknown as typeof fetch;
   const got = await fetchJupiterTokens(["A", "B"], ok);
-  assert.deepEqual(got.get("A"), { name: "Alpha", symbol: "ALP", image: "https://x.test/a.png", priceUsd: 2, change24h: 5.5 });
-  assert.deepEqual(got.get("B"), { name: undefined, symbol: undefined, image: undefined, priceUsd: undefined, change24h: undefined });
+  assert.deepEqual(got.get("A"), { name: "Alpha", symbol: "ALP", image: "https://x.test/a.png", priceUsd: 2, change24h: 5.5, verified: false, liquidityUsd: undefined });
+  assert.deepEqual(got.get("B"), { name: undefined, symbol: undefined, image: undefined, priceUsd: undefined, change24h: undefined, verified: false, liquidityUsd: undefined });
   for (const bad of [(async () => new Response("x", { status: 500 })) as unknown as typeof fetch, (async () => { throw new Error("down"); }) as unknown as typeof fetch, (async () => new Response("{}")) as unknown as typeof fetch]) assert.equal((await fetchJupiterTokens(["A"], bad)).size, 0);
 });
 
