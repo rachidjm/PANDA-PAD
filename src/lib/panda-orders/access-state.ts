@@ -11,7 +11,7 @@ export type PandaAccess =
   | "checking"
   /** No PANDA session on this browser: sign in. */
   | "signin"
-  /** It worked earlier on this page and the session has since expired (they last 2 h): sign in again. */
+  /** It worked earlier on this page and the session has since ended (expired, logged out elsewhere): sign in again. */
   | "expired"
   /** Not on PANDA_ORDERS_ALLOWLIST yet (or the feature is off): coming soon. */
   | "not_allowed"

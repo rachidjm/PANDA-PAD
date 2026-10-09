@@ -155,7 +155,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   // panel says why; Jupiter is only for a drawn buy.
   const pandaEligible = !!coin && features.pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap");
   // Only the server knows who's on the rollout list and whether the PANDA session is still valid: it answers on
-  // /api/panda-orders/list (401 = sign in, or sign in AGAIN once it had worked on this page — sessions last 2 h).
+  // /api/panda-orders/list (401 = sign in, or sign in AGAIN once it had worked on this page — e.g. after a logout elsewhere or 7 days unused).
   const [serverAccess, setServerAccess] = useState<PandaAccess>("checking");
   const hadAccess = useRef(false);
   const pandaAccess = pandaAccessFor({ featureOn: features.pandaOrders, source: coin?.source, server: serverAccess });

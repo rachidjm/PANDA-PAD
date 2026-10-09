@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ConnectionProvider, WalletProvider as SolanaWalletProvider } from "@solana/wallet-adapter-react";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { clusterApiUrl } from "@solana/web3.js";
+import SessionKeeper from "./SessionKeeper";
 
 export default function WalletProvider({ children }: { children: React.ReactNode }) {
   // Browsers can't call the public RPC at all (it answers every request that carries a
@@ -23,6 +24,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
   return (
     <ConnectionProvider endpoint={endpoint} config={config}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
+        <SessionKeeper />
         {children}
       </SolanaWalletProvider>
     </ConnectionProvider>

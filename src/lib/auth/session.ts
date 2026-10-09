@@ -3,14 +3,18 @@ import { NextResponse } from "next/server";
 import { blobConfigured, readJson, updateJson } from "@/lib/rewards/blob-store";
 import { getDb } from "@/lib/db/client";
 import { mirror, storageMode } from "@/lib/db/mode";
-import { pgBurnNonce, pgCreateSession, pgReadNonce, pgRevokeAllForWallet, pgRevokeSession, pgSessionStatus, pgStoreNonce } from "@/lib/db/sessions";
-import { consumeNonce, createSessionToken, NonceRecord, readSessionToken, SESSION_TTL_MS } from "./wallet-auth";
+import { pgBurnNonce, pgCreateSession, pgExtendSession, pgReadNonce, pgRevokeAllForWallet, pgRevokeSession, pgSessionStatus, pgStoreNonce } from "@/lib/db/sessions";
+import { consumeNonce, createSessionToken, NonceRecord, readSessionToken, RENEW_AFTER_MS, SESSION_TTL_MS, USER_SESSION_TTL_MS } from "./wallet-auth";
+import { renewDue, sessionTtlFor } from "./admin-policy";
 
 /**
  * Server-only. Wallet sessions: an HttpOnly cookie holding an HMAC-signed token with a session id (`jti`).
  *
  * Where the sessions and sign-in nonces live follows PANDA_STORAGE_MODES (`sessions`):
- *   blob      today's behaviour: stateless tokens (valid until they expire, 2 h), one Blob file per nonce. NOT revocable.
+ * How long: 7 days for a normal wallet, renewed while it keeps using the site (renewSession); 2 hours for an ADMIN_WALLETS
+ * wallet, never renewed. The cookie is always HttpOnly, SameSite=Strict and (in production) Secure — see cookieOptions.
+ *
+ *   blob      stateless tokens (valid until they expire), one Blob file per nonce. NOT revocable.
  *   dual      tokens carry a jti that is also recorded in Postgres; a token whose session was REVOKED is rejected, tokens from before the
  *             switch (no jti) and a Postgres outage still let people in (this is the migration mode: nothing locks users out).
  *   postgres  a token is valid only while its jti is a live row in Postgres: revoked, expired, unknown or "database down" all mean no session
@@ -64,28 +68,68 @@ export async function getSession(req: Request): Promise<Session | null> {
   }
 }
 
+/** The session cookie's properties: never readable from JavaScript, never sent cross-site, HTTPS-only in production. */
+export const cookieOptions = (maxAgeSec: number) => ({ httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict" as const, path: "/", maxAge: maxAgeSec });
+
+/** This wallet's session length (admin-policy.ts's sessionTtlFor). */
+export const ttlFor = (wallet: string) => sessionTtlFor(wallet, process.env.ADMIN_WALLETS, { admin: SESSION_TTL_MS, user: USER_SESSION_TTL_MS });
+
 /** Issues a session: registers it (Postgres modes) and sets the cookie. In postgres mode a failure to register means no session. */
 export async function issueSession(res: NextResponse, wallet: string): Promise<{ jti: string }> {
   const secret = sessionSecret();
   if (!secret) throw new Error("Sign-in isn't configured.");
   const now = Date.now();
   const jti = randomUUID();
+  const { ttlMs } = ttlFor(wallet);
   const mode = storageMode("sessions");
-  const row = { jti, wallet, issuedAt: now, expiresAt: now + SESSION_TTL_MS };
+  const row = { jti, wallet, issuedAt: now, expiresAt: now + ttlMs };
   if (mode === "postgres") await pgCreateSession(getDb(), row);
   else if (mode === "dual") await mirror("sessions", `session ${jti}`, () => pgCreateSession(getDb(), row));
-  res.cookies.set(SESSION_COOKIE, createSessionToken(wallet, secret, now, SESSION_TTL_MS, jti), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    maxAge: Math.floor(SESSION_TTL_MS / 1000),
-  });
+  res.cookies.set(SESSION_COOKIE, createSessionToken(wallet, secret, now, ttlMs, jti), cookieOptions(Math.floor(ttlMs / 1000)));
   return { jti };
 }
 
+export type RenewResult = "renewed" | "fresh" | "admin" | "none" | "other_wallet";
+
+/**
+ * Keeps a normal wallet's session alive while it uses the site: pushes the expiry 7 days forward (at most once an hour),
+ * same session id, same sign-in time — no new signature, and nothing else changes. An admin's session is never renewed.
+ * A session for a DIFFERENT wallet than the one now connected is "other_wallet": the caller ends it.
+ */
+export async function renewSession(req: Request, res: NextResponse, wallet: string): Promise<RenewResult> {
+  const secret = sessionSecret();
+  if (!secret) return "none";
+  const session = await getSession(req); // checks revocation per the storage mode
+  if (!session) return "none";
+  if (session.wallet !== wallet) return "other_wallet";
+  const { ttlMs, renewable } = ttlFor(wallet);
+  if (!renewable) return "admin";
+  const now = Date.now();
+  const parsed = readSessionToken(readCookie(req, SESSION_COOKIE), secret, now);
+  if (!parsed || !renewDue(parsed.expiresAt, ttlMs, now, RENEW_AFTER_MS)) return "fresh";
+  const expiresAt = now + ttlMs;
+  const mode = storageMode("sessions");
+  if (parsed.jti && mode !== "blob") {
+    try {
+      const ok = await pgExtendSession(getDb(), parsed.jti, wallet, expiresAt, now);
+      if (!ok && mode === "postgres") return "none"; // revoked or gone in the meantime: never revive it
+    } catch (err) {
+      console.error("[PANDA auth] session renewal failed", err instanceof Error ? err.message : err);
+      if (mode === "postgres") return "fresh"; // keep the current one as it is; try again on the next visit
+    }
+  }
+  res.cookies.set(SESSION_COOKIE, createSessionToken(wallet, secret, now, ttlMs, parsed.jti, parsed.issuedAt), cookieOptions(Math.floor(ttlMs / 1000)));
+  return "renewed";
+}
+
+/** Moves a session cookie set on one response (e.g. by renewSession) onto the response actually sent. */
+export function copySessionCookie(from: NextResponse, to: NextResponse): void {
+  const c = from.cookies.get(SESSION_COOKIE);
+  if (c) to.cookies.set(c);
+}
+
 export function clearSessionCookie(res: NextResponse): void {
-  res.cookies.set(SESSION_COOKIE, "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 0 });
+  res.cookies.set(SESSION_COOKIE, "", cookieOptions(0));
 }
 
 /** Whether sessions can be revoked at all on this deployment (they can once `sessions` is dual or postgres). */

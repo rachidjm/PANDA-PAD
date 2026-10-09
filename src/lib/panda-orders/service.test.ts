@@ -252,3 +252,28 @@ test("the user closed the setup popup: right after, 'still being created'; a bit
   if (first.ok && first.phase === "setup" && again.ok && again.phase === "setup") assert.deepEqual(again.nonceAccounts, first.nonceAccounts);
   assert.equal((await pgNonceAccounts(db, wallet)).length, 1);
 });
+
+test("cancelling always takes the wallet's signature: asking to close changes nothing until the chain shows the account gone", async () => {
+  const { chain, kp, deps, wallet } = setup();
+  const gid = group();
+  const tranches = [{ trancheId: "t-zzzz1", pct: 20, sellUsd: 2 }];
+  await createNonces(deps, chain, kp, input(wallet, gid, tranches));
+  const r = (await prepareOrders(deps, input(wallet, gid, tranches))) as Extract<PrepareResult, { phase: "orders" }>;
+  await submitOrders(deps, { wallet, groupId: gid, signed: r.orders.map((o) => ({ id: o.id, transaction: sign(o.transaction, kp) })) });
+  const live = () => pgListOrders(db, wallet).then((rows) => rows.filter((o) => o.groupId === gid));
+
+  // With the session alone: a transaction to sign comes back, the order is still live.
+  const close = await closeNonces(deps, { wallet, groupId: gid });
+  assert.equal(close.ok, true);
+  assert.ok((await live()).every((o) => o.state === "active"));
+  // "Confirming" without having sent the signed close: the account is still there, nothing ends.
+  if (close.ok) await confirmClosed(deps, { wallet, nonceAccounts: close.nonceAccounts });
+  assert.ok((await live()).every((o) => o.state === "active"));
+
+  // An account that exists but can't be read as this wallet's nonce is never taken as closed.
+  const nonce = (await live())[0].nonceAccount;
+  chain.accounts.set(nonce, nonceInfo(Keypair.generate().publicKey, randomNonceValue()));
+  const odd = await closeNonces(deps, { wallet, groupId: gid });
+  assert.equal(odd.ok, false);
+  assert.ok((await live()).every((o) => o.state === "active"), "still live: no signature, no cancel");
+});

@@ -295,7 +295,9 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
   const infos = await deps.accounts(targets.map((t) => new PublicKey(t)));
   const closable = targets.map((t, k) => parseNonce(t, infos[k] ?? null)).filter((p): p is ParsedNonce => !!p && p.authority === i.wallet);
   if (closable.length === 0) {
-    await markClosed(deps, i.wallet, targets);
+    // Only accounts that are really GONE on chain (closed by a transaction the wallet signed) end their orders here. One
+    // that still exists but couldn't be read as this wallet's nonce is left alone: cancelling always takes a signature.
+    await markClosed(deps, i.wallet, targets.filter((_, k) => !infos[k]));
     return fail(404, "nothing", "Those accounts are already closed.");
   }
   const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...closeInstructions(wallet, closable.map((c) => ({ address: new PublicKey(c.address), lamports: c.lamports }))));

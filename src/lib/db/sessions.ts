@@ -24,6 +24,16 @@ export async function pgSessionActive(db: Db, jti: string, wallet: string, now: 
   return (await pgSessionStatus(db, jti, wallet, now)) === "active";
 }
 
+/** Pushes a live session's expiry forward (renewal). False if it's unknown, another wallet's, revoked or already expired. */
+export async function pgExtendSession(db: Db, jti: string, wallet: string, expiresAt: number, now: number): Promise<boolean> {
+  const r = await db
+    .update(sessions)
+    .set({ expiresAt })
+    .where(and(eq(sessions.jti, jti), eq(sessions.wallet, wallet), isNull(sessions.revokedAt), gt(sessions.expiresAt, now)))
+    .returning({ jti: sessions.jti });
+  return r.length > 0;
+}
+
 /** Revokes one session. False if it was unknown or already revoked. */
 export async function pgRevokeSession(db: Db, jti: string, reason: string, now: number): Promise<boolean> {
   const r = await db.update(sessions).set({ revokedAt: now, revokedReason: reason.slice(0, 200) }).where(and(eq(sessions.jti, jti), isNull(sessions.revokedAt))).returning({ jti: sessions.jti });

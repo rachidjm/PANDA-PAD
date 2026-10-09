@@ -9,7 +9,7 @@ import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { MARKET_CONFIG } from "@/lib/market/config";
 import { strategyFeeBps } from "@/lib/strategy/plan";
 import { SESSION_COOKIE } from "@/lib/auth/session";
-import { SESSION_TTL_MS } from "@/lib/auth/wallet-auth";
+import { SESSION_TTL_MS, USER_SESSION_TTL_MS } from "@/lib/auth/wallet-auth";
 
 /**
  * The legal texts must say exactly what the code does with the CURRENT flags: right fees, custody only where true, nothing about a feature
@@ -112,7 +112,7 @@ test("no claim PANDA can't back: not audited, secure, regulated, licensed, MiCA-
   }
 });
 
-test("the cookie policy matches what the site really sets: one cookie (name, 2 h, flags), and every localStorage key that exists in the code", () => {
+test("the cookie policy matches what the site really sets: one cookie (name, 7 days / 2 h for admins, flags), and every localStorage key that exists in the code", () => {
   const src = path.join(process.cwd(), "src");
   const files: string[] = [];
   const walk = (dir: string) => {
@@ -130,7 +130,8 @@ test("the cookie policy matches what the site really sets: one cookie (name, 2 h
   for (const lang of LANGS) {
     const cookie = text("cookie-policy", lang, ALL_ON);
     assert.ok(cookie.includes(SESSION_COOKIE), `${lang}: cookie name`);
-    assert.match(cookie, new RegExp(`\\b${hours} (hours|horas)\\b`), `${lang}: duration`);
+    assert.match(cookie, new RegExp(`\\b${hours} (hours|horas)\\b`), `${lang}: admin duration`);
+    assert.match(cookie, new RegExp(`\\b${USER_SESSION_TTL_MS / 86_400_000} (days|días)\\b`), `${lang}: duration`);
     for (const flag of ["HttpOnly", "Secure", "SameSite=Strict"]) assert.ok(cookie.includes(flag), `${lang}: ${flag}`);
   }
   const sessionSource = readFileSync(path.join(src, "lib", "auth", "session.ts"), "utf8");

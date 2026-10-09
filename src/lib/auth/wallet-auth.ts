@@ -14,7 +14,12 @@ import { createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } fro
  */
 
 export const CHALLENGE_TTL_MS = 5 * 60_000;
+/** An ADMIN_WALLETS wallet's session (and the default): 2 hours, never renewed — /admin stays as strict as before. */
 export const SESSION_TTL_MS = 2 * 60 * 60_000;
+/** Everyone else: 7 days, pushed forward while they keep using the site (see renewSession). */
+export const USER_SESSION_TTL_MS = 7 * 24 * 60 * 60_000;
+/** A session is renewed at most this often (one small update, not one per request). */
+export const RENEW_AFTER_MS = 60 * 60_000;
 
 export type NonceRecord = { wallet: string; issuedAt: number; expiresAt: number; used: boolean };
 
@@ -84,9 +89,11 @@ export function requireSecret(secret: string | undefined): asserts secret is str
   if (!secret || secret.length < 32) throw new Error("AUTH_SESSION_SECRET must be set to at least 32 characters.");
 }
 
-export function createSessionToken(wallet: string, secret: string, now: number, ttlMs = SESSION_TTL_MS, jti?: string): string {
+/** `issuedAt`: when the wallet actually signed in — kept as it was when a session is only renewed, so an admin's
+ *  "signed in recently" check (admin-policy.ts) can never be satisfied by a renewal. Defaults to `now`. */
+export function createSessionToken(wallet: string, secret: string, now: number, ttlMs = SESSION_TTL_MS, jti?: string, issuedAt = now): string {
   requireSecret(secret);
-  const payload: SessionPayload = { w: wallet, iat: now, exp: now + ttlMs, ...(jti ? { j: jti } : {}) };
+  const payload: SessionPayload = { w: wallet, iat: issuedAt, exp: now + ttlMs, ...(jti ? { j: jti } : {}) };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${mac(secret, body).toString("base64url")}`;
 }

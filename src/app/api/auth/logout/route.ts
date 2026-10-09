@@ -4,7 +4,7 @@ import { recordAudit } from "@/lib/audit/log";
 
 /**
  * Auth: none needed (ends the caller's own session). Clears the cookie AND, when sessions are revocable (PANDA_STORAGE_MODES sessions=dual|postgres),
- * revokes the session on the server, so a copied cookie stops working immediately instead of living out its 2 hours.
+ * revokes the session on the server, so a copied cookie stops working immediately instead of living out its remaining time.
  */
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
