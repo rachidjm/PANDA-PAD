@@ -23,7 +23,7 @@ import {
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import type { RecordGroup } from "./useDrawTrade";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
-import { lineColor } from "./ChartOverlay";
+import { heldLineColor, lineColor } from "./ChartOverlay";
 import { usePriceImpact } from "@/components/coin/usePriceImpact";
 import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -131,6 +131,11 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       </div>
 
       {showPct && <PctBar draw={draw} busy={busy} />}
+      {showPct && draw.pickPctHint && draw.selectedPct === null && (
+        <p className="mt-2 text-xs font-semibold text-clay-red" role="alert">
+          {t("draw.pickPct")}
+        </p>
+      )}
 
       {target ? (
         <p className="mt-2 flex items-center gap-2 text-xs text-paper/80" role="status">
@@ -526,7 +531,7 @@ function PctBar({ draw, busy }: { draw: DrawApi; busy: boolean }) {
   const [otherOpen, setOtherOpen] = useState(false);
   const [value, setValue] = useState("");
   const sel = draw.selectedPct;
-  const custom = !(PCT_ROW as readonly number[]).includes(sel);
+  const custom = sel !== null && !(PCT_ROW as readonly number[]).includes(sel);
   const btn = (on: boolean) =>
     `min-h-9 min-w-0 flex-1 whitespace-nowrap rounded-lg px-0 text-[11px] font-semibold tracking-tight tabular-nums transition-colors disabled:opacity-40 sm:px-1 sm:text-xs ${
       on ? "bg-bamboo text-ink shadow-[inset_0_-2px_0_rgba(0,0,0,0.25)]" : "bg-paper/5 text-paper/80 hover:bg-paper/10"
@@ -573,34 +578,54 @@ function PctBar({ draw, busy }: { draw: DrawApi; busy: boolean }) {
   );
 }
 
-/** The lines drawn on a held coin, one row each: what it is, its %, its price (tap to edit) and its ×. */
+/** The lines drawn on a held coin, one small card each, in its line's color (green sell, red stop): the type with
+ *  its arrow and the % in a big pill on the left; the price (tap to edit) and how far it is from now on the right; a
+ *  big × to remove it. */
 function HeldLines({ draft, draw, unit, toDisplay, fromDisplay }: { draft: Draft; draw: DrawApi } & PriceDisplayApi) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const rows = (draft.tranches ?? []).flatMap((tr) =>
     (["sell", "stop"] as const).filter((leg) => tr[leg] !== undefined).map((leg) => ({ tr, leg, price: tr[leg]! }))
   );
+  const now = draw.currentUsd;
+  const pctFmt = new Intl.NumberFormat(lang, { maximumFractionDigits: 1, signDisplay: "exceptZero" });
   return (
-    <div>
-      {rows.map(({ tr, leg, price }, i) => (
-        <div key={`${tr.id}-${leg}`} className={`flex items-center justify-between gap-2 py-1.5 ${i < rows.length - 1 ? "border-b border-paper/10" : ""}`}>
-          <span className="flex min-w-0 items-center gap-2 text-xs text-panda-grey">
-            <Dot kind={leg === "sell" ? "sell1" : "stop"} />
-            {t(leg === "sell" ? "draw.line.sell" : "draw.line.stop")} · {tr.pct}%
-          </span>
-          <span className="flex items-center gap-1">
-            <UnitAwarePriceInput value={price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={t(leg === "sell" ? "draw.line.sell" : "draw.line.stop")} onCommit={(v) => draw.setTranchePrice(draft.id, tr.id, leg, v)} />
-            <button
-              type="button"
-              onClick={() => draw.removeTrancheLeg(draft.id, tr.id, leg)}
-              aria-label={t("draw.clearLeg")}
-              title={t("draw.clearLeg")}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-base text-panda-grey transition hover:text-clay-red"
-            >
-              <span aria-hidden>×</span>
-            </button>
-          </span>
-        </div>
-      ))}
+    <div className="space-y-2">
+      {rows.map(({ tr, leg, price }) => {
+        const color = heldLineColor(leg === "sell" ? "sell1" : "stop", true);
+        const label = t(leg === "sell" ? "draw.line.sell" : "draw.line.stop");
+        const dist = now && now > 0 ? (price / now - 1) * 100 : null;
+        return (
+          <div key={`${tr.id}-${leg}`} className="flex items-stretch overflow-hidden rounded-xl border border-paper/10 bg-ink-raised">
+            <span className="w-1 shrink-0" style={{ background: color }} aria-hidden />
+            <div className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 pr-1 sm:gap-3 sm:pl-3">
+              <span className="flex shrink-0 items-center gap-1 text-xs font-semibold" style={{ color }}>
+                <span aria-hidden className="text-sm leading-none">{leg === "sell" ? "↑" : "↓"}</span>
+                {label}
+              </span>
+              <span className="shrink-0 rounded-lg px-2 py-1 text-base font-bold leading-none tabular-nums" style={{ color, background: `color-mix(in srgb, ${color} 16%, transparent)` }}>
+                {tr.pct}%
+              </span>
+              <span className="ml-auto flex min-w-0 flex-col items-end">
+                <UnitAwarePriceInput value={price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={(v) => draw.setTranchePrice(draft.id, tr.id, leg, v)} />
+                {dist !== null && (
+                  <span className={`text-[11px] font-medium tabular-nums ${dist >= 0 ? "text-bamboo" : "text-clay-red"}`} title={t("draw.vsNow")}>
+                    {pctFmt.format(Math.round(dist * 10) / 10)}%
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => draw.removeTrancheLeg(draft.id, tr.id, leg)}
+                aria-label={`${t("draw.clearLeg")} · ${label} ${tr.pct}%`}
+                title={t("draw.clearLeg")}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-panda-grey transition hover:bg-paper/5 hover:text-clay-red"
+              >
+                <span aria-hidden>×</span>
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

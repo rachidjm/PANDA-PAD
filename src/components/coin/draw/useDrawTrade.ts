@@ -28,7 +28,6 @@ import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } f
 import { kindOf, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
 import {
   allocatedPct as sumAllocatedPct,
-  DEFAULT_PCT,
   heldStatus as heldStatusOf,
   pickHeldDraft,
   placeLeg,
@@ -89,6 +88,8 @@ export type ChartLine = {
   pct?: number;
   /** Set only on a DRAFT tranche's leg (never a live/saved one): grabbing this line's tag on the chart repositions THIS leg. */
   trancheId?: string;
+  /** A sell / stop on a coin already held (a draft tranche or a live PANDA order): its sell is drawn green. */
+  held?: boolean;
 };
 
 export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | null; priceChangeH1Pct: number | null; engine: boolean };
@@ -166,7 +167,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop"; pct: number } | { mode: "drag"; trancheId: string; leg: "sell" | "stop" } | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   // The % marked in the one row of buttons: every new sell / stop line takes it (until another one is marked).
-  const [selectedPct, setSelectedPct] = useState<number>(DEFAULT_PCT);
+  // Nothing is marked when the panel opens — the user picks one first ("Elige primero un %" until they do).
+  const [selectedPct, setSelectedPctState] = useState<number | null>(null);
+  const [pickPctHint, setPickPctHint] = useState(false);
+  const setSelectedPct = useCallback((p: number) => {
+    setSelectedPctState(p);
+    setPickPctHint(false);
+  }, []);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
   const [needsSignIn, setNeedsSignIn] = useState(false);
@@ -434,8 +441,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (d.sell) out.push({ key: `${d.id}-s`, groupId: d.id, kind: "sell1", price: d.sell, tag, live: false, active });
       if (d.stop) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
       for (const t of d.tranches ?? []) {
-        if (t.sell !== undefined) out.push({ key: `${d.id}-t-${t.id}-s`, groupId: d.id, kind: "sell1", price: t.sell, tag, live: false, active, pct: t.pct, trancheId: t.id });
-        if (t.stop !== undefined) out.push({ key: `${d.id}-t-${t.id}-x`, groupId: d.id, kind: "stop", price: t.stop, tag, live: false, active, pct: t.pct, trancheId: t.id });
+        if (t.sell !== undefined) out.push({ key: `${d.id}-t-${t.id}-s`, groupId: d.id, kind: "sell1", price: t.sell, tag, live: false, active, pct: t.pct, trancheId: t.id, held: true });
+        if (t.stop !== undefined) out.push({ key: `${d.id}-t-${t.id}-x`, groupId: d.id, kind: "stop", price: t.stop, tag, live: false, active, pct: t.pct, trancheId: t.id, held: true });
       }
     }
     // Live (submitted) strategies: a multi-tranche one is several sibling StrategyRecords sharing `groupId` — the shared
@@ -466,7 +473,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     // Live PANDA orders: each leg at the price the user drew.
     for (const o of pandaList?.orders ?? []) {
       if (o.state !== "active" && o.state !== "sending") continue;
-      out.push({ key: `po-${o.id}`, groupId: o.groupId, kind: o.leg === "sell" ? "sell1" : "stop", price: o.targetUsd, tag: `#${o.n}`, live: true, active: false, pct: o.pct });
+      out.push({ key: `po-${o.id}`, groupId: o.groupId, kind: o.leg === "sell" ? "sell1" : "stop", price: o.targetUsd, tag: `#${o.n}`, live: true, active: false, pct: o.pct, held: true });
     }
     return out;
   }, [drafts, records, activeId, pandaList]);
@@ -516,6 +523,10 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       // pair into one oco — allocation.ts's placeLeg). Going past 100% is drawn and reported, never ignored.
       if (target !== "buy" && !current?.buy) {
         if (heldStatus !== "has") return;
+        if (selectedPct === null) {
+          setPickPctHint(true);
+          return;
+        }
         const leg = target === "stop" ? "stop" : "sell";
         const d = pickHeldDraft(drafts, current?.id ?? null) ?? newDraft();
         setActiveId(d.id);
@@ -648,7 +659,11 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const onPointer = useCallback(
     (phase: "move" | "down" | "up" | "leave", price: number, info: { type: string; button: number; pressed: boolean }) => {
       const s = machineRef.current;
-      if (!s.target) return;
+      if (!s.target) {
+        // A tap on the chart with nothing armed, on a held coin and no % marked yet: say what's missing.
+        if (phase === "up" && selectedPct === null && heldStatus === "has" && !current?.buy) setPickPctHint(true);
+        return;
+      }
       const p = roundPrice(price);
       if (phase === "leave") return setMachine(abort(s));
       if (p <= 0) return;
@@ -678,7 +693,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setMachine(r.state);
       }
     },
-    [activeId, applyPrice, setMachine]
+    [activeId, applyPrice, setMachine, selectedPct, heldStatus, current]
   );
 
   /** Grabs an already-placed tranche leg's line (its tag on the chart) and starts repositioning it right away —
@@ -1088,6 +1103,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     current,
     selectedPct,
     setSelectedPct,
+    pickPctHint,
     freeNonces: pandaList?.freeNonces ?? [],
     freeDepositLamports: (pandaList?.freeNonces.length ?? 0) * (pandaList?.rentLamports ?? 0),
     confirmPanda,

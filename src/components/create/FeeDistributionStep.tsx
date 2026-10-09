@@ -6,6 +6,7 @@ import { CREATOR_CONFIGURABLE_MAX_BPS, PANDA_SHARE_BPS } from "@/lib/config/prot
 import { FeeLine, PlanIssue, formatBps, parsePercentToBps, planIssue, planLines } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
+import InfoTooltip from "./InfoTooltip";
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
 const TREASURY = PANDA_TREASURY.toBase58();
@@ -94,6 +95,7 @@ export default function FeeDistributionStep({
       <div className="flex items-center justify-between rounded-xl bg-ink px-3.5 py-2.5">
         <span className="flex items-center gap-2 text-sm">
           <LockIcon /> {t("fd.protocol")}
+          <InfoTooltip text={t("fd.protocolNote")} align="start" />
         </span>
         <span className="flex items-center gap-2">
           <span className="text-sm font-semibold">{PANDA_SHARE_BPS / 100}%</span>
@@ -102,10 +104,24 @@ export default function FeeDistributionStep({
           </span>
         </span>
       </div>
-      <p className="mt-1.5 text-xs text-panda-grey">{t("fd.protocolNote")}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <button type="button" onClick={() => preset(CREATOR_CONFIGURABLE_MAX_BPS, 0)} className={CHIP}>
+          {t("fd.presetAllMe")}
+        </button>
+        {holderRewards && (
+          <button
+            type="button"
+            disabled={!REWARDS_POOL}
+            onClick={() => preset(5000, 4500)}
+            className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            {t("fd.presetHolders")}
+          </button>
+        )}
+      </div>
 
       {/* Where the whole 100% goes, at a glance — hover (or tap) a segment for its name and share. */}
-      <div ref={barRef} className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full bg-ink">
+      <div ref={barRef} className="mt-3 flex h-2 gap-0.5 overflow-hidden rounded-full bg-ink">
         {lines.map((l, i) => (
           <div
             key={l.kind}
@@ -130,35 +146,22 @@ export default function FeeDistributionStep({
       </div>
       <p className="mt-2 text-xs text-panda-grey">{legend}</p>
 
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
-        <button type="button" onClick={() => preset(CREATOR_CONFIGURABLE_MAX_BPS, 0)} className={CHIP}>
-          {t("fd.presetAllMe")}
-        </button>
-        {holderRewards && (
-          <button
-            type="button"
-            disabled={!REWARDS_POOL}
-            onClick={() => preset(5000, 4500)}
-            className={`${CHIP} disabled:cursor-not-allowed disabled:opacity-40`}
-          >
-            {t("fd.presetHolders")}
-          </button>
-        )}
-      </div>
-
-      <div className="mt-2 space-y-1.5">
-        <Row dot={BAR_COLOR.creator} icon={<CrownIcon />} label={t("fd.creator")} value={creatorPct} onChange={setCreatorPct} />
-        {holderRewards && (
-          <Row
-            dot={BAR_COLOR.holders}
-            icon={<PeopleIcon />}
-            label={t("fd.holders")}
-            tooltip={t("fd.holdersInfo")}
-            value={holdersPct}
-            onChange={setHoldersPct}
-            disabled={!REWARDS_POOL}
-          />
-        )}
+      <div className="mt-3 space-y-1.5">
+        <div className={holderRewards ? "grid grid-cols-2 gap-1.5" : ""}>
+          <Row dot={BAR_COLOR.creator} icon={<CrownIcon />} label={t("fd.creator")} value={creatorPct} onChange={setCreatorPct} compact={holderRewards} />
+          {holderRewards && (
+            <Row
+              dot={BAR_COLOR.holders}
+              icon={<PeopleIcon />}
+              label={t("fd.holders")}
+              tooltip={t("fd.holdersInfo")}
+              value={holdersPct}
+              onChange={setHoldersPct}
+              disabled={!REWARDS_POOL}
+              compact
+            />
+          )}
+        </div>
         {partnerOn ? (
           <div className="rounded-xl bg-ink px-3.5 py-2.5">
             <div className="flex items-center gap-3">
@@ -241,6 +244,7 @@ function Row({
   value,
   onChange,
   disabled,
+  compact,
 }: {
   dot: string;
   icon: React.ReactNode;
@@ -250,52 +254,19 @@ function Row({
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  /** Half a row (Creator and Holders side by side): on a phone the name sits above its box; the icon only from sm up. */
+  compact?: boolean;
 }) {
   return (
-    <div className={`flex items-center gap-3 rounded-xl bg-ink px-3.5 py-2.5 ${disabled ? "opacity-40" : ""}`}>
-      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-      <span className="flex flex-1 items-center gap-1.5 text-sm">
-        {icon} {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
+    <div className={`flex rounded-xl bg-ink py-2.5 ${compact ? "flex-col gap-2 px-3 sm:flex-row sm:items-center sm:gap-3 sm:px-3.5" : "items-center gap-3 px-3.5"} ${disabled ? "opacity-40" : ""}`}>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+        <span className={`mr-1 h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}>{icon}</span>
+        <span className="truncate">{label}</span>
+        {tooltip && <InfoTooltip text={tooltip} align="end" />}
       </span>
-      <PercentInput value={value} onChange={onChange} label={label} disabled={disabled} />
+      <PercentInput value={value} onChange={onChange} label={label} disabled={disabled} compact={compact} />
     </div>
-  );
-}
-
-/** A small info icon that reveals `text` on hover (desktop) or tap (mobile, closing on a tap outside). */
-function InfoTooltip({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [open]);
-  return (
-    <span
-      ref={ref}
-      className="relative inline-flex shrink-0 cursor-pointer text-panda-grey transition-colors hover:text-paper"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        setOpen((o) => !o);
-      }}
-    >
-      <InfoIcon />
-      {open && (
-        <span
-          role="tooltip"
-          className="absolute bottom-full left-1/2 z-10 mb-1.5 w-max max-w-[220px] -translate-x-1/2 rounded-lg bg-ink px-2.5 py-1.5 text-[11px] font-normal leading-snug text-paper shadow-lg"
-        >
-          {text}
-        </span>
-      )}
-    </span>
   );
 }
 
@@ -304,34 +275,26 @@ function PercentInput({
   onChange,
   label,
   disabled,
+  compact,
 }: {
   value: string;
   onChange: (v: string) => void;
   label: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <span className="flex items-center gap-1">
+    <span className={`flex shrink-0 items-center gap-1 ${compact ? "w-full sm:w-auto" : ""}`}>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         inputMode="decimal"
         aria-label={`${label} %`}
-        className="w-16 rounded-lg bg-ink-raised px-2 py-1.5 text-right text-sm font-semibold outline-none focus:ring-1 focus:ring-paper/30 disabled:cursor-not-allowed"
+        className={`${compact ? "w-full sm:w-16" : "w-16"} rounded-lg bg-ink-raised px-2 py-1.5 text-right text-sm font-semibold outline-none focus:ring-1 focus:ring-paper/30 disabled:cursor-not-allowed`}
       />
       <span className="text-xs text-panda-grey">%</span>
     </span>
-  );
-}
-
-function InfoIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 16v-5" />
-      <path d="M12 8h.01" />
-    </svg>
   );
 }
 

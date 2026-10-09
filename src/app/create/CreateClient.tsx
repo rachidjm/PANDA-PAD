@@ -20,6 +20,7 @@ import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useCreationStatus } from "@/components/create/useCreationBlocked";
 import FirstBuyField from "@/components/create/FirstBuyField";
+import CreatePreviewCard from "@/components/create/CreatePreviewCard";
 import { useRates } from "@/components/coin/useRates";
 import { firstBuyFromInput, type BuyUnit } from "@/lib/trading/amount";
 
@@ -384,17 +385,21 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
       )}
 
       {otcRewards && (
-        <div className="mt-7">
+        <div className="mt-7 max-w-2xl">
           <LaunchModeToggle mode={mode} onChange={setMode} />
         </div>
       )}
 
       {mode === "rewards" ? (
-        <OtcRewardsCreate blocked={creationBlocked} />
+        <div className="max-w-2xl">
+          <OtcRewardsCreate blocked={creationBlocked} />
+        </div>
       ) : (
       <>
-      <div className="mt-5 space-y-5">
-        <div>
+      {/* Desktop: two columns — the image and the live showcase preview on the left (sticky), the form on the right.
+          Mobile: one column — image, fields, preview, and "Lanzar" pinned at the bottom. */}
+      <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start lg:gap-10">
+        <div className="lg:top-[calc(var(--header-h,68px)+16px)] [@media(min-width:1024px)_and_(min-height:860px)]:sticky">
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
@@ -408,13 +413,14 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
               setDragOver(false);
               handleFile(e.dataTransfer.files?.[0]);
             }}
-            className={`flex w-full flex-col items-center justify-center gap-2 rounded-[22px] border-2 border-dashed px-6 py-10 text-center transition-colors ${
-              dragOver ? "border-meme-orange bg-meme-orange/5" : "border-paper/20 hover:border-paper/35"
-            }`}
+            aria-label={t("cr.uploadImage")}
+            className={`mx-auto flex aspect-square w-full max-w-[240px] flex-col items-center justify-center gap-2 overflow-hidden rounded-[22px] border-2 border-dashed text-center transition-colors lg:max-w-none ${
+              imagePreview ? "border-solid border-paper/15 hover:border-paper/35" : dragOver ? "border-meme-orange bg-meme-orange/5" : "border-paper/20 px-6 hover:border-paper/35"
+            } ${dragOver ? "border-meme-orange" : ""}`}
           >
             {imagePreview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={imagePreview} alt={t("cr.previewAlt")} className="max-h-48 rounded-2xl" />
+              <img src={imagePreview} alt={t("cr.previewAlt")} className="h-full w-full object-cover" />
             ) : (
               <>
                 <ImagePlaceholderIcon className="text-panda-grey" />
@@ -430,97 +436,112 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
             className="hidden"
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
-          {imageError && <p className="mt-2 text-sm text-clay-red">{imageError}</p>}
+          {imageError && <p className="mt-2 text-center text-sm text-clay-red lg:text-left">{imageError}</p>}
+          <div className="mt-6 hidden lg:block">
+            <CreatePreviewCard image={imagePreview} name={name.trim()} ticker={ticker} description={description} />
+          </div>
         </div>
 
-        <Field label={t("cr.tokenName")}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("cr.namePh")}
-            maxLength={32}
-            className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-          />
-        </Field>
+        <div className="mt-6 space-y-5 lg:mt-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] gap-3">
+            <Field label={t("cr.tokenName")}>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t("cr.namePh")}
+                maxLength={32}
+                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+              />
+            </Field>
 
-        <Field label={t("cr.ticker")}>
-          <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 focus-within:border-paper/40">
-            <span className="text-panda-grey">$</span>
-            <input
-              value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
-              placeholder="CAT"
-              className="w-full bg-transparent text-sm outline-none placeholder:text-panda-grey"
-            />
+            <Field label={t("cr.ticker")}>
+              <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 focus-within:border-paper/40">
+                <span className="text-panda-grey">$</span>
+                <input
+                  value={ticker}
+                  onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
+                  placeholder="CAT"
+                  className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-panda-grey"
+                />
+              </div>
+            </Field>
           </div>
-        </Field>
 
-        <Field label={t("cr.description")}>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={t("cr.descPh")}
-            rows={3}
-            maxLength={280}
-            className="w-full resize-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+          <Field label={t("cr.description")}>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t("cr.descPh")}
+              rows={3}
+              maxLength={280}
+              className="w-full resize-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("cr.website")}>
+              <input
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://…"
+                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+              />
+            </Field>
+            <Field label={t("cr.xOpt")}>
+              <input
+                value={twitter}
+                onChange={(e) => setTwitter(e.target.value)}
+                placeholder="https://x.com/…"
+                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+              />
+            </Field>
+          </div>
+
+          <FirstBuyField
+            value={firstBuyAmount}
+            unit={firstBuyUnit}
+            onValue={setFirstBuyAmount}
+            onUnit={setFirstBuyUnit}
+            rates={rates}
+            description={t("cr.firstBuyDesc")}
+            minSol={minFirstBuySol}
           />
-        </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("cr.website")}>
-            <input
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="https://…"
-              className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-            />
-          </Field>
-          <Field label={t("cr.xOpt")}>
-            <input
-              value={twitter}
-              onChange={(e) => setTwitter(e.target.value)}
-              placeholder="https://x.com/…"
-              className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-            />
-          </Field>
+          {connected && publicKey ? (
+            <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
+          ) : (
+            <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
+              <p className="font-medium">{t("cr.feeDistribution")}</p>
+              <p className="mt-1 text-sm text-panda-grey">{t("cr.feeConnect")}</p>
+            </div>
+          )}
+
+          <div className="mx-auto max-w-[280px] lg:hidden">
+            <CreatePreviewCard image={imagePreview} name={name.trim()} ticker={ticker} description={description} />
+          </div>
+
+          {referrals && (
+            <p className="text-center text-xs text-panda-grey">{t("cr.recruiterNote")}</p>
+          )}
+
+          {/* "Lanzar" stays in reach: pinned to the bottom of the screen (above the phone's tab bar) while the form
+              runs past it. */}
+          <div className="sticky bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 -mx-4 border-t border-paper/10 bg-ink/95 px-4 py-3 backdrop-blur sm:bottom-0 sm:-mx-5 sm:px-5 lg:mx-0 lg:rounded-b-2xl lg:px-0">
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={!canLaunch}
+              className="w-full rounded-full bg-paper py-4 text-base font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("cr.launch")}
+            </button>
+            {!connected && imageFile && name.trim() && ticker.trim() && (
+              <p className="mt-2 text-center text-sm text-panda-grey">{t("cr.connectToLaunch")}</p>
+            )}
+          </div>
+          <p className="text-center text-xs text-panda-grey">
+            {t("cr.mintNote")}
+          </p>
         </div>
-
-        <FirstBuyField
-          value={firstBuyAmount}
-          unit={firstBuyUnit}
-          onValue={setFirstBuyAmount}
-          onUnit={setFirstBuyUnit}
-          rates={rates}
-          description={t("cr.firstBuyDesc")}
-          minSol={minFirstBuySol}
-        />
-
-        {connected && publicKey ? (
-          <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
-        ) : (
-          <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-            <p className="font-medium">{t("cr.feeDistribution")}</p>
-            <p className="mt-1 text-sm text-panda-grey">{t("cr.feeConnect")}</p>
-          </div>
-        )}
-
-        {referrals && (
-          <p className="text-center text-xs text-panda-grey">{t("cr.recruiterNote")}</p>
-        )}
-
-        <button
-          onClick={() => setConfirming(true)}
-          disabled={!canLaunch}
-          className="w-full rounded-full bg-paper py-3.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {t("cr.launch")}
-        </button>
-        {!connected && imageFile && name.trim() && ticker.trim() && (
-          <p className="text-center text-sm text-panda-grey">{t("cr.connectToLaunch")}</p>
-        )}
-        <p className="text-center text-xs text-panda-grey">
-          {t("cr.mintNote")}
-        </p>
       </div>
       {confirming && feeResult && (
         <LaunchConfirm

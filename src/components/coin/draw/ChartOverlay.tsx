@@ -11,6 +11,8 @@ export type ChartOverlayData = {
   lines: ChartLine[];
   /** Which line the user is placing right now, if any. */
   drawing: DrawTarget | null;
+  /** The line being placed is a sell / stop on a coin already held (no buy drawn) — its sell shows green. */
+  drawingHeld?: boolean;
   /** Real USD price, same space as every `ChartLine.price` — never the display unit directly. */
   preview: number | null;
   onPointer: (phase: "move" | "down" | "up" | "leave", price: number, info: { type: string; button: number; pressed: boolean }) => void;
@@ -49,6 +51,11 @@ export function lineColor(kind: DrawTarget): string {
   return `hsl(42 35% ${light}%)`;
 }
 
+/** A held-coin sell (no buy on the chart to confuse it with) is green, like its card in the panel; the rest as lineColor. */
+export function heldLineColor(kind: DrawTarget, held?: boolean): string {
+  return held && kind !== "buy" && kind !== "stop" ? "var(--bamboo)" : lineColor(kind);
+}
+
 /** A small solid triangle pinned to the top/bottom edge, pointing further off-screen — stands in for a line or
  *  a trade marker that's out of the currently visible price range, instead of stretching the scale to fit it
  *  (see scale.ts's `clampedY`). Its real price is still shown in the tag/tooltip, just not drawn at scale. */
@@ -63,7 +70,7 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
     <g pointerEvents="none">
       {overlay.lines.map((l) => {
         const { y, out } = clampedY(overlay.toDisplay(l.price), domain);
-        if (out) return <EdgeArrow key={l.key} x={CHART.width - 16} y={y} out={out} color={lineColor(l.kind)} />;
+        if (out) return <EdgeArrow key={l.key} x={CHART.width - 16} y={y} out={out} color={heldLineColor(l.kind, l.held)} />;
         return (
           <g key={l.key}>
           {/* a dark halo under every line keeps it readable over the curve and the gridlines */}
@@ -73,7 +80,7 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
             x2={CHART.width}
             y1={y}
             y2={y}
-            stroke={lineColor(l.kind)}
+            stroke={heldLineColor(l.kind, l.held)}
             strokeWidth={l.active || l.live ? 2 : 1.5}
             strokeDasharray={l.kind === "stop" ? "2 4" : "8 4"}
             strokeOpacity={l.live || l.active ? 0.95 : 0.7}
@@ -85,11 +92,11 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
       {overlay.drawing && overlay.preview !== null && (
         (() => {
           const { y, out } = clampedY(overlay.toDisplay(overlay.preview), domain);
-          if (out) return <EdgeArrow x={CHART.width - 16} y={y} out={out} color={lineColor(overlay.drawing)} />;
+          if (out) return <EdgeArrow x={CHART.width - 16} y={y} out={out} color={heldLineColor(overlay.drawing, overlay.drawingHeld)} />;
           return (
             <>
               <line x1={0} x2={CHART.width} y1={y} y2={y} stroke="var(--ink)" strokeOpacity={0.55} strokeWidth={5.5} vectorEffect="non-scaling-stroke" />
-              <line x1={0} x2={CHART.width} y1={y} y2={y} stroke={lineColor(overlay.drawing)} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+              <line x1={0} x2={CHART.width} y1={y} y2={y} stroke={heldLineColor(overlay.drawing, overlay.drawingHeld)} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
             </>
           );
         })()
@@ -149,7 +156,7 @@ export function PriceTags({
     // Only a DRAFT tranche's own leg can be grabbed and dragged — never a live/saved line, and never the plain
     // (non-tranche) buy/sell/stop lines, which are repriced by typing instead (see DrawTradePanel.tsx).
     const draggable = !!overlay.grabLine && !l.live && !!l.trancheId;
-    return { key: l.key, kind: l.kind, text: parts.join(" · "), y: px(y), strong: l.live || l.active, line: l, draggable };
+    return { key: l.key, kind: l.kind, held: l.held, text: parts.join(" · "), y: px(y), strong: l.live || l.active, line: l, draggable };
   });
   const previewY = overlay.drawing && overlay.preview !== null ? px(clampedY(overlay.toDisplay(overlay.preview), domain).y) : null;
   const spread = spreadLabels(
@@ -173,7 +180,7 @@ export function PriceTags({
               : undefined
           }
           className={`absolute right-1 -translate-y-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none text-ink ${it.draggable ? "pointer-events-auto cursor-grab active:cursor-grabbing" : ""}`}
-          style={{ top: Math.max(9, spread[i]), background: lineColor(it.kind), opacity: it.strong ? 1 : 0.75, touchAction: it.draggable ? "none" : undefined }}
+          style={{ top: Math.max(9, spread[i]), background: heldLineColor(it.kind, it.held), opacity: it.strong ? 1 : 0.75, touchAction: it.draggable ? "none" : undefined }}
         >
           {it.text}
         </span>
@@ -181,7 +188,7 @@ export function PriceTags({
       {previewY !== null && overlay.drawing && (
         <span
           className="absolute left-2 z-10 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-bold leading-none text-ink shadow-lg"
-          style={{ top: Math.min(Math.max(10, previewY), h - 10), background: lineColor(overlay.drawing) }}
+          style={{ top: Math.min(Math.max(10, previewY), h - 10), background: heldLineColor(overlay.drawing, overlay.drawingHeld) }}
         >
           {overlay.previewLabels(overlay.drawing)} · {overlay.formatValue(overlay.preview!)}
         </span>

@@ -18,7 +18,6 @@ export const PCT_PRESETS = [25, 50, 75, 100] as const;
 export const PCT_MORE_PRESETS = [5, 10, 15] as const;
 /** The one row of % buttons Draw Your Trade shows (plus "Otro"); the marked one applies to every new line. */
 export const PCT_ROW = [5, 10, 15, 20, 25, 50, 100] as const;
-export const DEFAULT_PCT = 100;
 
 function newId(): string {
   try {

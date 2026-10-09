@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { FIRST_BUY_PRESETS, firstBuyFromInput, solToUnit, type BuyRates, type BuyUnit } from "@/lib/trading/amount";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import InfoTooltip from "./InfoTooltip";
 
 const SYMBOL: Record<BuyUnit, string> = { SOL: "SOL", USD: "$", EUR: "€" };
 const money = (n: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
@@ -64,9 +65,12 @@ export default function FirstBuyField({
   const others = (["USD", "EUR"] as const).filter((u) => u !== unit);
   return (
     <div>
-      <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.firstBuy")}</span>
-      <p className="mb-2 text-xs text-panda-grey">{description}</p>
-      <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3.5 focus-within:border-bamboo/50">
+      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-paper/80">
+        {t("cr.firstBuy")}
+        <InfoTooltip text={`${description} ${t("cr.firstBuyUnitHint")}`} align="start" />
+      </span>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-paper/15 bg-ink px-4 py-3 focus-within:border-bamboo/50">
         <input
           value={value}
           onChange={(e) => onValue(sanitizeDecimalInput(e.target.value))}
@@ -90,17 +94,18 @@ export default function FirstBuyField({
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5 sm:flex sm:shrink-0">
         {FIRST_BUY_PRESETS[unit].map((p) => (
           <button
             type="button"
             key={p}
             onClick={() => onValue(String(p))}
-            className={`rounded-xl py-2 text-xs font-semibold transition-colors ${value === String(p) ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"}`}
+            className={`whitespace-nowrap rounded-xl py-2 text-xs font-semibold transition-colors sm:px-2.5 sm:py-3 ${value === String(p) ? "bg-bamboo/15 text-bamboo" : "bg-paper/5 text-paper/70 hover:bg-paper/10 hover:text-paper"}`}
           >
             {unit === "SOL" ? `${p} SOL` : `${SYMBOL[unit]}${p}`}
           </button>
         ))}
+      </div>
       </div>
 
       {typed && !noRate && !belowMin && (
@@ -118,7 +123,6 @@ export default function FirstBuyField({
           {typed ? t("cr.firstBuyBelowMin", { min: minLabel }) : t("cr.firstBuyMinHint", { min: minLabel })}
         </p>
       )}
-      <p className="mt-2 text-[11px] leading-relaxed text-panda-grey">{t("cr.firstBuyUnitHint")}</p>
     </div>
   );
 }

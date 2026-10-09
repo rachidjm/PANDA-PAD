@@ -1055,6 +1055,8 @@ export const dict = {
   "draw.heldHint": { en: "You hold {ticker}: tap Sell or Stop to set your exit on the chart — no purchase needed.", es: "Tienes {ticker}: toca Venta o Stop para fijar tu salida en el gráfico, sin comprar." },
   // Draw Your Trade — the simple layout: one row of %, one message, one button
   "draw.pctLabel": { en: "Share of your balance for each new line", es: "Parte de tu saldo para cada línea nueva" },
+  "draw.pickPct": { en: "Pick a % first", es: "Elige primero un %" },
+  "draw.vsNow": { en: "Distance from the current price", es: "Distancia al precio actual" },
   "draw.sign1": { en: "Sign 1 order", es: "Firmar 1 orden" },
   "draw.signN": { en: "Sign {n} orders", es: "Firmar {n} órdenes" },
   "draw.buyClearLines": { en: "Remove your sell / stop lines to draw a buy.", es: "Quita tus líneas de venta o stop para dibujar una compra." },
@@ -1657,6 +1659,7 @@ export const dict = {
   "cr.launchOn": { en: "Launch on", es: "Lanzar en" },
   "cr.uploadImage": { en: "Upload image", es: "Subir imagen" },
   "cr.uploadHint": { en: "GIF, PNG, JPG or WEBP — or drag and drop", es: "GIF, PNG, JPG o WEBP — o arrastra y suelta" },
+  "cr.preview": { en: "How it'll look on PANDA", es: "Así se verá en PANDA" },
   "cr.previewAlt": { en: "Uploaded image preview", es: "Vista previa de la imagen subida" },
   "cr.imageType": { en: "Please upload a GIF, PNG, JPG or WEBP image.", es: "Sube una imagen GIF, PNG, JPG o WEBP." },
   "cr.tokenName": { en: "Token name", es: "Nombre del token" },

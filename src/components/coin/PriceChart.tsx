@@ -194,6 +194,7 @@ export default function PriceChart({
     ? {
         lines: draw.lines,
         drawing: draw.machine.target,
+        drawingHeld: !draw.current?.buy,
         preview: draw.machine.preview,
         onPointer: draw.onPointer,
         labels: (k) => (k === "buy" ? t("draw.line.buy") : k === "stop" ? t("draw.line.stop") : t("draw.line.sell")),
