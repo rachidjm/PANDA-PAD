@@ -4,6 +4,7 @@ import { PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { MARKET_CONFIG } from "@/lib/market/config";
 import { strategyFeeBps } from "@/lib/strategy/plan";
 import { HOLDER_PAYOUT_MIN_LAMPORTS } from "@/lib/rewards/limits";
+import { SELL_MARGIN_BPS, STOP_MARGIN_BPS } from "@/lib/panda-orders/math";
 import { siteDomain } from "@/lib/config/site";
 import {
   DEFAULT_FOUNDER_MIN_TRADER_VOLUME_USD,
@@ -21,7 +22,7 @@ export type LegalPage = { slug: LegalSlug; title: Record<Lang, string>; body: Re
  * The date these texts were last changed. Bump it whenever anything in this file (or a fee, a flag or a data practice the texts describe)
  * changes: src/lib/legal-content.test.ts fails if it is in the future or malformed.
  */
-export const LEGAL_LAST_UPDATED = "2026-10-08";
+export const LEGAL_LAST_UPDATED = "2026-10-09";
 
 /**
  * Every percentage below comes from the constant the code charges with, so a text can't drift from what is really collected
@@ -467,6 +468,53 @@ export const AI_ADDENDA: Addenda = {
   },
 };
 
+const SELL_MARGIN = both(SELL_MARGIN_BPS);
+const STOP_MARGIN = both(STOP_MARGIN_BPS);
+
+/**
+ * Paragraphs that exist ONLY while FEATURE_PANDA_ORDERS is on: PANDA orders — sells and stops on a coin the user already
+ * holds, pre-signed by the user and sent by PANDA when the price is reached. Not custodial (the coins never leave the
+ * wallet until the sale itself), but PANDA keeps signed transactions and decides WHEN to send them: that is declared.
+ */
+export const PANDA_ORDERS_ADDENDA: Addenda = {
+  "legal-notice": {
+    en: [
+      "PANDA orders (sells and stops on a coin you already hold, on Pump.fun or PumpSwap) are not custodial: your coins stay in your wallet until the sale itself executes. You sign each order in advance; PANDA stores the signed transaction encrypted and only decides WHEN to send it — it cannot change it, its amount, its minimum price, its fees or where the money goes, because any change would invalidate your signature.",
+    ],
+    es: [
+      "Las órdenes PANDA (ventas y stops sobre una moneda que ya tienes, en Pump.fun o PumpSwap) no son custodiales: tus monedas siguen en tu wallet hasta que la venta se ejecuta. Firmas cada orden por adelantado; PANDA guarda la transacción firmada cifrada y solo decide CUÁNDO enviarla — no puede cambiarla, ni su cantidad, ni su precio mínimo, ni sus comisiones, ni a dónde va el dinero, porque cualquier cambio invalidaría tu firma.",
+    ],
+  },
+  "terms-of-service": {
+    en: [
+      `PANDA orders. You can set a sell, a stop, or both (whichever executes first cancels the other) on any share of a Pump.fun or PumpSwap coin you hold, with no minimum amount. Each order is a transaction you sign in advance: it sells an exact number of tokens for at least a minimum amount of SOL, fixed when you sign (your price minus ${SELL_MARGIN.en} for a sell, minus ${STOP_MARGIN.en} for a stop). PANDA keeps it, encrypted, and sends it when its live check shows your level has been reached; if the market can't pay that minimum, the sale does not happen. A stop can therefore fail to sell in a fast drop and you keep the coin — you accept this explicitly before signing a stop.`,
+      `Fees and costs of PANDA orders. PANDA's usual trading fee — ${TRADE.en} at the default rate, ${TRADE_REFERRED.en} at the referred/legacy rate — of the guaranteed minimum, included in the order and paid only if it executes (with the recruiter's share, when there is one, paid straight to them in the same transaction). Each order needs a small "nonce" account in your wallet's name holding a refundable deposit (about 0.001 SOL), returned to you when you cancel or after the order executes; and the network fee of the sale is paid by your wallet when it executes. Cancelling (closing that account) is free apart from the network fee.`,
+      "PANDA orders can stop being valid without anyone's fault: if the coin moves from the bonding curve to PumpSwap, if Pump changes its programs, or if your wallet no longer holds the coins. PANDA then tells you in the app and asks you to sign again; it never re-signs or substitutes anything for you.",
+    ],
+    es: [
+      `Órdenes PANDA. Puedes poner una venta, un stop, o ambos (el que se ejecute primero cancela el otro) sobre cualquier parte de una moneda de Pump.fun o PumpSwap que tengas, sin importe mínimo. Cada orden es una transacción que firmas por adelantado: vende una cantidad exacta de tokens por al menos una cantidad mínima de SOL, fijada al firmar (tu precio menos un ${SELL_MARGIN.es} en una venta, menos un ${STOP_MARGIN.es} en un stop). PANDA la guarda, cifrada, y la envía cuando su comprobación en vivo muestra que se ha alcanzado tu nivel; si el mercado no puede pagar ese mínimo, la venta no se produce. Por eso un stop puede no vender en una caída rápida y seguir teniendo la moneda — lo aceptas expresamente antes de firmar un stop.`,
+      `Comisiones y costes de las órdenes PANDA. La comisión de trading habitual de PANDA — el ${TRADE.es} a la tarifa por defecto, el ${TRADE_REFERRED.es} a la de referido/veterano — sobre el mínimo garantizado, incluida en la orden y pagada solo si se ejecuta (con la parte del reclutador, si lo hay, pagada directamente a él en la misma transacción). Cada orden necesita una pequeña cuenta "nonce" a nombre de tu wallet con un depósito reembolsable (unos 0,001 SOL), que vuelve a ti al cancelar o después de ejecutarse la orden; y la comisión de red de la venta la paga tu wallet cuando se ejecuta. Cancelar (cerrar esa cuenta) es gratis salvo la comisión de red.`,
+      "Las órdenes PANDA pueden dejar de valer sin culpa de nadie: si la moneda pasa de la curva a PumpSwap, si Pump cambia sus programas, o si tu wallet ya no tiene las monedas. PANDA te avisa en la app y te pide volver a firmar; nunca vuelve a firmar ni sustituye nada por ti.",
+    ],
+  },
+  "privacy-policy": {
+    en: [
+      "PANDA orders. Only if you set one up, PANDA stores the order (coin, amounts, prices, state) tied to your wallet address, and the transaction you signed, encrypted with a key only PANDA's server holds. The signed transaction is deleted as soon as the order is executed, cancelled or no longer valid.",
+    ],
+    es: [
+      "Órdenes PANDA. Solo si configuras una, PANDA guarda la orden (moneda, cantidades, precios, estado) asociada a tu dirección de wallet, y la transacción que firmaste, cifrada con una clave que solo tiene el servidor de PANDA. La transacción firmada se borra en cuanto la orden se ejecuta, se cancela o deja de valer.",
+    ],
+  },
+  "risk-disclosure": {
+    en: [
+      `PANDA orders execute only within what you signed. A sell may fill up to ${SELL_MARGIN.en} under your price and a stop up to ${STOP_MARGIN.en} under it; beyond that the order does not execute — in a fast drop a stop may not sell and you keep the coin, possibly at a much lower price. Orders depend on PANDA's server watching the price and on the Solana network being available: a delay, an outage or congestion can mean an order executes late or not at all. An order can stop being valid (the coin graduates, Pump changes its programs, you move your coins), and you must sign it again. Keep a little SOL in your wallet for the network fee.`,
+    ],
+    es: [
+      `Las órdenes PANDA solo se ejecutan dentro de lo que firmaste. Una venta puede ejecutarse hasta un ${SELL_MARGIN.es} por debajo de tu precio y un stop hasta un ${STOP_MARGIN.es}; más allá, la orden no se ejecuta — en una caída rápida un stop puede no vender y sigues teniendo la moneda, quizá a un precio mucho más bajo. Las órdenes dependen de que el servidor de PANDA vigile el precio y de que la red de Solana esté disponible: un retraso, una caída o congestión pueden hacer que una orden se ejecute tarde o no se ejecute. Una orden puede dejar de valer (la moneda se gradúa, Pump cambia sus programas, mueves tus monedas) y tendrás que volver a firmarla. Mantén un poco de SOL en tu wallet para la comisión de red.`,
+    ],
+  },
+};
+
 export type LegalOptions = {
   /** FEATURE_STRATEGIES */ custody: boolean;
   /** FEATURE_HOLDER_REWARDS */ holders?: boolean;
@@ -477,6 +525,7 @@ export type LegalOptions = {
   /** FEATURE_PANDA_AIRDROPS */ airdrops?: boolean;
   /** FEATURE_REFERRALS */ referrals?: boolean;
   /** FEATURE_AI_ASSISTANT */ aiAssistant?: boolean;
+  /** FEATURE_PANDA_ORDERS */ pandaOrders?: boolean;
   /** NEXT_PUBLIC_PANDA_TOKEN_MINT is set: $PANDA exists */ pandaToken?: boolean;
 };
 
@@ -493,6 +542,7 @@ export function getLegalPage(slug: LegalSlug, opts: LegalOptions): LegalPage {
     opts.airdrops ? AIRDROP_ADDENDA[slug] : undefined,
     opts.referrals ? REFERRAL_ADDENDA[slug] : undefined,
     opts.aiAssistant ? AI_ADDENDA[slug] : undefined,
+    opts.pandaOrders ? PANDA_ORDERS_ADDENDA[slug] : undefined,
   ].filter((e): e is Record<Lang, string[]> => !!e);
   const withToken = opts.pandaToken && slug === "disclaimer";
   if (extras.length === 0 && !withToken) return base;

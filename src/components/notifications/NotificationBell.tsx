@@ -8,8 +8,17 @@ import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { formatPrice, formatRelativeTime } from "@/lib/format";
 import type { DictKey } from "@/lib/i18n/translations";
 import { useStrategyNotifications } from "./useStrategyNotifications";
+import type { NotificationKind } from "@/lib/strategy/notifications";
 
-const TEXT_KEY: Record<"buy" | "sell", DictKey> = { buy: "notif.buyFilled", sell: "notif.sellFilled" };
+const TEXT_KEY: Record<NotificationKind, DictKey> = {
+  buy: "notif.buyFilled",
+  sell: "notif.sellFilled",
+  panda_sell: "notif.pandaSell",
+  panda_stop: "notif.pandaStop",
+  panda_resign: "notif.pandaResign",
+  panda_slippage: "notif.pandaSlippage",
+  panda_no_sol: "notif.pandaNoSol",
+};
 
 /** The header bell: a history of Draw Your Trade's own executed legs, nothing more — no Web Push, it only
  *  ever shows what's already on screen when the wallet opens the app (or the next time the list is polled
@@ -17,9 +26,9 @@ const TEXT_KEY: Record<"buy" | "sell", DictKey> = { buy: "notif.buyFilled", sell
  *  show and nowhere safe to ask the server for it. */
 export default function NotificationBell() {
   const { t, lang } = useLanguage();
-  const { strategies } = useFeatures();
+  const { strategies, pandaOrders } = useFeatures();
   const { connected } = useWallet();
-  const { notifications, unreadCount, markAllRead } = useStrategyNotifications(strategies && connected);
+  const { notifications, unreadCount, markAllRead } = useStrategyNotifications({ strategies: strategies && connected, pandaOrders: pandaOrders && connected });
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -38,7 +47,7 @@ export default function NotificationBell() {
     };
   }, []);
 
-  if (!strategies || !connected) return null;
+  if ((!strategies && !pandaOrders) || !connected) return null;
 
   return (
     <div ref={ref} className="relative">
@@ -65,7 +74,7 @@ export default function NotificationBell() {
               {notifications.slice(0, 30).map((n) => (
                 <li key={n.id} className="border-b border-paper/5 last:border-b-0">
                   <Link href={`/coin/${n.mint}`} onClick={() => setOpen(false)} className="block px-4 py-3 text-xs transition-colors hover:bg-paper/5">
-                    <p className="text-paper/90">{t(TEXT_KEY[n.kind], { ticker: n.ticker, price: formatPrice(n.priceUsd) })}</p>
+                    <p className="text-paper/90">{t(TEXT_KEY[n.kind], { ticker: n.ticker, price: formatPrice(n.priceUsd), reason: n.reason ? t(`orders.reason.${n.reason}` as DictKey) : "" })}</p>
                     <p className="mt-0.5 text-panda-grey">{formatRelativeTime(n.at, lang)}</p>
                   </Link>
                 </li>

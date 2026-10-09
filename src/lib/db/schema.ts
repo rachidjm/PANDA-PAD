@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, date, doublePrecision, index, jsonb, pgTable, primaryKey, smallint, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, doublePrecision, index, jsonb, pgTable, primaryKey, smallint, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 /**
  * PANDA's Postgres schema (phase 6, point 1): the core that touches money or verified history. Everything else stays where it
@@ -491,10 +491,81 @@ export const reservedMintKeys = pgTable("reserved_mint_keys", {
   usedAt: bigint("used_at", { mode: "number" }),
 });
 
+// ── PANDA orders (pre-signed sells / stops on a coin the wallet already holds — src/lib/panda-orders) ───────────────
+/** The wallet's durable-nonce accounts (address derived from the wallet + seed; the wallet is their only authority).
+ *  `pending` = handed out in a setup transaction not yet seen on-chain; `ready` = exists; `closed` = withdrawn by the
+ *  user (deposit back). Whether one is in USE is derived from panda_orders (a live order references it). */
+export const pandaNonceAccounts = pgTable(
+  "panda_nonce_accounts",
+  {
+    address: text("address").primaryKey(),
+    wallet: text("wallet").notNull(),
+    seed: text("seed").notNull(),
+    state: text("state").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("panda_nonce_accounts_wallet").on(t.wallet), check("panda_nonce_accounts_state", sql`${t.state} IN ('pending', 'ready', 'closed')`)]
+);
+
+/** One row per order leg (a sell or a stop). The signed transaction is stored ENCRYPTED (src/lib/panda-orders/crypto.ts)
+ *  and wiped once the order is final. Rules the database enforces: amounts positive, the signed minimum never above the
+ *  trigger, and at most ONE live sell and ONE live stop per nonce account (they are the two legs of one tranche). */
+export const pandaOrders = pgTable(
+  "panda_orders",
+  {
+    id: text("id").primaryKey(),
+    wallet: text("wallet").notNull(),
+    mint: text("mint").notNull(),
+    ticker: text("ticker").notNull(),
+    groupId: text("group_id").notNull(),
+    trancheId: text("tranche_id").notNull(),
+    n: smallint("n").notNull(),
+    leg: text("leg").notNull(),
+    venue: text("venue").notNull(),
+    pool: text("pool"),
+    pct: doublePrecision("pct").notNull(),
+    nonceAccount: text("nonce_account").notNull(),
+    nonceValue: text("nonce_value").notNull(),
+    tokenAmountRaw: text("token_amount_raw").notNull(),
+    tokenDecimals: smallint("token_decimals").notNull(),
+    triggerOutLamports: lamports("trigger_out_lamports").notNull(),
+    minOutLamports: lamports("min_out_lamports").notNull(),
+    feeLamports: lamports("fee_lamports").notNull(),
+    targetUsd: doublePrecision("target_usd").notNull(),
+    refUsd: doublePrecision("ref_usd").notNull(),
+    state: text("state").notNull(),
+    reason: text("reason"),
+    messageHash: text("message_hash").notNull(),
+    txCiphertext: text("tx_ciphertext"),
+    txIv: text("tx_iv"),
+    signature: text("signature"),
+    notice: text("notice"),
+    noticeAt: bigint("notice_at", { mode: "number" }),
+    lastCheckedAt: bigint("last_checked_at", { mode: "number" }),
+    unknownFailures: smallint("unknown_failures").notNull().default(0),
+    sentAt: bigint("sent_at", { mode: "number" }),
+    executedAt: bigint("executed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("panda_orders_wallet_mint").on(t.wallet, t.mint),
+    index("panda_orders_state").on(t.state),
+    index("panda_orders_group").on(t.groupId),
+    uniqueIndex("panda_orders_live_leg").on(t.nonceAccount, t.leg).where(sql`${t.state} IN ('prepared', 'active', 'sending')`),
+    check("panda_orders_state_check", sql`${t.state} IN ('prepared', 'active', 'sending', 'executed', 'cancelled', 'needs_resign')`),
+    check("panda_orders_leg_check", sql`${t.leg} IN ('sell', 'stop')`),
+    check("panda_orders_venue_check", sql`${t.venue} IN ('curve', 'amm')`),
+    check("panda_orders_amounts", sql`${t.triggerOutLamports} > 0 AND ${t.minOutLamports} > 0 AND ${t.minOutLamports} <= ${t.triggerOutLamports} AND ${t.feeLamports} >= 0`),
+    check("panda_orders_pct", sql`${t.pct} > 0 AND ${t.pct} <= 100`),
+  ]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays, holderPayoutRuns,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralAttemptLog, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
-  legacyFeeWallets, recruiterCodes, reservedMintKeys,
+  legacyFeeWallets, recruiterCodes, reservedMintKeys, pandaNonceAccounts, pandaOrders,
 };

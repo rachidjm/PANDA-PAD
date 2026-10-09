@@ -227,3 +227,9 @@ test("pickHeldDraft: a top-level Venta/Stop joins the active held-coin draft, el
   assert.equal(pickHeldDraft(drafts, "b"), null, "the active buy draft keeps its own sell/stop legs");
   assert.equal(pickHeldDraft([{ id: "b", buy: 1 }], null), null);
 });
+
+test("PANDA orders have no $10 floor (minOrderUsd 0): a 5% line worth cents is valid; Jupiter's held-coin path still flags it", () => {
+  const t = placeLeg([], "sell", 5, 2); // 5% of $20 = $1
+  assert.deepEqual(validateTranches(t, { currentUsd: 1, balanceUsd: 20, minOrderUsd: 0 }).get(t[0].id), []);
+  assert.ok(validateTranches(t, { currentUsd: 1, balanceUsd: 20 }).get(t[0].id)!.includes("below_minimum"));
+});

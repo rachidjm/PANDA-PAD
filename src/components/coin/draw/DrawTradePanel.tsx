@@ -26,6 +26,9 @@ import type { RecordGroup } from "./useDrawTrade";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
 import { lineColor } from "./ChartOverlay";
 import { usePriceImpact } from "@/components/coin/usePriceImpact";
+import { useFeeBps } from "@/lib/pump/useFeeBps";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { LIVE, NONCE_DEPOSIT_LAMPORTS_ESTIMATE, type ClientOrder, type OrderGroup } from "@/lib/panda-orders/client-types";
 import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
 const PAY_WITH: FundingAsset[] = ["SOL", "USDC"];
@@ -33,6 +36,7 @@ const STEP_KEYS: Record<string, DictKey> = {
   session: "draw.step.session",
   jupiter: "draw.step.jupiter",
   prepare: "draw.step.prepare",
+  setup: "draw.step.setup",
   sign: "draw.step.sign",
   create: "draw.step.create",
   cancel: "draw.step.cancel",
@@ -53,6 +57,9 @@ const STATUS_TONE: Record<StrategyStatus, string> = {
   failed: "bg-clay-red/20 text-clay-red",
   cancelled: "bg-paper/10 text-panda-grey",
 };
+
+/** Server error codes of /api/panda-orders/* that have their own sentence (orders.err.<code>). */
+const PANDA_ERR = ["wallet_modified", "invalid_signature", "unsupported_coin", "risk_not_accepted", "no_balance", "too_large", "nonce_pending", "not_configured", "expired", "issues", "price_unavailable", "too_many", "over_100", "FEATURE_DISABLED", "PAUSED"];
 
 const money = (n: number) => `${n < 0 ? "-" : ""}${formatUsd(Math.abs(n))}`;
 const signedMoney = (n: number) => (n > 0 ? `+${money(n)}` : money(n));
@@ -116,7 +123,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <TargetTabs target={target} canSell={canSell} busy={busy} onPick={draw.startTarget} disabledTitle={t(sellHint)} />
+        <TargetTabs target={target} canSell={canSell} canBuy={draw.strategiesOn} busy={busy} onPick={draw.startTarget} disabledTitle={t(sellHint)} buyOffTitle={t("draw.buyOff")} />
         {target && (
           <button type="button" onClick={draw.cancelDrawing} className="text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper">
             {t("draw.cancelMode")}
@@ -172,6 +179,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       )}
 
       {draw.recordGroups.length > 0 && <SavedStrategies draw={draw} formatValue={formatValue} />}
+      {draw.pandaMode && (draw.pandaGroups.length > 0 || draw.freeNonces.length > 0) && <PandaOrders draw={draw} formatValue={formatValue} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
       </>
@@ -186,7 +194,7 @@ function Dot({ kind }: { kind: DrawTarget }) {
 
 /** Small segmented control — "Compra · Venta · Stop" — picks which line the next click/tap on the chart
  *  places. Each tab takes on its own line's color when active, a quiet nod to the chart below it. */
-function TargetTabs({ target, canSell, busy, onPick, disabledTitle }: { target: DrawTarget | null; canSell: boolean; busy: boolean; onPick: (t: DrawTarget) => void; disabledTitle: string }) {
+function TargetTabs({ target, canSell, canBuy, busy, onPick, disabledTitle, buyOffTitle }: { target: DrawTarget | null; canSell: boolean; canBuy: boolean; busy: boolean; onPick: (t: DrawTarget) => void; disabledTitle: string; buyOffTitle: string }) {
   const { t } = useLanguage();
   const tabs: { key: DrawTarget; labelKey: DictKey }[] = [
     { key: "buy", labelKey: "draw.line.buy" },
@@ -196,7 +204,7 @@ function TargetTabs({ target, canSell, busy, onPick, disabledTitle }: { target: 
   return (
     <div className="inline-flex gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={t("draw.title")}>
       {tabs.map(({ key, labelKey }) => {
-        const disabled = busy || (key !== "buy" && !canSell);
+        const disabled = busy || (key !== "buy" && !canSell) || (key === "buy" && !canBuy);
         const active = target === key || (key === "sell1" && !!target?.startsWith("sell"));
         const color = lineColor(key);
         return (
@@ -205,7 +213,7 @@ function TargetTabs({ target, canSell, busy, onPick, disabledTitle }: { target: 
             type="button"
             onClick={() => onPick(key)}
             disabled={disabled}
-            title={disabled && !busy ? disabledTitle : undefined}
+            title={disabled && !busy ? (key === "buy" ? buyOffTitle : disabledTitle) : undefined}
             aria-pressed={active}
             className="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
             style={active ? { background: color, color: "var(--ink)" } : { color: "color-mix(in srgb, var(--paper) 75%, transparent)" }}
@@ -237,6 +245,17 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
         t("draw.err.batchRolledBack")
       ) : error.code === "ALLOCATION_FULL" ? (
         t("draw.err.allocationFull")
+      ) : error.code && PANDA_ERR.includes(error.code) ? (
+        <>
+          {t(`orders.err.${error.code}` as DictKey)}
+          {error.pandaIssues && (
+            <ul className="mt-1 space-y-0.5">
+              {[...new Set(Object.values(error.pandaIssues).flat())].map((i) => (
+                <li key={i}>{t(`orders.issue.${i}` as DictKey)}</li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : (
         <>
           {t("draw.err.generic")}
@@ -252,12 +271,18 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
   const { draft } = view;
   const [ack, setAck] = useState(false);
   const [impactAck, setImpactAck] = useState(false);
+  // PANDA orders: the stop warning needs an explicit "Sí" before anything can be signed.
+  const [risk, setRisk] = useState<"yes" | "no" | null>(null);
+  const { publicKey } = useWallet();
+  const feeBps = useFeeBps(publicKey?.toBase58() ?? null);
   const [detailOpen, setDetailOpen] = useState(false);
   const confirming = draw.step !== "idle" && draw.step !== "done";
   // A held-coin draft (no buy leg) is governed entirely by its percentage tranches now — see TrancheEditor
   // below; a buy-including draft is complete once its legs make one of the two offered shapes (kinds.ts).
   const heldMode = draft.buy === undefined;
   const complete = heldMode ? view.tranches.length > 0 : view.kind !== null;
+  const panda = heldMode && draw.pandaMode;
+  const hasStop = (draft.tranches ?? []).some((t) => t.stop !== undefined);
 
   // A trade this big moves the price — estimated from the coin's own real liquidity, same as a normal buy
   // (TradingPanel.tsx); on-curve = still on Pump.fun's own bonding curve, off-curve = graduated/external, via
@@ -311,8 +336,9 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
 
   // One discrete line above the confirm button — the single most relevant thing to say right now, instead of
   // a stack of separate warning boxes. Falls back to the plain, always-true execution notice.
-  const notice: { text: string; tone: string } =
-    short !== undefined
+  const notice: { text: string; tone: string } = panda
+    ? { text: t(draw.connected ? "draw.pandaNotice" : "draw.connect"), tone: "text-panda-grey" }
+    : short !== undefined
       ? { text: t("draw.notEnough", { short: money(short) }), tone: "text-clay-red font-semibold" }
       : rateMissing
       ? { text: t("draw.noRate"), tone: "text-clay-red font-semibold" }
@@ -458,10 +484,34 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
             </ul>
           )}
 
+          {panda && (
+            <p className="mt-3 text-[11px] leading-relaxed text-panda-grey">
+              {t("draw.pandaInfo", { fee: (feeBps / 100).toLocaleString(lang, { maximumFractionDigits: 2 }), deposit: (NONCE_DEPOSIT_LAMPORTS_ESTIMATE / 1e9).toLocaleString(lang, { maximumFractionDigits: 5 }) })}
+            </p>
+          )}
+          {panda && hasStop && (
+            <div className="mt-3 rounded-xl border border-sun/30 bg-sun/5 px-3.5 py-3 text-xs leading-relaxed text-paper/90" role="group" aria-label={t("draw.risk.question")}>
+              <p>{t("draw.risk.question")}</p>
+              <div className="mt-2 flex gap-2">
+                {(["yes", "no"] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRisk(r)}
+                    aria-pressed={risk === r}
+                    className={`min-h-9 min-w-16 rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${risk === r ? (r === "yes" ? "bg-paper text-ink" : "bg-clay-red text-paper") : "bg-paper/10 text-paper/80 hover:bg-paper/15"}`}
+                  >
+                    {t(r === "yes" ? "draw.risk.yes" : "draw.risk.no")}
+                  </button>
+                ))}
+              </div>
+              {risk === "no" && <p className="mt-2 text-clay-red">{t("draw.risk.declined")}</p>}
+            </div>
+          )}
           {(funding || heldMode) && (
             <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-paper/80">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--meme-orange)]" />
-              <span>{t("draw.custodyShort")}</span>
+              <span>{t(panda ? "draw.pandaAck" : "draw.custodyShort")}</span>
             </label>
           )}
 
@@ -478,8 +528,10 @@ function DraftBlock({ view, draw, coin, expanded, unit, toDisplay, fromDisplay, 
 
           <button
             type="button"
-            onClick={() => (heldMode ? draw.confirmTranches(view) : draw.confirm(view))}
-            disabled={!view.ready || !draw.engine || !draw.connected || !ack || confirming || (!heldMode && impactHigh && !impactAck)}
+            onClick={() => (panda ? draw.confirmPanda(view, risk === "yes") : heldMode ? draw.confirmTranches(view) : draw.confirm(view))}
+            disabled={
+              !view.ready || !draw.connected || !ack || confirming || (panda ? hasStop && risk !== "yes" : !draw.engine || (!heldMode && impactHigh && !impactAck))
+            }
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {confirming || draw.step === "done" ? `${t(STEP_KEYS[draw.step])}${draw.batchProgress ? ` (${draw.batchProgress.done}/${draw.batchProgress.total})` : ""}` : t("draw.confirm")}
@@ -550,14 +602,14 @@ function TrancheEditor({ draft, view, draw, coin, unit, toDisplay, fromDisplay }
               <span className="font-semibold text-paper/90">
                 {t("draw.freeBalance", { amount: view.tokenBalance!.toLocaleString(lang, { maximumFractionDigits: 2 }), ticker: coin.ticker, usd: balanceUsd !== null ? formatUsd(balanceUsd) : "—" })}
               </span>{" "}
-              {t("draw.freeBalanceNote")}
+              {t(draw.pandaMode ? "draw.pandaFreeNote" : "draw.freeBalanceNote")}
             </p>
           )}
           <PctRow legLabel={t("draw.line.sell")} dotKind="sell1" leg="sell" draftId={draft.id} tranches={tranches} draw={draw} />
           <PctRow legLabel={t("draw.line.stop")} dotKind="stop" leg="stop" draftId={draft.id} tranches={tranches} draw={draw} />
           <p className="text-[11px] text-panda-grey">
             {t("draw.remainingPct", { pct: view.remainingPct })}
-            {minPct !== null && minPct > 100 ? (
+            {draw.pandaMode ? null : minPct !== null && minPct > 100 ? (
               <span className="block text-clay-red">{t("draw.balanceTooSmall", { usd: formatUsd(balanceUsd ?? 0) })}</span>
             ) : minPct !== null && minPct > PCT_MORE_PRESETS[0] ? (
               <span className="block">{t("draw.minPct", { pct: minPct })}</span>
@@ -701,7 +753,7 @@ function TrancheLegRows({ tv, tranches, balanceUsd, draftId, draw, unit, toDispl
           </select>
           <span>{t("draw.ofBalance")}</span>
         </label>
-        <span className={usd !== null && usd < MIN_ORDER_USD ? "font-semibold text-clay-red" : undefined}>
+        <span className={usd !== null && usd < MIN_ORDER_USD && !draw.pandaMode ? "font-semibold text-clay-red" : undefined}>
           {usd !== null ? `≈ ${formatUsd(usd)}` : "—"}
           {tv.kind === "sell_stop" && <span className="ml-1.5 rounded-full bg-paper/10 px-1.5 py-0.5 text-[10px] font-semibold text-paper/80">OCO</span>}
         </span>
@@ -892,6 +944,100 @@ function LegRow({ r, showIndex, index, draw }: { r: StrategyRecord; showIndex: b
             {draw.cancelling === r.id ? t("draw.cancelling") : t("draw.cancelStrategy")}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+const ORDER_TONE: Record<ClientOrder["state"], string> = {
+  prepared: "bg-paper/10 text-paper/80",
+  active: "bg-paper/10 text-paper/80",
+  sending: "bg-meme-orange/20 text-meme-orange",
+  executed: "bg-bamboo/20 text-bamboo",
+  cancelled: "bg-paper/10 text-panda-grey",
+  needs_resign: "bg-clay-red/20 text-clay-red",
+};
+
+/** PANDA orders on this coin: one card per drawn strategy, a row per tranche (its sell and/or stop), with Cancel for what
+ *  is still waiting, "Volver a firmar" for what stopped being valid, and the free deposits to take back. */
+function PandaOrders({ draw, formatValue }: { draw: DrawApi; formatValue: (usd: number) => string }) {
+  const { t, lang } = useLanguage();
+  const groups = draw.pandaGroups.slice(0, 8);
+  return (
+    <div className="mt-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-paper/80">{t("orders.title")}</p>
+        {draw.freeNonces.length > 0 && (
+          <button type="button" onClick={() => draw.closePanda({ recover: true })} disabled={draw.cancelling !== null} className="text-xs font-semibold text-meme-orange hover:brightness-110 disabled:opacity-50">
+            {draw.cancelling === "recover" ? t("orders.recovering") : t("orders.recover", { sol: (draw.freeDepositLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 5 }) })}
+          </button>
+        )}
+      </div>
+      <div className="mt-2 space-y-2.5">
+        {groups.map((g) => (
+          <PandaGroupCard key={g.groupId} group={g} draw={draw} formatValue={formatValue} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PandaGroupCard({ group, draw, formatValue }: { group: OrderGroup; draw: DrawApi; formatValue: (usd: number) => string }) {
+  const { t } = useLanguage();
+  const legs = group.tranches.flatMap((x) => x.legs);
+  const anyLive = legs.some((l) => LIVE.has(l.state));
+  const needsResign = legs.some((l) => l.state === "needs_resign");
+  return (
+    <div className="rounded-2xl border border-paper/10 bg-ink px-3.5 py-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold">{t("draw.strategy", { n: group.n })}</p>
+        <div className="flex flex-wrap gap-3">
+          {needsResign && (
+            <button type="button" onClick={() => draw.resignPanda(group.groupId)} className="font-semibold text-meme-orange hover:brightness-110">
+              {t("orders.resign")}
+            </button>
+          )}
+          {anyLive && (
+            <button type="button" onClick={() => draw.closePanda({ groupId: group.groupId })} disabled={draw.cancelling !== null} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
+              {draw.cancelling === group.groupId ? t("draw.cancelling") : t("orders.cancelAll")}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 space-y-2">
+        {group.tranches.map((tr) => (
+          <div key={`${tr.trancheId}-${tr.legs[0]?.id}`} className="border-t border-paper/10 pt-2 first:border-t-0 first:pt-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-panda-grey">{tr.pct}%</span>
+              {tr.legs.some((l) => LIVE.has(l.state)) && group.tranches.length > 1 && (
+                <button type="button" onClick={() => draw.closePanda({ groupId: group.groupId, trancheId: tr.trancheId })} disabled={draw.cancelling !== null} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
+                  {draw.cancelling === tr.trancheId ? t("draw.cancelling") : t("orders.cancel")}
+                </button>
+              )}
+            </div>
+            {tr.legs.map((l) => (
+              <div key={l.id} className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-paper/90">
+                  <Dot kind={l.leg === "sell" ? "sell1" : "stop"} />
+                  {t(l.leg === "sell" ? "draw.line.sell" : "draw.line.stop")} · {formatValue(l.targetUsd)}
+                </span>
+                <span className="flex items-center gap-2">
+                  {l.state === "executed" && l.signature && (
+                    <a href={`https://solscan.io/tx/${l.signature}`} target="_blank" rel="noreferrer" className="text-bamboo hover:underline">
+                      {t("orders.tx")}
+                    </a>
+                  )}
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${ORDER_TONE[l.state]}`}>{t(`orders.state.${l.state}` as DictKey)}</span>
+                </span>
+              </div>
+            ))}
+            {tr.legs.some((l) => l.state === "needs_resign" && l.reason) && (
+              <p className="mt-1 text-clay-red">{t(`orders.reason.${tr.legs.find((l) => l.state === "needs_resign")!.reason}` as DictKey)}</p>
+            )}
+            {tr.legs.some((l) => l.notice === "stop_slippage" && l.state === "active") && <p className="mt-1 text-sun">{t("orders.slippageNote")}</p>}
+            {tr.legs.some((l) => l.notice === "no_sol" && l.state === "active") && <p className="mt-1 text-sun">{t("orders.noSolNote")}</p>}
+          </div>
+        ))}
       </div>
     </div>
   );

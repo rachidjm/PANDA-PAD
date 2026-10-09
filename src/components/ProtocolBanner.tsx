@@ -15,6 +15,7 @@ const LABEL_KEYS: Record<string, DictKey> = {
   token_launches: "pause.token_launches",
   reward_calculations: "pause.reward_calculations",
   fee_processing: "pause.fee_processing",
+  panda_orders: "pause.panda_orders",
 };
 
 const NET_KEYS: Record<string, DictKey> = {
@@ -32,6 +33,7 @@ const FEATURE_OF: Record<string, keyof Features | undefined> = {
   airdrops: "airdrops",
   nft_minting: "themes",
   nft_market: "market",
+  panda_orders: "pandaOrders",
 };
 
 /** Shown only while a protocol subsystem is paused; renders nothing otherwise. Status is read from the server, never assumed. */

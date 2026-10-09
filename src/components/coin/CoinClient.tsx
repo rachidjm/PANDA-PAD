@@ -38,7 +38,9 @@ type Props = {
 export default function CoinClient({ coin, trades, live, tradesLive, holderCount }: Props) {
   const [tab, setTab] = useState<Tab>("Trades");
   const { t } = useLanguage();
-  const { strategies, holderRewards } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
+  const { strategies, holderRewards, pandaOrders } = useFeatures(); // Draw Your Trade and Stop Loss / Take Profit are custodial: only when switched on
+  // PANDA orders (pre-signed sells / stops, non-custodial) live inside Draw Your Trade too, but only for Pump.fun / PumpSwap coins.
+  const drawOn = strategies || (pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap"));
   const positive = coin.changePct >= 0;
 
   // A PANDA-launched coin's own page doubles as its creator's recruiter link — same first-wins rule as
@@ -122,7 +124,7 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
               initialCloses={coin.priceHistory}
               changePct={coin.changePct}
               marketCap={coin.marketCap}
-              coin={strategies ? coin : undefined}
+              coin={drawOn ? coin : undefined}
             />
           </div>
         </div>

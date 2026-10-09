@@ -20,6 +20,7 @@ export type Features = {
   referrals: boolean;
   founderNft: boolean;
   aiAssistant: boolean;
+  pandaOrders: boolean;
 };
 
 const OFF: Features = {
@@ -35,6 +36,7 @@ const OFF: Features = {
   referrals: false,
   founderNft: false,
   aiAssistant: false,
+  pandaOrders: false,
 };
 const FeaturesContext = createContext<Features>(OFF);
 

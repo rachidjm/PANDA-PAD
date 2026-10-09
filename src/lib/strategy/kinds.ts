@@ -61,6 +61,8 @@ export type KindContext = {
   tokensUsd?: number | null;
   /** undefined = no liquidity check yet (a draft), null = the source didn't say, a number = checked. */
   liquidityUsd?: number | null;
+  /** The per-order floor. Jupiter's is MIN_ORDER_USD (the default); a PANDA order (src/lib/panda-orders) has none: 0. */
+  minOrderUsd?: number;
 };
 
 /** Everything that must hold for one order shape to be placed. Buy shapes reuse plan.ts's rules exactly. */
@@ -96,7 +98,7 @@ export function validateKind(kind: OrderKind, legs: Legs, c: KindContext): KindI
     else if (c.amountUsd < MIN_ORDER_USD) issues.push("below_minimum");
   } else {
     if (c.tokensUsd === null || c.tokensUsd === undefined || !(c.tokensUsd > 0)) issues.push("no_balance");
-    else if (c.tokensUsd < MIN_ORDER_USD) issues.push("below_minimum");
+    else if (c.tokensUsd < (c.minOrderUsd ?? MIN_ORDER_USD)) issues.push("below_minimum");
   }
 
   const size = startsWithBuy(kind) ? c.amountUsd : c.tokensUsd;

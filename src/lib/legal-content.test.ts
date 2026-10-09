@@ -65,6 +65,8 @@ test("each optional feature's sections appear only with its flag, in both langua
     { flag: "market", opts: { custody: false, nft: true, market: true }, word: /2%|2 %/, slug: "terms-of-service" },
     { flag: "points", opts: { custody: false, points: true }, word: /Points/, slug: "terms-of-service" },
     { flag: "airdrops", opts: { custody: false, airdrops: true }, word: /Merkle/, slug: "terms-of-service" },
+    { flag: "pandaOrders", opts: { custody: false, pandaOrders: true }, word: /nonce/, slug: "terms-of-service" },
+    { flag: "pandaOrders", opts: { custody: false, pandaOrders: true }, word: /cifrada|encrypted/, slug: "privacy-policy" },
   ];
   for (const c of cases) {
     for (const lang of LANGS) {
@@ -281,4 +283,20 @@ test("the old drawn PANDA logo is gone: one logo (public/logo.png) drives the he
   assert.doesNotMatch(css, /panda-ear|panda-eye|panda-coin|panda-prop|panda-pencil/);
   for (const f of ["src/components/Navbar.tsx", "src/components/Footer.tsx", "src/components/home/PandaEcosystemCard.tsx", "src/components/create/LaunchModeToggle.tsx"]) assert.match(read(f), /<Logo /, `${f} uses the logo`);
   for (const f of ["public/logo.png", "src/app/icon.png", "src/app/apple-icon.png", "src/app/favicon.ico"]) assert.equal(existsSync(path.join(process.cwd(), f)), true, f);
+});
+
+test("PANDA orders: the texts state the real margins and fees from the code, and never call them custodial", async () => {
+  const { SELL_MARGIN_BPS, STOP_MARGIN_BPS } = await import("@/lib/panda-orders/math");
+  const { PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS } = await import("@/lib/pump/constants");
+  const pctOf = (bps: number) => `${bps / 100}%`;
+  const terms = text("terms-of-service", "en", { custody: false, pandaOrders: true });
+  for (const bps of [SELL_MARGIN_BPS, STOP_MARGIN_BPS, PANDA_FEE_BPS, PANDA_REFERRED_FEE_BPS]) assert.ok(terms.includes(pctOf(bps)), `terms miss ${pctOf(bps)}`);
+  for (const lang of LANGS) {
+    for (const slug of LEGAL_SLUGS) {
+      for (const para of getLegalPage(slug, { custody: false, pandaOrders: true }).body[lang]) {
+        if (/PANDA orders|órdenes PANDA/i.test(para)) assert.doesNotMatch(para, /\bare custodial|(?<!no )son custodiales|Privy|vault|bóveda/i, `${slug}/${lang}`);
+      }
+    }
+    assert.match(text("risk-disclosure", lang, { custody: false, pandaOrders: true }), /stop/i);
+  }
 });

@@ -7,15 +7,21 @@ import type { StrategyRecord } from "./types";
  * see useStrategyNotifications.ts) — the records themselves are the source of truth.
  */
 
+/** "buy"/"sell": a Draw Your Trade (Jupiter) leg that filled. "panda_*": a PANDA order (src/lib/panda-orders) — sold
+ *  at its sell or its stop, no longer valid (re-sign), a stop that couldn't sell on slippage, or no SOL for the fee. */
+export type NotificationKind = "buy" | "sell" | "panda_sell" | "panda_stop" | "panda_resign" | "panda_slippage" | "panda_no_sol";
+
 export type StrategyNotification = {
   /** Stable across re-fetches: `${record.id}:buy` / `${record.id}:sell`, so the same fill is never duplicated. */
   id: string;
   strategyId: string;
-  kind: "buy" | "sell";
+  kind: NotificationKind;
   mint: string;
   ticker: string;
-  /** The price it actually filled at. */
+  /** The price it actually filled at (a PANDA order: the price the user drew). */
   priceUsd: number;
+  /** PANDA orders only: why it stopped being valid ("migrated", "program_changed", "no_balance"…). */
+  reason?: string;
   /** When PANDA last confirmed this (the record's own `updatedAt`) — Jupiter doesn't hand back a per-leg fill time. */
   at: number;
 };

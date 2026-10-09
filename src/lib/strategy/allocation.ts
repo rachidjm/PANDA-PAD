@@ -149,7 +149,7 @@ export type TrancheIssues = Map<string, KindIssue[]>;
  * above/stop below checks, liquidity…), keyed by tranche id. `balanceUsd` is the value of the WHOLE position
  * right now; each tranche only risks its own `pct` share of it.
  */
-export function validateTranches(tranches: Tranche[], ctx: { currentUsd: number | null; balanceUsd: number | null; liquidityUsd?: number | null }): TrancheIssues {
+export function validateTranches(tranches: Tranche[], ctx: { currentUsd: number | null; balanceUsd: number | null; liquidityUsd?: number | null; minOrderUsd?: number }): TrancheIssues {
   const out: TrancheIssues = new Map();
   for (const t of tranches) {
     const kind = trancheKind(t);
@@ -158,7 +158,7 @@ export function validateTranches(tranches: Tranche[], ctx: { currentUsd: number 
       continue;
     }
     const tokensUsd = ctx.balanceUsd !== null ? ctx.balanceUsd * (t.pct / 100) : null;
-    out.set(t.id, validateKind(kind, { sell: t.sell, stop: t.stop }, { currentUsd: ctx.currentUsd, tokensUsd, liquidityUsd: ctx.liquidityUsd }));
+    out.set(t.id, validateKind(kind, { sell: t.sell, stop: t.stop }, { currentUsd: ctx.currentUsd, tokensUsd, liquidityUsd: ctx.liquidityUsd, minOrderUsd: ctx.minOrderUsd }));
   }
   return out;
 }

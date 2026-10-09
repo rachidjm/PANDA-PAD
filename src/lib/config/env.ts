@@ -98,6 +98,14 @@ export const ENV_SPECS: EnvSpec[] = [
     valid: (v) => { try { return Buffer.from(v, "base64").length === 32; } catch { return false; } },
     affects: "vanity \"…panda\" mint addresses (docs/VANITY_STOCK.md): unset, every coin gets a plain random address instead — launches are never blocked either way",
   },
+  {
+    names: ["PANDA_ORDERS_KEY"],
+    group: "strategies",
+    required: (e) => isEnabled("PANDA_ORDERS", e),
+    valid: (v) => { try { return Buffer.from(v, "base64").length === 32; } catch { return false; } },
+    affects: "PANDA orders (FEATURE_PANDA_ORDERS): the key that encrypts the users' signed sell/stop transactions at rest — without it no order can be stored or sent",
+  },
+  { names: ["PANDA_ORDERS_LOOKUP_TABLE"], group: "strategies", required: never, valid: isPubkey, affects: "PANDA orders on PumpSwap coins: the frozen lookup table that makes them fit in one transaction (docs/PANDA_ORDERS.md) — unset, those with a recruiter share are refused as too large" },
   { names: ["OPENAI_API_KEY"], group: "ai", required: (e) => isEnabled("AI_ASSISTANT", e), valid: nonEmpty, affects: "the AI Assistant (FEATURE_AI_ASSISTANT) — create-with-AI, analyze a coin, Draw Your Trade help, search" },
   { names: ["AI_DAILY_BUDGET_USD"], group: "ai", required: never, valid: isPositiveNumber, affects: "the AI Assistant's daily spend cap across every wallet — unset, it has no cap (only the per-wallet/IP query limits apply)" },
 ];

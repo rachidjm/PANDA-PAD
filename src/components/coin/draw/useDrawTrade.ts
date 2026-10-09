@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import type { Coin } from "@/lib/types";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
@@ -42,6 +42,8 @@ import {
   type Tranche,
 } from "@/lib/strategy/allocation";
 import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
+import { groupOrders, LIVE, type OrdersList } from "@/lib/panda-orders/client-types";
 
 /**
  * The "Draw Your Trade" controller: drafts being drawn (kept in this browser only — they are not orders),
@@ -91,7 +93,7 @@ export type ChartLine = {
 
 export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | null; priceChangeH1Pct: number | null; engine: boolean };
 
-export type Step = "idle" | "session" | "jupiter" | "prepare" | "sign" | "create" | "cancel" | "done";
+export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "create" | "cancel" | "done";
 
 /** Progress through a percentage-tranche batch (confirmTranches) — how many of its own orders are done, for a
  *  "2/3" next to the step label; null outside a batch (a normal single-order confirm never sets this). */
@@ -140,9 +142,14 @@ function newId(): string {
 
 export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const readConnection = useReadConnection();
-  const { connected, publicKey, signMessage, signTransaction, signAllTransactions } = useWallet();
+  const { connected, publicKey, signMessage, signTransaction, signAllTransactions, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const { ensureSession } = useWalletSession();
+  const features = useFeatures();
   const mint = coin?.mint ?? "";
+  // PANDA orders: a held coin's sells / stops are pre-signed and kept by PANDA (no $10 minimum, any %) — only for
+  // Pump.fun / PumpSwap coins and only with the flag on. Everything else keeps Jupiter Trigger exactly as before.
+  const pandaMode = !!coin && features.pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap");
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [records, setRecords] = useState<StrategyRecord[]>([]);
@@ -158,7 +165,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [step, setStep] = useState<Step>("idle");
-  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string } | null>(null);
+  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string; pandaIssues?: Record<string, string[]> } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<BatchProgress>(null);
@@ -256,7 +263,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   // classic SPL one. It's the wallet's FREE balance: tokens already in an open order sit in Jupiter's vault.
   // Re-read every 30 s while the tab is visible and on coming back to it — a buy from the trade box next to
   // the chart (or another app) has to unlock "Venta"/"Stop" without a reload.
-  const [balanceRead, setBalanceRead] = useState<{ key: string; amount: number | null } | null>(null);
+  const [balanceRead, setBalanceRead] = useState<{ key: string; amount: number | null; decimals: number | null } | null>(null);
   const balanceKey = connected && publicKey && mint ? `${publicKey.toBase58()}:${mint}` : "";
   useEffect(() => {
     if (!balanceKey || !publicKey) return;
@@ -265,7 +272,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (document.visibilityState === "hidden") return;
       readConnection
         .getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(mint) })
-        .then((r) => !cancelled && setBalanceRead({ key: balanceKey, amount: r.value.reduce((s, a) => s + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0) }))
+        .then(
+          (r) =>
+            !cancelled &&
+            setBalanceRead({
+              key: balanceKey,
+              amount: r.value.reduce((s, a) => s + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0),
+              decimals: r.value[0]?.account.data.parsed?.info?.tokenAmount?.decimals ?? null,
+            })
+        )
         .catch(() => {});
     };
     load();
@@ -278,7 +293,34 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     };
   }, [balanceKey, publicKey, readConnection, mint, step]);
   // Only a read for THIS wallet and THIS coin counts: a disconnected wallet or a different coin is "not known yet".
-  const tokenBalance = balanceRead && balanceRead.key === balanceKey ? balanceRead.amount : null;
+  const walletBalance = balanceRead && balanceRead.key === balanceKey ? balanceRead.amount : null;
+
+  // ── PANDA orders on this coin (server) — what's already promised stays in the wallet until it sells, so it is
+  // subtracted here: a new line's % is of what ISN'T in another order yet. ─────────────────────────────────────────
+  const [pandaList, setPandaList] = useState<OrdersList | null>(null);
+  const refreshPanda = useCallback(async () => {
+    if (!pandaMode || !mint || !publicKey) return;
+    try {
+      const res = await fetch(`/api/panda-orders/list?mint=${mint}`, { cache: "no-store" });
+      if (res.status === 401) {
+        setNeedsSignIn(true);
+        return;
+      }
+      if (res.ok) setPandaList((await res.json()) as OrdersList);
+    } catch {}
+  }, [pandaMode, mint, publicKey]);
+  useEffect(() => {
+    if (!pandaMode || !connected) return;
+    Promise.resolve().then(refreshPanda);
+    const t = setInterval(refreshPanda, 30_000);
+    return () => clearInterval(t);
+  }, [pandaMode, connected, refreshPanda]);
+  const committedUi = useMemo(() => {
+    const raw = pandaList?.committedRaw ? Number(pandaList.committedRaw) : 0;
+    const decimals = balanceRead?.decimals ?? pandaList?.orders[0]?.tokenDecimals ?? null;
+    return raw > 0 && decimals !== null ? raw / 10 ** decimals : 0;
+  }, [pandaList, balanceRead]);
+  const tokenBalance = walletBalance === null ? null : pandaMode ? Math.max(0, walletBalance - committedUi) : walletBalance;
   const heldStatus = heldStatusOf(tokenBalance);
 
   // ── saved strategies (server) ────────────────────────────────────────────────────────────────────
@@ -334,7 +376,11 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
           // there is no single `kind` for the whole draft any more, see `tranches` below.
           const tranches = draft.tranches ?? [];
           const balanceUsd = tokenBalance !== null && currentUsd !== null ? tokenBalance * currentUsd : null;
-          const trancheIssues = validateTranches(tranches, { currentUsd, balanceUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined });
+          // A PANDA order has no $10 floor and doesn't depend on Jupiter's liquidity rules: it only executes if the
+          // curve/pool pays what the user signed. Jupiter's held-coin path keeps both checks.
+          const trancheIssues = pandaMode
+            ? validateTranches(tranches, { currentUsd, balanceUsd, minOrderUsd: 0 })
+            : validateTranches(tranches, { currentUsd, balanceUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined });
           const tv: TrancheView[] = tranches.map((t) => {
             const issues = trancheIssues.get(t.id) ?? [];
             return { tranche: t, kind: trancheKind(t), issues, ready: issues.length === 0 };
@@ -360,7 +406,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const ready = complete && issues.length === 0 && !!funding?.ok;
         return { draft, asset, amountUsd, funding, issues, metrics, ready, kind, tranches: [], allocatedPct: 0, remainingPct: 100, tokenBalance };
       }),
-    [drafts, rates, balances, currentUsd, quote, tokenBalance]
+    [drafts, rates, balances, currentUsd, quote, tokenBalance, pandaMode]
   );
 
   const lines: ChartLine[] = useMemo(() => {
@@ -401,16 +447,22 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         pct: legCount > 1 ? r.legPct : undefined,
       });
     }
+    // Live PANDA orders: each leg at the price the user drew.
+    for (const o of pandaList?.orders ?? []) {
+      if (o.state !== "active" && o.state !== "sending") continue;
+      out.push({ key: `po-${o.id}`, groupId: o.groupId, kind: o.leg === "sell" ? "sell1" : "stop", price: o.targetUsd, tag: `#${o.n}`, live: true, active: false, pct: o.pct });
+    }
     return out;
-  }, [drafts, records, activeId]);
+  }, [drafts, records, activeId, pandaList]);
 
   // ── editing drafts ───────────────────────────────────────────────────────────────────────────────
   // Only what's actually visible right now (current drafts + live records) counts toward the next number —
   // a cancelled/failed/completed strategy from earlier is gone from the list, so it must not make a brand
   // new first draft show up labelled "#2" with no "#1" anywhere on screen.
   const nextNumber = useCallback(
-    () => Math.max(0, ...drafts.map((d) => d.n), ...records.filter((r) => !TERMINAL.includes(r.state)).map((r) => r.n)) + 1,
-    [drafts, records]
+    () =>
+      Math.max(0, ...drafts.map((d) => d.n), ...records.filter((r) => !TERMINAL.includes(r.state)).map((r) => r.n), ...(pandaList?.orders ?? []).filter((o) => LIVE.has(o.state)).map((o) => o.n)) + 1,
+    [drafts, records, pandaList]
   );
 
   const patchDraft = useCallback((id: string, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))), []);
@@ -811,6 +863,142 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
   );
 
+  // ── PANDA orders: sign every sell / stop of a held-coin draft at once; PANDA keeps them (encrypted) and sends them
+  // only when the price is reached. First time only: one extra approval creates the order accounts (a small deposit
+  // per tranche, returned when cancelled or after it sells). ───────────────────────────────────────────────────────
+  const sendAndConfirm = useCallback(
+    async (base64: string): Promise<string> => {
+      const tx = base64ToTransaction(base64);
+      const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+      await waitForSignature(connection, sig);
+      return sig;
+    },
+    [connection, sendTransaction]
+  );
+
+  const confirmPanda = useCallback(
+    async (view: DraftView, riskAccepted: boolean) => {
+      const d = view.draft;
+      const tranches = d.tranches ?? [];
+      if (!view.ready || !coin || !signTransaction || tranches.length === 0) return;
+      setError(null);
+      const body = JSON.stringify({
+        mint: coin.mint,
+        ticker: coin.ticker,
+        groupId: d.id,
+        n: d.n,
+        pool: coin.source === "pumpswap" ? coin.poolAddress : undefined,
+        riskAccepted,
+        tranches: tranches.map((t) => ({ trancheId: t.id, pct: t.pct, sellUsd: t.sell, stopUsd: t.stop })),
+      });
+      type Prepared = { phase: "setup"; transaction: string; nonceAccounts: string[] } | { phase: "orders"; orders: { id: string; transaction: string }[] };
+      const prepare = async (): Promise<Prepared> => {
+        const res = await fetch("/api/panda-orders/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+        const data = await res.json();
+        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues);
+        return data as Prepared;
+      };
+      try {
+        setStep("session");
+        await ensureSession();
+        setStep("prepare");
+        let p = await prepare();
+        // First time on this wallet: the order accounts are created first (up to 5 per approval, so a draft with
+        // more lines takes one more). Then the same request returns the orders themselves.
+        for (let rounds = 0; p.phase === "setup"; rounds++) {
+          if (rounds >= 2) throw new ApiError("Order accounts not ready yet — try again.", "nonce_pending");
+          setStep("setup");
+          await sendAndConfirm(p.transaction);
+          setStep("prepare");
+          // The new accounts can take a moment to be visible to PANDA's RPC: a few short retries.
+          for (let k = 0; ; k++) {
+            try {
+              p = await prepare();
+              break;
+            } catch (err) {
+              if (!(err instanceof ApiError && err.code === "nonce_pending") || k >= 7) throw err;
+              await new Promise((r) => setTimeout(r, 2500));
+            }
+          }
+        }
+        setStep("sign");
+        const txs = p.orders.map((o) => base64ToVersionedTransaction(o.transaction));
+        const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
+        setStep("create");
+        const orders = p.orders;
+        const res = await fetch("/api/panda-orders/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groupId: d.id, signed: orders.map((o, i) => ({ id: o.id, transaction: versionedTransactionToBase64(signed[i]) })) }),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new ApiError(result.error, result.code);
+        setDrafts((ds) => ds.filter((x) => x.id !== d.id));
+        setActiveId(null);
+        await refreshPanda();
+        setStep("done");
+        setTimeout(() => setStep("idle"), 3500);
+      } catch (err) {
+        setStep("idle");
+        setError(
+          err instanceof ApiError
+            ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues }
+            : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined }
+        );
+      }
+    },
+    [coin, ensureSession, signTransaction, signAllTransactions, sendAndConfirm, refreshPanda]
+  );
+
+  /** Closes order accounts — a whole strategy, one tranche, or (`recover`) every free one: the deposit comes back to
+   *  the wallet and any order signed on them can never execute. One approval. */
+  const closePanda = useCallback(
+    async (target: { groupId: string; trancheId?: string } | { recover: true }) => {
+      setError(null);
+      setCancelling("recover" in target ? "recover" : target.trancheId ?? target.groupId);
+      try {
+        await ensureSession();
+        const res = await fetch("/api/panda-orders/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target) });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.code === "nothing") {
+            await refreshPanda();
+            return;
+          }
+          throw new ApiError(data.error, data.code);
+        }
+        await sendAndConfirm(data.transaction);
+        await fetch("/api/panda-orders/closed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonceAccounts: data.nonceAccounts }) });
+        await refreshPanda();
+      } catch (err) {
+        setError({ message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+      } finally {
+        setCancelling(null);
+      }
+    },
+    [ensureSession, sendAndConfirm, refreshPanda]
+  );
+
+  /** "Volver a firmar": a new draft with the same lines (same % and prices) as a strategy that stopped being valid. */
+  const resignPanda = useCallback(
+    (groupId: string) => {
+      const legs = (pandaList?.orders ?? []).filter((o) => o.groupId === groupId);
+      const byTranche = new Map<string, Tranche>();
+      for (const o of legs) {
+        const t = byTranche.get(o.trancheId) ?? { id: newId(), pct: o.pct };
+        if (o.leg === "sell") t.sell = o.targetUsd;
+        else t.stop = o.targetUsd;
+        byTranche.set(o.trancheId, t);
+      }
+      const d = newDraft();
+      setDrafts((ds) => ds.map((x) => (x.id === d.id ? { ...x, tranches: [...byTranche.values()] } : x)));
+      setError(null);
+    },
+    [pandaList, newDraft]
+  );
+
+  const pandaGroups = useMemo(() => groupOrders((pandaList?.orders ?? []).filter((o) => o.state !== "prepared")), [pandaList]);
+
   // ── read back what Jupiter did (needs Jupiter's sign-in, so it is on demand) ─────────────────────
   const sync = useCallback(async () => {
     setError(null);
@@ -884,6 +1072,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     clearLeg,
     tokenBalance,
     heldStatus,
+    pandaMode,
+    pandaGroups,
+    freeNonces: pandaList?.freeNonces ?? [],
+    freeDepositLamports: (pandaList?.freeNonces.length ?? 0) * (pandaList?.rentLamports ?? 0),
+    confirmPanda,
+    closePanda,
+    resignPanda,
+    refreshPanda,
+    strategiesOn: features.strategies,
     startTranchePlacement,
     startTrancheDrag,
     setTranchePrice,
@@ -981,9 +1178,22 @@ async function cancelBatch(
 }
 
 class ApiError extends Error {
-  constructor(message: string, public code?: string, public issues?: StrategyIssue[]) {
+  constructor(message: string, public code?: string, public issues?: StrategyIssue[], public pandaIssues?: Record<string, string[]>) {
     super(message);
   }
+}
+
+/** Polls the signature until it's confirmed (or fails, or a minute passes) — read methods PANDA's RPC proxy allows. */
+async function waitForSignature(connection: Connection, signature: string, timeoutMs = 60_000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const s = value[0];
+    if (s?.err) throw new Error("The transaction failed on-chain.");
+    if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) return;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw new Error("The transaction wasn't confirmed in time — check your wallet before trying again.");
 }
 
 /** The unit last used to type an amount — shared with the buy box, so both start the way you left them. */

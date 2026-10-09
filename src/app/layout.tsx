@@ -70,6 +70,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 referrals: isEnabled("REFERRALS"),
                 founderNft: isEnabled("FOUNDER_NFT"),
                 aiAssistant: isEnabled("AI_ASSISTANT"),
+                pandaOrders: isEnabled("PANDA_ORDERS"),
               }}
             >
               <WalletProvider>

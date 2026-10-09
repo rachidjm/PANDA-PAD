@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { countUnread, deriveNotifications, type StrategyNotification } from "@/lib/strategy/notifications";
 import type { StrategyRecord } from "@/lib/strategy/types";
+import { deriveOrderNotifications } from "@/lib/panda-orders/notifications";
 
 /**
  * The bell's own data: every executed leg across every strategy this wallet has ever drawn, and how many are
@@ -25,7 +26,9 @@ function readSeen(wallet: string): number {
   }
 }
 
-export function useStrategyNotifications(enabled: boolean) {
+/** `strategies`: Draw Your Trade's Jupiter strategies; `pandaOrders`: PANDA orders — each read only while its flag is on. */
+export function useStrategyNotifications({ strategies, pandaOrders }: { strategies: boolean; pandaOrders: boolean }) {
+  const enabled = strategies || pandaOrders;
   const { publicKey } = useWallet();
   const wallet = publicKey?.toBase58() ?? null;
   const [all, setAll] = useState<StrategyNotification[]>([]);
@@ -44,18 +47,23 @@ export function useStrategyNotifications(enabled: boolean) {
     }
     let cancelled = false;
     // No `mint`: every strategy this wallet has, across every coin — the bell's whole history.
+    // Not signed in yet (401) or a transient error: tried again next tick, nothing alarming to show.
+    const get = <T,>(url: string): Promise<T | null> => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? (r.json() as Promise<T>) : null)).catch(() => null);
     const load = () =>
-      fetch("/api/strategy/list", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null)) // not signed in yet (401) or a transient error — tried again next tick, nothing alarming to show
-        .then((data: { strategies?: StrategyRecord[] } | null) => !cancelled && data && setAll(deriveNotifications(data.strategies ?? [])))
-        .catch(() => {});
+      Promise.all([
+        strategies ? get<{ strategies?: StrategyRecord[] }>("/api/strategy/list") : Promise.resolve(null),
+        pandaOrders ? get<{ orders?: Parameters<typeof deriveOrderNotifications>[0] }>("/api/panda-orders/list") : Promise.resolve(null),
+      ]).then(([s, o]) => {
+        if (cancelled || (!s && !o)) return;
+        setAll([...deriveNotifications(s?.strategies ?? []), ...deriveOrderNotifications(o?.orders ?? [])].sort((a, b) => b.at - a.at));
+      });
     load();
     const t = setInterval(load, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [enabled, wallet]);
+  }, [enabled, strategies, pandaOrders, wallet]);
 
   const markAllRead = useCallback(() => {
     if (!wallet) return;
