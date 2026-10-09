@@ -300,3 +300,15 @@ test("PANDA orders: the texts state the real margins and fees from the code, and
     assert.match(text("risk-disclosure", lang, { custody: false, pandaOrders: true }), /stop/i);
   }
 });
+
+test("the custody texts say sells / stops on a held coin never go through Jupiter, and treat Stop Loss / Take Profit only as a former panel", () => {
+  for (const lang of LANGS) {
+    const never = lang === "en" ? /never placed through Jupiter/ : /nunca se colocan a través de Jupiter/;
+    for (const slug of ["legal-notice", "terms-of-service"] as const) assert.match(text(slug, lang, { custody: true }), never, `${slug}/${lang}`);
+    for (const slug of LEGAL_SLUGS) {
+      for (const para of getLegalPage(slug, { custody: true }).body[lang]) {
+        if (/Stop Loss/.test(para)) assert.match(para, lang === "en" ? /former Stop Loss/ : /antiguo panel de Stop Loss/, `${slug}/${lang}: ${para.slice(0, 80)}`);
+      }
+    }
+  }
+});

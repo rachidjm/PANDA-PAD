@@ -14,7 +14,7 @@ export const FEATURES = [
   "CREATOR_REWARDS",
   "MERKLE_CLAIMS",
   // Launch scope: everything below moves money that has never been signed on mainnet, or needs a custodian.
-  "STRATEGIES", // Draw Your Trade + Stop Loss / Take Profit — custodial (Jupiter Trigger vault, held by Privy)
+  "STRATEGIES", // Draw Your Trade strategies with a buy — custodial (Jupiter Trigger vault, held by Privy)
   "OTC_REWARDS", // the Rewards mode of /create (OTC / Meteora launcher)
   "HOLDER_REWARDS", // the "Holders" band of a Standard coin's creator-fee split (Rewards Pool wallet, custodied by PANDA's servers)
   "REFERRALS", // the Recruiters program — a marginal-tier share of PANDA's trade fee paid straight to the recruiter inside the trade's own transaction

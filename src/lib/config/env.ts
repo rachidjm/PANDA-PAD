@@ -71,7 +71,7 @@ export const ENV_SPECS: EnvSpec[] = [
   { names: ["DATABASE_URL_UNPOOLED"], group: "storage", required: never, valid: isPostgresUrl, affects: "only `npm run db:migrate` (schema migrations); the running app uses DATABASE_URL" },
 
   // ── optional, required only when the feature is on ────────────────────────────────────────────────────────
-  { names: ["JUPITER_API_KEY"], group: "strategies", required: (e) => isEnabled("STRATEGIES", e), valid: nonEmpty, affects: "Draw Your Trade and Stop Loss / Take Profit (FEATURE_STRATEGIES)" },
+  { names: ["JUPITER_API_KEY"], group: "strategies", required: (e) => isEnabled("STRATEGIES", e), valid: nonEmpty, affects: "Draw Your Trade strategies with a buy (FEATURE_STRATEGIES)" },
   { names: ["NEXT_PUBLIC_PANDA_REWARDS_POOL"], group: "rewards", required: never, valid: isPubkey, affects: "the \"Holders\" share of a coin's creator fees and the Rewards page (unset: holders routing is shown as not configured)" },
   { names: ["PANDA_REWARDS_POOL_SECRET_KEY"], group: "rewards", required: (e) => !!e.NEXT_PUBLIC_PANDA_REWARDS_POOL, valid: looksLikeSecretKey, affects: "collecting fees and paying holders automatically (FEATURE_HOLDER_REWARDS)" },
   { names: ["PANDA_AIRDROP_POOL_SECRET_KEY"], group: "airdrops", required: (e) => isEnabled("PANDA_AIRDROPS", e), valid: looksLikeSecretKey, affects: "airdrop claims (FEATURE_PANDA_AIRDROPS)" },
