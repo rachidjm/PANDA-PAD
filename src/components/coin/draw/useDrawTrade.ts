@@ -28,6 +28,9 @@ import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } f
 import { kindOf, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
 import {
   allocatedPct as sumAllocatedPct,
+  heldStatus as heldStatusOf,
+  pctForNewLeg,
+  pickHeldDraft,
   placeLeg,
   remainingPct as sumRemainingPct,
   removeLeg as removeTrancheLegFrom,
@@ -248,19 +251,35 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     };
   }, [connected, publicKey, readConnection, step]);
 
-  // The wallet's balance of THIS coin: what a sell or a stop can sell (only shapes without a buy need it).
-  const [tokenBalance, setTokenBalance] = useState<number | null>(null);
+  // The wallet's balance of THIS coin: what a sell or a stop can sell (only shapes without a buy need it). The
+  // `mint` filter makes the RPC look the mint's own program up, so a Token-2022 coin is read the same way as a
+  // classic SPL one. It's the wallet's FREE balance: tokens already in an open order sit in Jupiter's vault.
+  // Re-read every 30 s while the tab is visible and on coming back to it — a buy from the trade box next to
+  // the chart (or another app) has to unlock "Venta"/"Stop" without a reload.
+  const [balanceRead, setBalanceRead] = useState<{ key: string; amount: number | null } | null>(null);
+  const balanceKey = connected && publicKey && mint ? `${publicKey.toBase58()}:${mint}` : "";
   useEffect(() => {
-    if (!connected || !publicKey || !mint) return;
+    if (!balanceKey || !publicKey) return;
     let cancelled = false;
-    readConnection
-      .getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(mint) })
-      .then((r) => !cancelled && setTokenBalance(r.value.reduce((s, a) => s + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0)))
-      .catch(() => !cancelled && setTokenBalance(null));
+    const load = () => {
+      if (document.visibilityState === "hidden") return;
+      readConnection
+        .getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(mint) })
+        .then((r) => !cancelled && setBalanceRead({ key: balanceKey, amount: r.value.reduce((s, a) => s + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0) }))
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    document.addEventListener("visibilitychange", load);
     return () => {
       cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", load);
     };
-  }, [connected, publicKey, readConnection, mint, step]);
+  }, [balanceKey, publicKey, readConnection, mint, step]);
+  // Only a read for THIS wallet and THIS coin counts: a disconnected wallet or a different coin is "not known yet".
+  const tokenBalance = balanceRead && balanceRead.key === balanceKey ? balanceRead.amount : null;
+  const heldStatus = heldStatusOf(tokenBalance);
 
   // ── saved strategies (server) ────────────────────────────────────────────────────────────────────
   const refreshList = useCallback(async () => {
@@ -420,19 +439,42 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
 
   const startTarget = useCallback(
     (target: DrawTarget) => {
+      setError(null);
+      setNotice(null);
+      // Venta/Stop with no buy drawn: a sell, a stop or both (one oco) on the coin the wallet ALREADY holds — no
+      // purchase needed. The new line joins the held-coin draft and takes pctForNewLeg's share: the partner's
+      // own % when it completes a lone sell/stop into one oco, otherwise all the balance still unassigned
+      // (100% of the free balance on a fresh draft); the % is changed afterwards from the line's own row.
+      if (target !== "buy" && !active?.buy) {
+        if (heldStatus !== "has") return;
+        const leg = target === "stop" ? "stop" : "sell";
+        const d = pickHeldDraft(drafts, activeId) ?? newDraft();
+        const pct = pctForNewLeg(d.tranches ?? [], leg);
+        setActiveId(d.id);
+        if (pct <= 0) {
+          setError({ code: "ALLOCATION_FULL" });
+          setMachine(IDLE);
+          return;
+        }
+        pendingTrancheRef.current = { mode: "place", leg, pct };
+        setMachine(start(leg === "sell" ? "sell1" : "stop"));
+        return;
+      }
+      pendingTrancheRef.current = null;
       let d = active;
+      // "Compra" on a held-coin draft that already has % lines starts a separate buy strategy instead of
+      // turning those lines into the legs of a purchase.
+      if (d && target === "buy" && d.buy === undefined && (d.tranches?.length ?? 0) > 0) d = null;
       if (!d) {
-        const empty = [...drafts].reverse().find((x) => x.buy === undefined);
+        const empty = [...drafts].reverse().find((x) => x.buy === undefined && !(x.tranches && x.tranches.length > 0));
         if (empty) {
           d = empty;
           setActiveId(empty.id);
         } else d = newDraft();
       } else setActiveId(d.id);
-      setError(null);
-      setNotice(null);
       setMachine(start(target));
     },
-    [active, drafts, newDraft, setMachine]
+    [active, activeId, drafts, heldStatus, newDraft, setMachine]
   );
 
   const addStrategy = useCallback(() => {
@@ -841,6 +883,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   return {
     clearLeg,
     tokenBalance,
+    heldStatus,
     startTranchePlacement,
     startTrancheDrag,
     setTranchePrice,

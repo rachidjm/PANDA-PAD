@@ -156,6 +156,24 @@ test("sell only: a held amount worth under $10 is refused (the $10 minimum)", as
   assert.equal(seen.deposits.length, 0);
 });
 
+test("held coin, partly in open orders: the % is of the wallet's FREE balance re-read on the server (the rest is in Jupiter's vault)", async () => {
+  // 100 tokens bought, 60 already deposited in an open order → the wallet holds 40. 100% sells those 40, never 100.
+  const { deps, seen } = fakeDeps({}, BigInt(40_000_000));
+  const prepared = await prepareStrategy(deps, base(wallet(), { sellUsd: 2, stopUsd: 0.5, sellPct: 100 }));
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  assert.equal(seen.deposits[0].amount, "40000000");
+  assert.equal(seen.deposits[0].orderSubType, "oco");
+  assert.equal(prepared.record.amountUsd, 40);
+
+  // 20% of what's left (8 tokens = $8) is under the $10 minimum: refused before any deposit.
+  const small = await prepareStrategy(deps, base(wallet(), { stopUsd: 0.5, sellPct: 20 }));
+  assert.equal(small.ok, false);
+  if (small.ok) return;
+  assert.ok(small.issues?.includes("below_minimum"));
+  assert.equal(seen.deposits.length, 1, "no second deposit crafted");
+});
+
 test("sell only: a sell target at or below the price is refused — it would fire at once", async () => {
   const { deps, seen } = fakeDeps();
   const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 0.9, sellPct: 50 }));

@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { type KindIssue } from "@/lib/strategy/kinds";
 import { needsNoStopNotice, summaryParts, trancheSummaryParts, type SummaryPart } from "@/lib/strategy/summary";
-import { canAddPct, PCT_MORE_PRESETS, PCT_PRESETS, type Tranche } from "@/lib/strategy/allocation";
+import { canAddPct, heldStatus, minPctForOrder, PCT_MORE_PRESETS, PCT_PRESETS, remainingPct, trancheUsd, type Tranche } from "@/lib/strategy/allocation";
 import type { Draft, TrancheView } from "./useDrawTrade";
 import { formatDisplayValue, parseDisplayValue, sanitizeDisplayInput } from "@/lib/strategy/display";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -13,6 +13,7 @@ import type { DictKey } from "@/lib/i18n/translations";
 import type { Coin } from "@/lib/types";
 import {
   convertAmount,
+  MIN_ORDER_USD,
   pctVsBuy,
   PRICE_IMPACT_HIGH_PCT,
   PRICE_IMPACT_WARN_PCT,
@@ -77,7 +78,10 @@ type DisplayApi = { unit: "price" | "mcap"; toDisplay: (usd: number) => number; 
 export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDisplay, formatValue }: { draw: DrawApi; coin: Coin } & DisplayApi) {
   const { t } = useLanguage();
   const target = draw.machine.target;
-  const canSell = !!draw.active?.buy;
+  // Venta/Stop either complete a drawn buy (the full buy→sell→stop strategy) or, with no buy, act on the coin
+  // the wallet already holds — so they're usable whenever there's a buy line OR a real balance of this coin.
+  const canSell = !!draw.active?.buy || draw.heldStatus === "has";
+  const sellHint: DictKey = !draw.connected ? "draw.sellNeedsConnect" : draw.heldStatus === "unknown" ? "draw.balanceLoading" : "draw.sellNeedsCoin";
   const busy = draw.step !== "idle" && draw.step !== "done";
 
   // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
@@ -112,7 +116,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <TargetTabs target={target} canSell={canSell} busy={busy} onPick={draw.startTarget} disabledTitle={t("draw.sellNeedsBuy")} />
+        <TargetTabs target={target} canSell={canSell} busy={busy} onPick={draw.startTarget} disabledTitle={t(sellHint)} />
         {target && (
           <button type="button" onClick={draw.cancelDrawing} className="text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper">
             {t("draw.cancelMode")}
@@ -125,11 +129,17 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
           <Dot kind={target} />
           {t(MODE_KEYS[target])}
         </p>
+      ) : canSell ? (
+        !draw.active?.buy && draw.views.length === 0 && <p className="mt-2 text-xs text-panda-grey">{t("draw.heldHint", { ticker: coin.ticker })}</p>
       ) : (
-        !canSell && (
+        // An open held-coin draft already says this itself (TrancheEditor) — once is enough.
+        !(draw.active && draw.active.buy === undefined) && (
           // A `title` tooltip never shows on a touch tap, so without this a phone gives zero explanation
           // for why "Venta"/"Stop" look disabled — this is always visible instead, on every device.
-          <p className="mt-2 text-xs text-panda-grey">{t("draw.sellNeedsBuy")}</p>
+          <p className="mt-2 text-xs text-panda-grey">
+            {t(sellHint)}
+            {draw.connected && draw.heldStatus === "none" && <span className="block text-panda-grey/80">{t("draw.sellNeedsCoinBuy")}</span>}
+          </p>
         )
       )}
 
@@ -225,6 +235,8 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
         t("draw.err.conflict")
       ) : error.code === "BATCH_ROLLED_BACK" ? (
         t("draw.err.batchRolledBack")
+      ) : error.code === "ALLOCATION_FULL" ? (
+        t("draw.err.allocationFull")
       ) : (
         <>
           {t("draw.err.generic")}
@@ -521,30 +533,55 @@ function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onComm
  * useDrawTrade.ts's onPointer/startTranchePlacement), so nothing here needs to know which one is in use.
  */
 function TrancheEditor({ draft, view, draw, coin, unit, toDisplay, fromDisplay }: { draft: Draft; view: DraftView; draw: DrawApi; coin: Coin } & PriceDisplayApi) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const tranches = draft.tranches ?? [];
   // Not yet known (null, still loading) is never treated as "none" — only a real, read balance of 0 or less is.
-  const noCoin = view.tokenBalance !== null && view.tokenBalance <= 0;
+  const status = heldStatus(view.tokenBalance);
+  const balanceUsd = view.tokenBalance !== null && draw.currentUsd !== null ? view.tokenBalance * draw.currentUsd : null;
+  const minPct = minPctForOrder(balanceUsd);
   return (
     <div className="mt-2 space-y-3">
-      {noCoin ? (
-        <p className="text-xs text-panda-grey">{t("draw.noToken", { ticker: coin.ticker })}</p>
+      {!draw.connected || status === "none" ? (
+        <p className="text-xs text-panda-grey">{t(draw.connected ? "draw.sellNeedsCoin" : "draw.sellNeedsConnect")}</p>
       ) : (
         <>
+          {status === "has" && (
+            <p className="text-[11px] leading-relaxed text-panda-grey">
+              <span className="font-semibold text-paper/90">
+                {t("draw.freeBalance", { amount: view.tokenBalance!.toLocaleString(lang, { maximumFractionDigits: 2 }), ticker: coin.ticker, usd: balanceUsd !== null ? formatUsd(balanceUsd) : "—" })}
+              </span>{" "}
+              {t("draw.freeBalanceNote")}
+            </p>
+          )}
           <PctRow legLabel={t("draw.line.sell")} dotKind="sell1" leg="sell" draftId={draft.id} tranches={tranches} draw={draw} />
           <PctRow legLabel={t("draw.line.stop")} dotKind="stop" leg="stop" draftId={draft.id} tranches={tranches} draw={draw} />
-          <p className="text-[11px] text-panda-grey">{t("draw.remainingPct", { pct: view.remainingPct })}</p>
+          <p className="text-[11px] text-panda-grey">
+            {t("draw.remainingPct", { pct: view.remainingPct })}
+            {minPct !== null && minPct > 100 ? (
+              <span className="block text-clay-red">{t("draw.balanceTooSmall", { usd: formatUsd(balanceUsd ?? 0) })}</span>
+            ) : minPct !== null && minPct > PCT_MORE_PRESETS[0] ? (
+              <span className="block">{t("draw.minPct", { pct: minPct })}</span>
+            ) : null}
+          </p>
         </>
       )}
       {view.tranches.length > 0 && (
         <div className="space-y-1.5">
           {view.tranches.map((tv) => (
-            <TrancheLegRows key={tv.tranche.id} tv={tv} draftId={draft.id} draw={draw} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />
+            <TrancheLegRows key={tv.tranche.id} tv={tv} tranches={tranches} balanceUsd={balanceUsd} draftId={draft.id} draw={draw} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/** Every % a line can be switched to from its own row: the quick picks that still fit next to the OTHER
+ *  lines' shares, plus its current value (even an "Otro" one), smallest first. */
+function pctChoices(tranches: Tranche[], tr: Tranche): number[] {
+  const room = remainingPct(tranches.filter((x) => x.id !== tr.id));
+  const fits = [...PCT_MORE_PRESETS, ...PCT_PRESETS].filter((p) => p <= room);
+  return [...new Set([...fits, tr.pct])].sort((a, b) => a - b);
 }
 
 /** One leg's quick picks ("Venta"/"Stop"): the 4 main presets always shown, "Más ▾" unfolding 5/10/15/"Otro"
@@ -636,19 +673,44 @@ function PctButton({ pct, tranches, onPick, full }: { pct: number; tranches: Tra
 
 /** One tranche's own line(s) — ONE row per leg it actually has, so a paired (sell+stop) tranche shows two,
  *  each independently editable/removable, sharing the SAME % (allocation.ts pairs them into one "oco" order). */
-function TrancheLegRows({ tv, draftId, draw, unit, toDisplay, fromDisplay }: { tv: TrancheView; draftId: string; draw: DrawApi } & PriceDisplayApi) {
+function TrancheLegRows({ tv, tranches, balanceUsd, draftId, draw, unit, toDisplay, fromDisplay }: { tv: TrancheView; tranches: Tranche[]; balanceUsd: number | null; draftId: string; draw: DrawApi } & PriceDisplayApi) {
   const { t } = useLanguage();
   const tr = tv.tranche;
   const legs: { leg: "sell" | "stop"; price: number; dotKind: DrawTarget; labelKey: DictKey }[] = [];
   if (tr.sell !== undefined) legs.push({ leg: "sell", price: tr.sell, dotKind: "sell1", labelKey: "draw.line.sell" });
   if (tr.stop !== undefined) legs.push({ leg: "stop", price: tr.stop, dotKind: "stop", labelKey: "draw.line.stop" });
+  const usd = trancheUsd(balanceUsd, tr.pct);
+  const confirming = draw.step !== "idle" && draw.step !== "done";
   return (
     <div className="rounded-xl bg-ink-raised px-3 py-2">
+      {/* The slice this line (or oco pair) sells: its % of the free balance — switchable right here — and what that's worth now. */}
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-panda-grey">
+        <label className="flex items-center gap-1.5">
+          <select
+            value={tr.pct}
+            onChange={(e) => draw.setTranchePct(draftId, tr.id, Number(e.target.value))}
+            disabled={confirming}
+            aria-label={t("draw.trancheShare")}
+            className="rounded-lg bg-ink px-2 py-1.5 text-xs font-semibold text-paper outline-none disabled:opacity-50"
+          >
+            {pctChoices(tranches, tr).map((p) => (
+              <option key={p} value={p}>
+                {p}%
+              </option>
+            ))}
+          </select>
+          <span>{t("draw.ofBalance")}</span>
+        </label>
+        <span className={usd !== null && usd < MIN_ORDER_USD ? "font-semibold text-clay-red" : undefined}>
+          {usd !== null ? `≈ ${formatUsd(usd)}` : "—"}
+          {tv.kind === "sell_stop" && <span className="ml-1.5 rounded-full bg-paper/10 px-1.5 py-0.5 text-[10px] font-semibold text-paper/80">OCO</span>}
+        </span>
+      </div>
       {legs.map((l, i) => (
         <div key={l.leg} className={`flex items-center justify-between gap-2 ${i > 0 ? "mt-1.5" : ""}`}>
           <span className="flex items-center gap-1.5 text-[11px] text-panda-grey">
             <Dot kind={l.dotKind} />
-            {t(l.labelKey)} · {tr.pct}%
+            {t(l.labelKey)}
           </span>
           <span className="flex items-center gap-1.5">
             <UnitAwarePriceInput value={l.price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={t(l.labelKey)} onCommit={(v) => draw.setTranchePrice(draftId, tr.id, l.leg, v)} />

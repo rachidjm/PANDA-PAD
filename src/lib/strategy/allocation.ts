@@ -1,4 +1,5 @@
 import { kindOf, validateKind, type KindIssue, type OrderKind } from "./kinds";
+import { MIN_ORDER_USD } from "./plan";
 
 /**
  * "Venta por porcentaje dibujando": several sell/stop lines on a held token's position, each covering its own
@@ -37,6 +38,59 @@ export function remainingPct(tranches: Tranche[]): number {
 /** Whether `pct` more can still be assigned right now — what a preset/"Otro" button checks before it's shown as usable. */
 export function canAddPct(tranches: Tranche[], pct: number): boolean {
   return pct > 0 && pct <= 100 && pct <= remainingPct(tranches);
+}
+
+/**
+ * The % a brand new `leg` (placed with no explicit choice — the top-level Venta/Stop tap, or a typed price
+ * with nothing picked) should claim: joins an existing tranche that's missing just this leg (same pairing rule
+ * `placeLeg` applies, so a sell drawn alone and a stop drawn alone at the top level still combine into one
+ * "oco" order instead of two separate slices), otherwise claims whatever of the balance is still unclaimed —
+ * the whole thing, for the common case of a fresh draft. 0 means there's no room left for a new slice (an
+ * existing, already-paired tranche can still be retargeted through its own row, just not created this way).
+ */
+export function pctForNewLeg(tranches: Tranche[], leg: "sell" | "stop"): number {
+  const other: "sell" | "stop" = leg === "sell" ? "stop" : "sell";
+  const partner = tranches.find((t) => t[other] !== undefined && t[leg] === undefined);
+  return partner ? partner.pct : remainingPct(tranches);
+}
+
+/**
+ * Whether the connected wallet can draw a sell/stop on a coin it already holds, without buying first:
+ * "unknown" while the balance hasn't been read (or no wallet is connected) — never treated as "none" —,
+ * "none" for a real balance of 0, "has" otherwise. The balance read is the wallet's own, so it is ALREADY
+ * net of the user's open orders: a Jupiter Trigger deposit moves those tokens out into Jupiter's vault.
+ */
+export type HeldStatus = "unknown" | "none" | "has";
+export function heldStatus(tokenBalance: number | null): HeldStatus {
+  if (tokenBalance === null || !Number.isFinite(tokenBalance)) return "unknown";
+  return tokenBalance > 0 ? "has" : "none";
+}
+
+/** What `pct` of the free balance is worth right now, or null while either number is unknown. */
+export function trancheUsd(balanceUsd: number | null, pct: number): number | null {
+  return balanceUsd === null || !Number.isFinite(balanceUsd) ? null : balanceUsd * (pct / 100);
+}
+
+/**
+ * The smallest whole % of the free balance that reaches the per-order minimum (MIN_ORDER_USD, Jupiter's rule):
+ * null while the value is unknown; above 100 when even the whole balance falls short. Only a hint for the
+ * buttons — the hard check is still validateTranches (browser) and prepareShape (server).
+ */
+export function minPctForOrder(balanceUsd: number | null, minUsd: number = MIN_ORDER_USD): number | null {
+  if (balanceUsd === null || !Number.isFinite(balanceUsd)) return null;
+  if (balanceUsd <= 0) return Infinity;
+  return Math.ceil(((minUsd / balanceUsd) * 100) - 1e-9);
+}
+
+/**
+ * The draft a top-level Venta/Stop tap (no buy drawn) adds its line to: the active draft if it's a held-coin
+ * one (no buy), else the most recent held-coin draft, else null (the caller makes a new one). A draft with a
+ * buy is never picked: its own sell/stop legs belong to the full buy→sell→stop strategy instead.
+ */
+export function pickHeldDraft<D extends { id: string; buy?: number }>(drafts: D[], activeId: string | null): D | null {
+  const active = drafts.find((d) => d.id === activeId);
+  if (active) return active.buy === undefined ? active : null;
+  return [...drafts].reverse().find((d) => d.buy === undefined) ?? null;
 }
 
 /**
