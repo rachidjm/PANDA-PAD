@@ -28,15 +28,17 @@ import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } f
 import { kindOf, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
 import {
   allocatedPct as sumAllocatedPct,
+  fitsLeg,
   heldStatus as heldStatusOf,
+  linesOf,
   pickHeldDraft,
-  placeLeg,
+  placeLine,
+  removeLine as removeLineFrom,
+  updateLinePrice,
   remainingPct as sumRemainingPct,
-  removeLeg as removeTrancheLegFrom,
   removeTranche as removeTrancheFrom,
   setTranchePct as setTranchePctOf,
   trancheKind,
-  updateLegPrice,
   validateTranches,
   type Tranche,
 } from "@/lib/strategy/allocation";
@@ -86,8 +88,8 @@ export type ChartLine = {
   active: boolean;
   /** Set only on a sell/stop tranche's own line: the % of the position it sells. */
   pct?: number;
-  /** Set only on a DRAFT tranche's leg (never a live/saved one): grabbing this line's tag on the chart repositions THIS leg. */
-  trancheId?: string;
+  /** Set only on a DRAFT held-coin line (never a live/saved one): grabbing its tag on the chart moves this whole line. */
+  lineId?: string;
   /** A sell / stop on a coin already held (a draft tranche or a live PANDA order): its sell is drawn green. */
   held?: boolean;
 };
@@ -163,13 +165,21 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const machineRef = useRef<DrawState>(IDLE);
   // What the NEXT committed price on the chart is for, while it isn't just "set this leg of the active draft"
   // (the normal path): placing a brand new percentage tranche, or dragging an existing one's line. Cleared the
-  // moment it's used, or when drawing is cancelled outright — see startTranchePlacement/startTrancheDrag below.
-  const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop"; pct: number } | { mode: "drag"; trancheId: string; leg: "sell" | "stop" } | null>(null);
+  // moment it's used, or when drawing is cancelled outright — see startTarget/startTrancheDrag below.
+  const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop" } | { mode: "drag"; lineId: string; leg: "sell" | "stop" } | null>(null);
+  // The tab the user picked STAYS picked: every tap on the chart adds (or, for a buy strategy, moves) a line of
+  // that type until another tab is picked or drawing is cancelled. `held`: Venta/Stop on a coin already held.
+  const modeRef = useRef<{ target: DrawTarget; held: boolean } | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   // The % marked in the one row of buttons: every new sell / stop line takes it (until another one is marked).
   // Nothing is marked when the panel opens — the user picks one first ("Elige primero un %" until they do).
   const [selectedPct, setSelectedPctState] = useState<number | null>(null);
   const [pickPctHint, setPickPctHint] = useState(false);
+  // Read when the chart is tapped (the gesture callback doesn't re-subscribe on every change).
+  const selectedPctRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedPctRef.current = selectedPct;
+  }, [selectedPct]);
   const setSelectedPct = useCallback((p: number) => {
     setSelectedPctState(p);
     setPickPctHint(false);
@@ -440,9 +450,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (d.buy) out.push({ key: `${d.id}-b`, groupId: d.id, kind: "buy", price: d.buy, tag, live: false, active });
       if (d.sell) out.push({ key: `${d.id}-s`, groupId: d.id, kind: "sell1", price: d.sell, tag, live: false, active });
       if (d.stop) out.push({ key: `${d.id}-x`, groupId: d.id, kind: "stop", price: d.stop, tag, live: false, active });
-      for (const t of d.tranches ?? []) {
-        if (t.sell !== undefined) out.push({ key: `${d.id}-t-${t.id}-s`, groupId: d.id, kind: "sell1", price: t.sell, tag, live: false, active, pct: t.pct, trancheId: t.id, held: true });
-        if (t.stop !== undefined) out.push({ key: `${d.id}-t-${t.id}-x`, groupId: d.id, kind: "stop", price: t.stop, tag, live: false, active, pct: t.pct, trancheId: t.id, held: true });
+      for (const l of linesOf(d.tranches ?? [])) {
+        out.push({ key: `${d.id}-l-${l.leg}-${l.lineId}`, groupId: d.id, kind: l.leg === "sell" ? "sell1" : "stop", price: l.price, tag, live: false, active, pct: l.pct, lineId: l.lineId, held: true });
       }
     }
     // Live (submitted) strategies: a multi-tranche one is several sibling StrategyRecords sharing `groupId` — the shared
@@ -518,23 +527,24 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     (target: DrawTarget) => {
       setError(null);
       setNotice(null);
-      // Venta/Stop with no buy drawn: a sell, a stop or both (one oco) on the coin the wallet ALREADY holds — no
-      // purchase needed. The new line takes the % marked in the row of buttons (a sell and a stop at the same %
-      // pair into one oco — allocation.ts's placeLeg). Going past 100% is drawn and reported, never ignored.
+      // Venta/Stop with no buy drawn: sells and stops on the coin the wallet ALREADY holds — no purchase needed.
+      // The tab stays picked: every tap on the chart adds a line at the % marked in the row of buttons, read at
+      // the moment of the tap (allocation.ts's placeLine pairs a stop with sells into oco orders).
       if (target !== "buy" && !current?.buy) {
         if (heldStatus !== "has") return;
-        if (selectedPct === null) {
-          setPickPctHint(true);
-          return;
-        }
         const leg = target === "stop" ? "stop" : "sell";
         const d = pickHeldDraft(drafts, current?.id ?? null) ?? newDraft();
         setActiveId(d.id);
-        pendingTrancheRef.current = { mode: "place", leg, pct: selectedPct };
+        pendingTrancheRef.current = { mode: "place", leg };
+        modeRef.current = { target: leg === "sell" ? "sell1" : "stop", held: true };
         setMachine(start(leg === "sell" ? "sell1" : "stop"));
+        // Each type has its own room: a % that fits sells may not fit stops.
+        if (selectedPct !== null && !fitsLeg(d.tranches ?? [], leg, selectedPct)) setSelectedPctState(null);
+        if (selectedPct === null || !fitsLeg(d.tranches ?? [], leg, selectedPct)) setPickPctHint(true);
         return;
       }
       pendingTrancheRef.current = null;
+      modeRef.current = { target, held: false };
       let d: Draft | null = current;
       // "Compra" on a held-coin draft that already has % lines starts a separate buy strategy instead of
       // turning those lines into the legs of a purchase.
@@ -563,6 +573,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
 
   const cancelDrawing = useCallback(() => {
     pendingTrancheRef.current = null;
+    modeRef.current = null;
     setMachine(IDLE);
     // Backing out of the very first BUY leaves nothing behind — but only when it was ALSO never going to be a
     // held-coin draft (no tranches drawn on it either).
@@ -584,21 +595,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   }, []);
 
   // ── percentage tranches (a held coin's "venta por porcentaje dibujando") ────────────────────────
-  const updateTrancheLegPrice = useCallback((draftId: string, trancheId: string, leg: "sell" | "stop", price: number) => {
-    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: updateLegPrice(d.tranches ?? [], trancheId, leg, price) } : d)));
+  /** A typed price moves the whole line, same as dragging it on the chart. */
+  const setLinePrice = useCallback((draftId: string, leg: "sell" | "stop", lineId: string, value: string) => {
+    const p = roundPrice(parseFloat(value));
+    if (p > 0) setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: updateLinePrice(d.tranches ?? [], leg, lineId, p) } : d)));
   }, []);
 
-  /** A typed price goes through the same place as one dragged on the chart. */
-  const setTranchePrice = useCallback(
-    (draftId: string, trancheId: string, leg: "sell" | "stop", value: string) => {
-      const p = roundPrice(parseFloat(value));
-      if (p > 0) updateTrancheLegPrice(draftId, trancheId, leg, p);
-    },
-    [updateTrancheLegPrice]
-  );
-
-  const removeTrancheLeg = useCallback((draftId: string, trancheId: string, leg: "sell" | "stop") => {
-    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: removeTrancheLegFrom(d.tranches ?? [], trancheId, leg) } : d)));
+  /** The × on a line's card: the whole line goes, from every tranche it spans. */
+  const removeLine = useCallback((draftId: string, leg: "sell" | "stop", lineId: string) => {
+    setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: removeLineFrom(d.tranches ?? [], leg, lineId) } : d)));
   }, []);
 
   const removeTranche = useCallback((draftId: string, trancheId: string) => {
@@ -608,20 +613,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const setTranchePct = useCallback((draftId: string, trancheId: string, pct: number) => {
     setDrafts((ds) => ds.map((d) => (d.id === draftId ? { ...d, tranches: setTranchePctOf(d.tranches ?? [], trancheId, pct) } : d)));
   }, []);
-
-  /** Arms the chart for a BRAND NEW tranche leg at `pct` — the next click/tap on the chart places it (see
-   *  onPointer's commit branch below). `pct` must already be affordable (DrawTradePanel only shows an
-   *  enabled button for a `pct` that `canAddPct` allows). */
-  const startTranchePlacement = useCallback(
-    (draftId: string, leg: "sell" | "stop", pct: number) => {
-      setActiveId(draftId);
-      pendingTrancheRef.current = { mode: "place", leg, pct };
-      setError(null);
-      setNotice(null);
-      setMachine(start(leg === "sell" ? "sell1" : "stop"));
-    },
-    [setMachine]
-  );
 
   const applyPrice = useCallback((id: string, target: DrawTarget, price: number) => {
     setDrafts((ds) =>
@@ -672,28 +663,44 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       const r = up(s, p, info);
       if (r.picked !== null && activeId) {
         const pending = pendingTrancheRef.current;
+        // After every tap the picked tab stays armed (sticky mode); after a drag, whatever was armed before comes back.
+        const rearm = () => {
+          const m = modeRef.current;
+          pendingTrancheRef.current = m?.held ? { mode: "place", leg: m.target === "stop" ? "stop" : "sell" } : null;
+          setMachine(m ? start(m.target) : IDLE);
+        };
         if (pending?.mode === "place") {
-          pendingTrancheRef.current = null;
-          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: placeLeg(d.tranches ?? [], pending.leg, pending.pct, r.picked!, { allowOver: true }) } : d)));
-          setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
-          setMachine(IDLE);
+          const pct = selectedPctRef.current;
+          const tranches = drafts.find((d) => d.id === activeId)?.tranches ?? [];
+          if (pct === null || !fitsLeg(tranches, pending.leg, pct)) {
+            // No % marked, or the marked one doesn't fit any more: no line, and say so.
+            if (pct !== null) setSelectedPctState(null);
+            setPickPctHint(true);
+          } else {
+            const next = placeLine(tranches, pending.leg, pct, r.picked);
+            setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: next } : d)));
+            setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
+            // The marked % no longer fits another line of this type: unmark it rather than let it fail on the next tap.
+            if (!fitsLeg(next, pending.leg, pct)) {
+              setSelectedPctState(null);
+              setPickPctHint(true);
+            }
+          }
+          rearm();
         } else if (pending?.mode === "drag") {
-          pendingTrancheRef.current = null;
-          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: updateLegPrice(d.tranches ?? [], pending.trancheId, pending.leg, r.picked!) } : d)));
+          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: updateLinePrice(d.tranches ?? [], pending.leg, pending.lineId, r.picked!) } : d)));
           setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
-          setMachine(IDLE);
+          rearm();
         } else {
+          // A buy strategy has one buy, one sell and one stop: a tap places (or moves) the line of the picked tab, which stays picked.
           applyPrice(activeId, s.target, r.picked);
-          // Placing buy moves straight into sell, then straight into stop — three clicks/taps in one flow
-          // instead of having to re-pick the tab after each one.
-          const next = s.target === "buy" ? "sell1" : s.target === "sell1" ? "stop" : null;
-          setMachine(next ? start(next) : r.state);
+          setMachine(start(s.target));
         }
       } else {
         setMachine(r.state);
       }
     },
-    [activeId, applyPrice, setMachine, selectedPct, heldStatus, current]
+    [activeId, applyPrice, setMachine, selectedPct, heldStatus, current, drafts]
   );
 
   /** Grabs an already-placed tranche leg's line (its tag on the chart) and starts repositioning it right away —
@@ -701,9 +708,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
    *  existing one instead of creating a new tranche when it's released. `price`/`info` are the SAME pointerdown
    *  that triggered the grab, fed straight into the machine so the line starts following the pointer at once. */
   const startTrancheDrag = useCallback(
-    (draftId: string, trancheId: string, leg: "sell" | "stop", price: number, info: { type: string; button: number }) => {
+    (draftId: string, lineId: string, leg: "sell" | "stop", price: number, info: { type: string; button: number }) => {
       setActiveId(draftId);
-      pendingTrancheRef.current = { mode: "drag", trancheId, leg };
+      pendingTrancheRef.current = { mode: "drag", lineId, leg };
       setError(null);
       setNotice(null);
       setMachine(start(leg === "sell" ? "sell1" : "stop"));
@@ -718,6 +725,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       pendingTrancheRef.current = null;
+      modeRef.current = null;
       setMachine(IDLE);
     };
     window.addEventListener("keydown", onKey);
@@ -1111,10 +1119,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     resignPanda,
     refreshPanda,
     strategiesOn: features.strategies,
-    startTranchePlacement,
     startTrancheDrag,
-    setTranchePrice,
-    removeTrancheLeg,
+    setLinePrice,
+    removeLine,
     removeTranche,
     setTranchePct,
     confirmTranches,

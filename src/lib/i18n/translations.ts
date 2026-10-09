@@ -1055,6 +1055,7 @@ export const dict = {
   "draw.heldHint": { en: "You hold {ticker}: tap Sell or Stop to set your exit on the chart — no purchase needed.", es: "Tienes {ticker}: toca Venta o Stop para fijar tu salida en el gráfico, sin comprar." },
   // Draw Your Trade — the simple layout: one row of %, one message, one button
   "draw.pctLabel": { en: "Share of your balance for each new line", es: "Parte de tu saldo para cada línea nueva" },
+  "draw.payOnlySolUsdc": { en: "Draw Your Trade buy orders are paid with SOL or USDC.", es: "Las órdenes de compra de Draw Your Trade se pagan con SOL o USDC." },
   "draw.pickPct": { en: "Pick a % first", es: "Elige primero un %" },
   "draw.vsNow": { en: "Distance from the current price", es: "Distancia al precio actual" },
   "draw.sign1": { en: "Sign 1 order", es: "Firmar 1 orden" },

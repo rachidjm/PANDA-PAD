@@ -28,6 +28,8 @@ export default function PayWithSelect({
   disabled,
   loading,
   onlySol,
+  allowed,
+  lockedNote,
 }: {
   options: PayOption[];
   value: string;
@@ -35,6 +37,9 @@ export default function PayWithSelect({
   disabled?: boolean;
   loading?: boolean;
   onlySol?: boolean;
+  /** Only these can be picked; the rest of the wallet is listed but locked, with `lockedNote` saying why. */
+  allowed?: (mint: string) => boolean;
+  lockedNote?: string;
 }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -78,7 +83,7 @@ export default function PayWithSelect({
           <p className="px-3.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-panda-grey">{t("trading.payWith")}</p>
           <ul className="max-h-64 overflow-y-auto pb-1.5">
             {options.map((o, i) => {
-              const locked = !!onlySol && i > 0;
+              const locked = (!!onlySol && i > 0) || (!!allowed && !allowed(o.mint));
               return (
                 <li key={o.mint}>
                   <button
@@ -111,7 +116,7 @@ export default function PayWithSelect({
             })}
           </ul>
           <p className="border-t border-paper/10 px-3.5 py-2.5 text-[11px] leading-relaxed text-panda-grey">
-            {loading ? t("trading.payLoading") : onlySol ? t("trading.payOnlySol") : options.length === 1 ? t("trading.payNoTokens") : t("trading.payFeeNote")}
+            {loading ? t("trading.payLoading") : onlySol ? t("trading.payOnlySol") : lockedNote ? lockedNote : options.length === 1 ? t("trading.payNoTokens") : t("trading.payFeeNote")}
           </p>
         </div>
       )}

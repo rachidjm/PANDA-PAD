@@ -155,7 +155,7 @@ export function PriceTags({
     if (l.pct !== undefined) parts.push(`${l.pct}%`);
     // Only a DRAFT tranche's own leg can be grabbed and dragged — never a live/saved line, and never the plain
     // (non-tranche) buy/sell/stop lines, which are repriced by typing instead (see DrawTradePanel.tsx).
-    const draggable = !!overlay.grabLine && !l.live && !!l.trancheId;
+    const draggable = !!overlay.grabLine && !l.live && !!l.lineId;
     return { key: l.key, kind: l.kind, held: l.held, text: parts.join(" · "), y: px(y), strong: l.live || l.active, line: l, draggable };
   });
   const previewY = overlay.drawing && overlay.preview !== null ? px(clampedY(overlay.toDisplay(overlay.preview), domain).y) : null;

@@ -4,7 +4,7 @@ import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { needsNoStopNotice } from "@/lib/strategy/summary";
-import { PCT_ROW } from "@/lib/strategy/allocation";
+import { availableForLeg, linesOf, PCT_ROW } from "@/lib/strategy/allocation";
 import { firstProblem, orderCount } from "@/lib/strategy/problem";
 import type { Draft } from "./useDrawTrade";
 import { formatDisplayValue, parseDisplayValue, sanitizeDisplayInput } from "@/lib/strategy/display";
@@ -13,13 +13,15 @@ import type { DictKey } from "@/lib/i18n/translations";
 import type { Coin } from "@/lib/types";
 import {
   convertAmount,
-  pctVsBuy,
+  FUNDING,
   PRICE_IMPACT_HIGH_PCT,
   PRICE_IMPACT_WARN_PCT,
   VOLATILE_LIQUIDITY_USD,
   VOLATILE_PRICE_CHANGE_1H_PCT,
-  type FundingAsset,
 } from "@/lib/strategy/plan";
+import { FIRST_BUY_PRESETS } from "@/lib/trading/amount";
+import type { PayToken } from "@/lib/trading/pay-tokens";
+import PayWithSelect, { type PayOption } from "@/components/coin/PayWithSelect";
 import type { DrawTarget } from "@/lib/strategy/draw-machine";
 import type { RecordGroup } from "./useDrawTrade";
 import type { StrategyRecord, StrategyStatus } from "@/lib/strategy/types";
@@ -30,7 +32,6 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { LIVE, NONCE_DEPOSIT_LAMPORTS_ESTIMATE, type ClientOrder, type OrderGroup } from "@/lib/panda-orders/client-types";
 import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
-const PAY_WITH: FundingAsset[] = ["SOL", "USDC"];
 const STEP_KEYS: Record<string, DictKey> = {
   session: "draw.step.session",
   jupiter: "draw.step.jupiter",
@@ -98,8 +99,9 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   const open = !!target || (userOpen ?? isDesktop);
   const view = current ? draw.views.find((v) => v.draft.id === current.id) ?? null : null;
   const count = (view ? 1 : 0) + draw.recordGroups.length + draw.pandaGroups.length;
-  // The row of % buttons belongs to sells / stops on a coin already held — not to a drawn buy.
-  const showPct = !current?.buy && (draw.heldStatus === "has" || heldLines);
+  // Venta / Stop on a coin already held are a % of it; Compra is an amount of money, never a %.
+  const showBuy = target === "buy" || !!current?.buy;
+  const showPct = !showBuy && (draw.heldStatus === "has" || heldLines);
 
   return (
     <section className="mt-4 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5" aria-labelledby="draw-title">
@@ -130,8 +132,9 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
         )}
       </div>
 
+      {showBuy && view && <BuyAmount view={view} draw={draw} coin={coin} busy={busy} />}
       {showPct && <PctBar draw={draw} busy={busy} />}
-      {showPct && draw.pickPctHint && draw.selectedPct === null && (
+      {showPct && draw.pickPctHint && draw.selectedPct === null && pctLeft(draw) > 0 && (
         <p className="mt-2 text-xs font-semibold text-clay-red" role="alert">
           {t("draw.pickPct")}
         </p>
@@ -139,7 +142,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
 
       {target ? (
         <p className="mt-2 flex items-center gap-2 text-xs text-paper/80" role="status">
-          <Dot kind={target} />
+          <Dot kind={target} held={!current?.buy} />
           {t(MODE_KEYS[target])}
         </p>
       ) : canSell ? (
@@ -158,7 +161,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       <div aria-live="polite" className="min-h-0">
         {draw.notice && !target && (
           <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-paper">
-            <Dot kind={draw.notice.kind} />
+            <Dot kind={draw.notice.kind} held={!current?.buy} />
             {t(SET_KEYS[draw.notice.kind], { price: formatValue(draw.notice.price) })}
           </p>
         )}
@@ -190,8 +193,8 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   );
 }
 
-function Dot({ kind }: { kind: DrawTarget }) {
-  return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: lineColor(kind) }} aria-hidden />;
+function Dot({ kind, held }: { kind: DrawTarget; held?: boolean }) {
+  return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: heldLineColor(kind, held) }} aria-hidden />;
 }
 
 /** Small segmented control — "Compra · Venta · Stop" — picks which line the next click/tap on the chart
@@ -300,13 +303,10 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
     Promise.resolve().then(() => setImpactAck(false));
   }, [draft.amount, draft.unit]);
 
-  const sellPct = draft.sell !== undefined ? pctVsBuy(draft.sell, draft.buy) : null;
-  const stopPct = draft.stop !== undefined ? pctVsBuy(draft.stop, draft.buy) : null;
   const f = view.funding;
   const rateMissing = f && !f.ok && f.reason === "price_unavailable";
   const short = f && !f.ok && f.reason === "insufficient" ? f.shortfallUsd : undefined;
   const q = draw.quote;
-  const rates = { solUsd: q?.solUsd ?? null, usdcUsd: q?.usdcUsd ?? null, eurUsd: q?.eurUsd ?? null };
   const volatile = !!q && ((q.liquidityUsd !== null && q.liquidityUsd < VOLATILE_LIQUIDITY_USD) || (q.priceChangeH1Pct !== null && Math.abs(q.priceChangeH1Pct) > VOLATILE_PRICE_CHANGE_1H_PCT));
   const impactHigh = impact.pct !== null && impact.pct >= PRICE_IMPACT_HIGH_PCT;
   const impactWarn = impact.pct !== null && impact.pct >= PRICE_IMPACT_WARN_PCT;
@@ -333,24 +333,6 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
       ? { text: t("draw.connect"), tone: "text-panda-grey" }
       : { text: t("draw.execution.notice"), tone: "text-panda-grey" };
 
-  // The same amount in the other two currencies, so "10" always means something.
-  const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
-  const others = funding
-    ? [
-        draft.unit !== "USD" && cur(funding.usd, "USD"),
-        draft.unit !== "EUR" && rates.eurUsd && cur(funding.usd / rates.eurUsd, "EUR"),
-        draft.unit !== "SOL" && rates.solUsd && `${(funding.usd / rates.solUsd).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL`,
-      ].filter(Boolean)
-    : [];
-
-  function pickUnit(u: BuyUnit) {
-    if (u === draft.unit) return;
-    rememberUnit(u);
-    const value = parseFloat(draft.amount);
-    const converted = value > 0 ? convertAmount(draft.unit, value, u, rates) : null;
-    draw.patchDraft(draft.id, { unit: u, amount: converted !== null ? String(Number(converted.toFixed(u === "SOL" ? 4 : 2))) : "" });
-  }
-
   // ONE short message next to the button: the first thing to fix (problem.ts), else the usual one-line notice.
   // Nothing is ever listed under each line. While the wallet isn't connected (or its balance is still loading)
   // "you don't hold it" would be wrong, so it isn't said.
@@ -363,71 +345,14 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
   return (
     <div>
 
-      {/* A buy-including draft: three clean rows, a dot, the name, the price (or market cap — whatever the
-          chart shows now) and the live % vs. the buy target. Tap the number to edit it by hand. A held-coin
-          draft (no buy) uses the percentage tranche editor below instead — there is no bare, un-allocated
-          sell/stop any more, every exit is a % of the position. */}
-      {!heldMode && (
-        <div className="mt-2">
-          <LineRow kind="buy" label={t("draw.line.buy")} value={draft.buy} pct={null} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "buy", v)} onClear={() => draw.clearLeg(draft.id, "buy")} clearLabel={t("draw.clearLeg")} />
-          <LineRow kind="sell1" label={t("draw.line.sell")} value={draft.sell} pct={sellPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "sell1", v)} onClear={draft.sell !== undefined ? () => draw.clearLeg(draft.id, "sell1") : undefined} clearLabel={t("draw.clearLeg")} />
-          <LineRow kind="stop" label={t("draw.line.stop")} value={draft.stop} pct={stopPct} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} onCommit={(v) => draw.setPrice(draft.id, "stop", v)} onClear={draft.stop !== undefined ? () => draw.clearLeg(draft.id, "stop") : undefined} clearLabel={t("draw.clearLeg")} last />
-        </div>
-      )}
+      {/* Every drawn line is a small card (LineCard). A buy strategy's buy shows its amount of money; its sell and
+          stop cover the whole purchase (100%). A held coin's lines each show their own %. */}
+      {!heldMode && <BuyLines draft={draft} draw={draw} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />}
       {heldMode && <HeldLines draft={draft} draw={draw} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />}
       {!heldMode && needsNoStopNotice({ buy: draft.buy, sell: draft.sell, stop: draft.stop }) && <p className="mt-2 text-[11px] text-panda-grey">{t("draw.noStopWarning")}</p>}
 
       {complete && (
         <>
-          {!heldMode && (
-          <>
-          <div className="mt-4 flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
-            <input
-              value={draft.amount}
-              onChange={(e) => draw.patchDraft(draft.id, { amount: sanitizeDecimalInput(e.target.value) })}
-              placeholder="0"
-              inputMode="decimal"
-              aria-label={t("draw.amount")}
-              disabled={confirming}
-              className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
-            />
-            <div className="flex shrink-0 gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={t("draw.amount")}>
-              {(["SOL", "USD", "EUR"] as const).map((u) => (
-                <button
-                  key={u}
-                  type="button"
-                  onClick={() => pickUnit(u)}
-                  aria-pressed={draft.unit === u}
-                  aria-label={u}
-                  className={`min-w-8 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${draft.unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
-                >
-                  {u === "SOL" ? "SOL" : u === "USD" ? "$" : "€"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {others.length > 0 && <p className="mt-2 text-xs text-panda-grey">≈ {others.join(" · ≈ ")}</p>}
-          {draft.unit !== "SOL" && (
-            <div className="mt-2 flex items-center gap-2 text-[11px] text-panda-grey">
-              <span>{t("draw.payWith")}</span>
-              {PAY_WITH.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => draw.patchDraft(draft.id, { pay: a })}
-                  aria-pressed={view.asset === a}
-                  className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${view.asset === a ? "bg-paper/15 text-paper" : "bg-paper/5 text-paper/70 hover:bg-paper/10"}`}
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
-          )}
-
-          </>
-          )}
-
           {/* One-line summary; the fee/total breakdown stays folded until asked for. */}
           {view.metrics !== null && view.amountUsd && (
             <>
@@ -499,46 +424,36 @@ function Row({ label, value, tone, muted, strong }: { label: string; value: stri
 
 type PriceDisplayApi = Pick<DisplayApi, "unit" | "toDisplay" | "fromDisplay">;
 
-/** One row: a colored dot, the line's name, its live % vs. the buy target (when it has one), and its
- *  price/market cap — tap the number to edit it by hand, same as drawing it on the chart. */
-function LineRow({ kind, label, value, pct, unit, toDisplay, fromDisplay, onCommit, onClear, clearLabel, disabledReason, last }: { kind: DrawTarget; label: string; value?: number; pct: number | null; onCommit: (v: string) => void; onClear?: () => void; clearLabel: string; disabledReason?: string; last?: boolean } & PriceDisplayApi) {
-  return (
-    <div className={`py-2 ${last ? "" : "border-b border-paper/10"}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-xs text-panda-grey">
-          <Dot kind={kind} />
-          {label}
-        </span>
-        <span className="flex items-center gap-2">
-          {pct !== null && <span className={`text-xs font-medium ${pct >= 0 ? "text-bamboo" : "text-clay-red"}`}>{formatPct(pct)}</span>}
-          <UnitAwarePriceInput value={value} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={onCommit} disabled={!!disabledReason} />
-          {onClear && (
-            <button type="button" onClick={onClear} aria-label={clearLabel} title={clearLabel} className="flex h-8 w-8 items-center justify-center rounded-full text-sm text-panda-grey transition hover:text-clay-red">
-              <span aria-hidden>×</span>
-            </button>
-          )}
-        </span>
-      </div>
-      {disabledReason && <p className="mt-1 text-right text-[11px] text-clay-red">{disabledReason}</p>}
-    </div>
-  );
+/** How much % is still free for the picked type (sells and stops each have their own 100%); with no tab picked,
+ *  whichever type has more room. */
+function pctLeft(draw: DrawApi): number {
+  const tranches = draw.current?.buy === undefined ? draw.current?.tranches ?? [] : [];
+  const target = draw.machine.target;
+  if (target === "stop") return availableForLeg(tranches, "stop");
+  if (target?.startsWith("sell")) return availableForLeg(tranches, "sell");
+  return Math.max(availableForLeg(tranches, "sell"), availableForLeg(tranches, "stop"));
 }
 
-/** The one row of % buttons: the marked one STAYS marked (green) and every new sell / stop line takes it. "Otro"
- *  opens a small 1–100 box; a custom value then shows on that button, marked. */
+/** The one row of % buttons: the marked one STAYS marked (green) and every new sell / stop line takes it. A % that no
+ *  longer fits the picked type (sells and stops each have their own 100% — allocation.ts's availableForLeg) is grey
+ *  and can't be pressed, and "Otro" can't go past what's left — so the lines can never add up to more than 100%. */
 function PctBar({ draw, busy }: { draw: DrawApi; busy: boolean }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [otherOpen, setOtherOpen] = useState(false);
   const [value, setValue] = useState("");
   const sel = draw.selectedPct;
   const custom = sel !== null && !(PCT_ROW as readonly number[]).includes(sel);
+  const left = pctLeft(draw);
+  const min = Math.min(1, left);
+  const fmt = (n: number) => n.toLocaleString(lang, { maximumFractionDigits: 1 });
   const btn = (on: boolean) =>
-    `min-h-9 min-w-0 flex-1 whitespace-nowrap rounded-lg px-0 text-[11px] font-semibold tracking-tight tabular-nums transition-colors disabled:opacity-40 sm:px-1 sm:text-xs ${
-      on ? "bg-bamboo text-ink shadow-[inset_0_-2px_0_rgba(0,0,0,0.25)]" : "bg-paper/5 text-paper/80 hover:bg-paper/10"
+    `min-h-9 min-w-0 flex-1 whitespace-nowrap rounded-lg px-0 text-[11px] font-semibold tracking-tight tabular-nums transition-colors disabled:cursor-not-allowed sm:px-1 sm:text-xs ${
+      on ? "bg-bamboo text-ink shadow-[inset_0_-2px_0_rgba(0,0,0,0.25)]" : "bg-paper/5 text-paper/80 hover:bg-paper/10 disabled:bg-paper/[0.03] disabled:text-paper/25 disabled:hover:bg-paper/[0.03]"
     }`;
+  const parse = (v: string) => Math.round(Number(v.replace(",", ".")) * 10) / 10;
   const apply = () => {
-    const n = Math.round(Number(value.replace(",", ".")) * 10) / 10;
-    if (n >= 1 && n <= 100) {
+    const n = parse(value);
+    if (n >= min && n <= left) {
       draw.setSelectedPct(n);
       setOtherOpen(false);
       setValue("");
@@ -548,22 +463,26 @@ function PctBar({ draw, busy }: { draw: DrawApi; busy: boolean }) {
     <div className="mt-3">
       <div className="flex gap-1" role="group" aria-label={t("draw.pctLabel")}>
         {PCT_ROW.map((p) => (
-          <button key={p} type="button" disabled={busy} aria-pressed={sel === p} onClick={() => (draw.setSelectedPct(p), setOtherOpen(false))} className={btn(sel === p)}>
+          <button key={p} type="button" disabled={busy || p > left} aria-pressed={sel === p} onClick={() => (draw.setSelectedPct(p), setOtherOpen(false))} className={btn(sel === p)}>
             {p}%
           </button>
         ))}
-        <button type="button" disabled={busy} aria-pressed={custom} aria-expanded={otherOpen} onClick={() => setOtherOpen((v) => !v)} className={btn(custom)}>
-          {custom ? `${sel}%` : t("draw.other")}
+        <button type="button" disabled={busy || left <= 0} aria-pressed={custom} aria-expanded={otherOpen} onClick={() => setOtherOpen((v) => !v)} className={btn(custom)}>
+          {custom ? `${fmt(sel!)}%` : t("draw.other")}
         </button>
       </div>
-      {otherOpen && (
+      {otherOpen && left > 0 && (
         <div className="mt-2 flex items-center justify-end gap-2">
           <input
             autoFocus
             value={value}
-            onChange={(e) => setValue(e.target.value.replace(/[^\d.,]/g, "").slice(0, 5))}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^\d.,]/g, "").slice(0, 5);
+              // Never more than what's left for this type: a bigger figure is capped as it's typed.
+              setValue(v !== "" && parse(v) > left ? String(left).replace(".", lang.startsWith("es") ? "," : ".") : v);
+            }}
             onKeyDown={(e) => e.key === "Enter" && apply()}
-            placeholder="1-100"
+            placeholder={`${fmt(min)}-${fmt(left)}`}
             inputMode="decimal"
             aria-label={t("draw.other")}
             className="w-20 rounded-lg bg-ink px-2.5 py-2 text-right text-xs outline-none placeholder:text-panda-grey"
@@ -578,54 +497,252 @@ function PctBar({ draw, busy }: { draw: DrawApi; busy: boolean }) {
   );
 }
 
-/** The lines drawn on a held coin, one small card each, in its line's color (green sell, red stop): the type with
- *  its arrow and the % in a big pill on the left; the price (tap to edit) and how far it is from now on the right; a
- *  big × to remove it. */
-function HeldLines({ draft, draw, unit, toDisplay, fromDisplay }: { draft: Draft; draw: DrawApi } & PriceDisplayApi) {
+/** One drawn line as a small card in its line's color: the type with its arrow and a big pill (a % for sells and stops,
+ *  the amount of money for a buy) on the left; the price (tap to edit) and how far it is from the current price on the
+ *  right; a big × to remove it. */
+function LineCard({
+  color,
+  arrow,
+  label,
+  pill,
+  price,
+  now,
+  onCommit,
+  onRemove,
+  unit,
+  toDisplay,
+  fromDisplay,
+}: { color: string; arrow: string; label: string; pill: string; price: number; now: number | null; onCommit: (v: string) => void; onRemove: () => void } & PriceDisplayApi) {
   const { t, lang } = useLanguage();
-  const rows = (draft.tranches ?? []).flatMap((tr) =>
-    (["sell", "stop"] as const).filter((leg) => tr[leg] !== undefined).map((leg) => ({ tr, leg, price: tr[leg]! }))
-  );
-  const now = draw.currentUsd;
+  const dist = now && now > 0 ? (price / now - 1) * 100 : null;
   const pctFmt = new Intl.NumberFormat(lang, { maximumFractionDigits: 1, signDisplay: "exceptZero" });
   return (
+    <div className="flex items-stretch overflow-hidden rounded-xl border border-paper/10 bg-ink-raised">
+      <span className="w-1 shrink-0" style={{ background: color }} aria-hidden />
+      <div className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 pr-1 sm:gap-3 sm:pl-3">
+        <span className="flex shrink-0 items-center gap-1 text-xs font-semibold" style={{ color }}>
+          <span aria-hidden className="text-sm leading-none">{arrow}</span>
+          {label}
+        </span>
+        <span className="min-w-0 truncate rounded-lg px-2 py-1 text-base font-bold leading-none tabular-nums" style={{ color, background: `color-mix(in srgb, ${color} 16%, transparent)` }}>
+          {pill}
+        </span>
+        <span className="ml-auto flex shrink-0 flex-col items-end">
+          <UnitAwarePriceInput value={price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={onCommit} />
+          {dist !== null && (
+            <span className={`text-[11px] font-medium tabular-nums ${dist >= 0 ? "text-bamboo" : "text-clay-red"}`} title={t("draw.vsNow")}>
+              {pctFmt.format(Math.round(dist * 10) / 10)}%
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`${t("draw.clearLeg")} · ${label} ${pill}`}
+          title={t("draw.clearLeg")}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-panda-grey transition hover:bg-paper/5 hover:text-clay-red"
+        >
+          <span aria-hidden>×</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The lines drawn on a held coin, one card per line as the user drew it (green sell, red stop). */
+function HeldLines({ draft, draw, unit, toDisplay, fromDisplay }: { draft: Draft; draw: DrawApi } & PriceDisplayApi) {
+  const { t, lang } = useLanguage();
+  return (
     <div className="space-y-2">
-      {rows.map(({ tr, leg, price }) => {
-        const color = heldLineColor(leg === "sell" ? "sell1" : "stop", true);
-        const label = t(leg === "sell" ? "draw.line.sell" : "draw.line.stop");
-        const dist = now && now > 0 ? (price / now - 1) * 100 : null;
-        return (
-          <div key={`${tr.id}-${leg}`} className="flex items-stretch overflow-hidden rounded-xl border border-paper/10 bg-ink-raised">
-            <span className="w-1 shrink-0" style={{ background: color }} aria-hidden />
-            <div className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 pr-1 sm:gap-3 sm:pl-3">
-              <span className="flex shrink-0 items-center gap-1 text-xs font-semibold" style={{ color }}>
-                <span aria-hidden className="text-sm leading-none">{leg === "sell" ? "↑" : "↓"}</span>
-                {label}
-              </span>
-              <span className="shrink-0 rounded-lg px-2 py-1 text-base font-bold leading-none tabular-nums" style={{ color, background: `color-mix(in srgb, ${color} 16%, transparent)` }}>
-                {tr.pct}%
-              </span>
-              <span className="ml-auto flex min-w-0 flex-col items-end">
-                <UnitAwarePriceInput value={price} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} label={label} onCommit={(v) => draw.setTranchePrice(draft.id, tr.id, leg, v)} />
-                {dist !== null && (
-                  <span className={`text-[11px] font-medium tabular-nums ${dist >= 0 ? "text-bamboo" : "text-clay-red"}`} title={t("draw.vsNow")}>
-                    {pctFmt.format(Math.round(dist * 10) / 10)}%
-                  </span>
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => draw.removeTrancheLeg(draft.id, tr.id, leg)}
-                aria-label={`${t("draw.clearLeg")} · ${label} ${tr.pct}%`}
-                title={t("draw.clearLeg")}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-panda-grey transition hover:bg-paper/5 hover:text-clay-red"
-              >
-                <span aria-hidden>×</span>
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      {linesOf(draft.tranches ?? []).map((l) => (
+        <LineCard
+          key={`${l.leg}-${l.lineId}`}
+          color={heldLineColor(l.leg === "sell" ? "sell1" : "stop", true)}
+          arrow={l.leg === "sell" ? "↑" : "↓"}
+          label={t(l.leg === "sell" ? "draw.line.sell" : "draw.line.stop")}
+          pill={`${l.pct.toLocaleString(lang, { maximumFractionDigits: 1 })}%`}
+          price={l.price}
+          now={draw.currentUsd}
+          onCommit={(v) => draw.setLinePrice(draft.id, l.leg, l.lineId, v)}
+          onRemove={() => draw.removeLine(draft.id, l.leg, l.lineId)}
+          unit={unit}
+          toDisplay={toDisplay}
+          fromDisplay={fromDisplay}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** "10 €", "$10", "0,5 SOL" in the page's language — a buy's amount (its card and its quick buttons). */
+function moneyLabel(n: number, unit: BuyUnit, lang: string): string {
+  if (unit === "SOL") return `${n.toLocaleString(lang, { maximumFractionDigits: 4 })} SOL`;
+  return new Intl.NumberFormat(lang, { style: "currency", currency: unit, currencyDisplay: "narrowSymbol", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+}
+
+/** What a buy line's card shows instead of a %. */
+function amountLabel(draft: Draft, lang: string): string {
+  const n = parseFloat(draft.amount);
+  return n > 0 ? moneyLabel(n, draft.unit, lang) : "—";
+}
+
+/** A buy strategy's lines: the buy (its amount of money) and its sell and stop, which cover the whole purchase. */
+function BuyLines({ draft, draw, unit, toDisplay, fromDisplay }: { draft: Draft; draw: DrawApi } & PriceDisplayApi) {
+  const { t, lang } = useLanguage();
+  const rows: { target: DrawTarget; price?: number; arrow: string; label: string; pill: string }[] = [
+    { target: "buy", price: draft.buy, arrow: "↓", label: t("draw.line.buy"), pill: amountLabel(draft, lang) },
+    { target: "sell1", price: draft.sell, arrow: "↑", label: t("draw.line.sell"), pill: "100%" },
+    { target: "stop", price: draft.stop, arrow: "↓", label: t("draw.line.stop"), pill: "100%" },
+  ];
+  return (
+    <div className="space-y-2">
+      {rows
+        .filter((r) => r.price !== undefined)
+        .map((r) => (
+          <LineCard
+            key={r.target}
+            color={lineColor(r.target)}
+            arrow={r.arrow}
+            label={r.label}
+            pill={r.pill}
+            price={r.price!}
+            now={draw.currentUsd}
+            onCommit={(v) => draw.setPrice(draft.id, r.target, v)}
+            onRemove={() => draw.clearLeg(draft.id, r.target)}
+            unit={unit}
+            toDisplay={toDisplay}
+            fromDisplay={fromDisplay}
+          />
+        ))}
+    </div>
+  );
+}
+
+const SOL_MINT = FUNDING.SOL.mint;
+const USDC_MINT = FUNDING.USDC.mint;
+const UNIT_SYMBOL: Record<BuyUnit, string> = { SOL: "SOL", USD: "$", EUR: "€" };
+
+/**
+ * Compra is an amount of money, never a %: a box with SOL / $ / €, quick amounts (the same as "Tu primera compra" when
+ * creating a coin) and PANDA's own "Pagar con" list of what the wallet holds. A Draw Your Trade buy order is paid
+ * with SOL or USDC (that's what the order is built from), so the wallet's other coins are listed but locked.
+ */
+function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi; coin: Coin; busy: boolean }) {
+  const { t, lang } = useLanguage();
+  const { draft } = view;
+  const { connected, publicKey } = useWallet();
+  const [tokens, setTokens] = useState<PayToken[]>([]);
+  const [loading, setLoading] = useState(false);
+  const wallet = connected ? publicKey?.toBase58() ?? null : null;
+  useEffect(() => {
+    if (!wallet) return;
+    let cancelled = false;
+    Promise.resolve().then(() => !cancelled && setLoading(true));
+    fetch(`/api/wallet/pay-tokens?wallet=${wallet}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { tokens: [] }))
+      .then((d: { tokens?: PayToken[] }) => !cancelled && setTokens(d.tokens ?? []))
+      .catch(() => !cancelled && setTokens([]))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [wallet]);
+
+  const q = draw.quote;
+  const rates = { solUsd: q?.solUsd ?? null, usdcUsd: q?.usdcUsd ?? null, eurUsd: q?.eurUsd ?? null };
+  const usdc = tokens.find((tk) => tk.mint === USDC_MINT);
+  const options: PayOption[] = [
+    { mint: SOL_MINT, symbol: "SOL", balance: draw.balances.sol, decimals: 9, priceUsd: rates.solUsd },
+    { mint: USDC_MINT, symbol: "USDC", image: usdc?.image, balance: draw.balances.usdc, decimals: 6, priceUsd: rates.usdcUsd },
+    ...tokens
+      .filter((tk) => tk.mint !== SOL_MINT && tk.mint !== USDC_MINT && tk.mint !== coin.mint)
+      .map((tk) => ({ mint: tk.mint, symbol: tk.symbol, image: tk.image, balance: tk.amount, decimals: tk.decimals, priceUsd: tk.priceUsd })),
+  ];
+  const payMint = draft.unit === "SOL" ? SOL_MINT : FUNDING[view.asset].mint;
+
+  function pickUnit(u: BuyUnit) {
+    if (u === draft.unit) return;
+    rememberUnit(u);
+    const value = parseFloat(draft.amount);
+    const converted = value > 0 ? convertAmount(draft.unit, value, u, rates) : null;
+    draw.patchDraft(draft.id, { unit: u, amount: converted !== null ? String(Number(converted.toFixed(u === "SOL" ? 4 : 2))) : "" });
+  }
+  function pickPay(mint: string) {
+    if (mint === USDC_MINT && draft.unit === "SOL") {
+      // An amount typed in SOL is paid in SOL: paying with USDC switches the box to dollars, same amount.
+      const value = parseFloat(draft.amount);
+      const converted = value > 0 ? convertAmount("SOL", value, "USD", rates) : null;
+      rememberUnit("USD");
+      draw.patchDraft(draft.id, { unit: "USD", pay: "USDC", amount: converted !== null ? String(Number(converted.toFixed(2))) : "" });
+    } else draw.patchDraft(draft.id, { pay: mint === USDC_MINT ? "USDC" : "SOL" });
+  }
+
+  // The same amount in the other two currencies, so "10" always means something.
+  const funding = view.funding?.ok ? view.funding.funding : null;
+  const cur = (n: number, currency: string) => new Intl.NumberFormat(lang, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
+  const others = funding
+    ? [
+        draft.unit !== "USD" && cur(funding.usd, "USD"),
+        draft.unit !== "EUR" && rates.eurUsd && cur(funding.usd / rates.eurUsd, "EUR"),
+        draft.unit !== "SOL" && rates.solUsd && `${(funding.usd / rates.solUsd).toLocaleString(lang, { maximumFractionDigits: 4 })} SOL`,
+      ].filter(Boolean)
+    : [];
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-3.5 py-2.5 focus-within:border-paper/40">
+        <input
+          value={draft.amount}
+          onChange={(e) => draw.patchDraft(draft.id, { amount: sanitizeDecimalInput(e.target.value) })}
+          placeholder="0"
+          inputMode="decimal"
+          aria-label={t("draw.amount")}
+          disabled={busy}
+          className="w-full min-w-0 bg-transparent text-lg font-medium outline-none placeholder:text-panda-grey disabled:opacity-50"
+        />
+        <div className="flex shrink-0 gap-0.5 rounded-full bg-ink p-0.5" role="group" aria-label={t("draw.amount")}>
+          {(["SOL", "USD", "EUR"] as const).map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => pickUnit(u)}
+              aria-pressed={draft.unit === u}
+              aria-label={u}
+              className={`min-w-8 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${draft.unit === u ? "bg-paper text-ink" : "text-panda-grey hover:text-paper"}`}
+            >
+              {UNIT_SYMBOL[u]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-4 gap-1.5">
+        {FIRST_BUY_PRESETS[draft.unit].map((p) => (
+          <button
+            key={p}
+            type="button"
+            disabled={busy}
+            onClick={() => draw.patchDraft(draft.id, { amount: String(p) })}
+            className={`whitespace-nowrap rounded-lg py-2 text-xs font-semibold tabular-nums transition-colors ${draft.amount === String(p) ? "bg-bamboo text-ink" : "bg-paper/5 text-paper/80 hover:bg-paper/10"}`}
+          >
+            {moneyLabel(p, draft.unit, lang)}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-panda-grey">
+        <span className="flex items-center gap-2">
+          {t("draw.payWith")}
+          <PayWithSelect
+            options={options}
+            value={payMint}
+            onChange={pickPay}
+            disabled={busy || !connected}
+            loading={loading}
+            allowed={(m) => m === SOL_MINT || m === USDC_MINT}
+            lockedNote={t("draw.payOnlySolUsdc")}
+          />
+        </span>
+        {others.length > 0 && <span>≈ {others.join(" · ≈ ")}</span>}
+      </div>
     </div>
   );
 }
