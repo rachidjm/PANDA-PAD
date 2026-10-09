@@ -28,8 +28,8 @@ import { abort, down, IDLE, move, start, up, type DrawState, type DrawTarget } f
 import { kindOf, validateKind, type KindIssue, type OrderKind } from "@/lib/strategy/kinds";
 import {
   allocatedPct as sumAllocatedPct,
+  DEFAULT_PCT,
   heldStatus as heldStatusOf,
-  pctForNewLeg,
   pickHeldDraft,
   placeLeg,
   remainingPct as sumRemainingPct,
@@ -161,6 +161,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   // moment it's used, or when drawing is cancelled outright — see startTranchePlacement/startTrancheDrag below.
   const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop"; pct: number } | { mode: "drag"; trancheId: string; leg: "sell" | "stop" } | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  // The % marked in the one row of buttons: every new sell / stop line takes it (until another one is marked).
+  const [selectedPct, setSelectedPct] = useState<number>(DEFAULT_PCT);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
   const [needsSignIn, setNeedsSignIn] = useState(false);
@@ -189,7 +191,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
           setDrafts(
             parsed
               .filter((d) => d && typeof d.id === "string" && (d.buy !== undefined || d.sell !== undefined || d.stop !== undefined || (Array.isArray((d as unknown as { tranches?: unknown }).tranches) && (d as unknown as { tranches: unknown[] }).tranches.length > 0)))
-              .slice(0, 20)
+              .slice(-1) // one drawing at a time: only the most recent one is kept
               .map((d) => {
                 const old = d as unknown as { unit?: string; pay?: string; sell?: number; sells?: { price?: number }[]; sellPct?: number; tranches?: unknown };
                 const unit: BuyUnit = old.unit === "USD" || old.unit === "EUR" ? old.unit : old.unit === "USDC" ? "USD" : "SOL";
@@ -488,32 +490,27 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   );
 
   const active = drafts.find((d) => d.id === activeId) ?? null;
+  /** The one drawing shown: the active one, else the most recent. */
+  const current = active ?? drafts[drafts.length - 1] ?? null;
 
   const startTarget = useCallback(
     (target: DrawTarget) => {
       setError(null);
       setNotice(null);
       // Venta/Stop with no buy drawn: a sell, a stop or both (one oco) on the coin the wallet ALREADY holds — no
-      // purchase needed. The new line joins the held-coin draft and takes pctForNewLeg's share: the partner's
-      // own % when it completes a lone sell/stop into one oco, otherwise all the balance still unassigned
-      // (100% of the free balance on a fresh draft); the % is changed afterwards from the line's own row.
-      if (target !== "buy" && !active?.buy) {
+      // purchase needed. The new line takes the % marked in the row of buttons (a sell and a stop at the same %
+      // pair into one oco — allocation.ts's placeLeg). Going past 100% is drawn and reported, never ignored.
+      if (target !== "buy" && !current?.buy) {
         if (heldStatus !== "has") return;
         const leg = target === "stop" ? "stop" : "sell";
-        const d = pickHeldDraft(drafts, activeId) ?? newDraft();
-        const pct = pctForNewLeg(d.tranches ?? [], leg);
+        const d = pickHeldDraft(drafts, current?.id ?? null) ?? newDraft();
         setActiveId(d.id);
-        if (pct <= 0) {
-          setError({ code: "ALLOCATION_FULL" });
-          setMachine(IDLE);
-          return;
-        }
-        pendingTrancheRef.current = { mode: "place", leg, pct };
+        pendingTrancheRef.current = { mode: "place", leg, pct: selectedPct };
         setMachine(start(leg === "sell" ? "sell1" : "stop"));
         return;
       }
       pendingTrancheRef.current = null;
-      let d = active;
+      let d: Draft | null = current;
       // "Compra" on a held-coin draft that already has % lines starts a separate buy strategy instead of
       // turning those lines into the legs of a purchase.
       if (d && target === "buy" && d.buy === undefined && (d.tranches?.length ?? 0) > 0) d = null;
@@ -526,7 +523,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       } else setActiveId(d.id);
       setMachine(start(target));
     },
-    [active, activeId, drafts, heldStatus, newDraft, setMachine]
+    [current, drafts, heldStatus, newDraft, setMachine, selectedPct]
   );
 
   const addStrategy = useCallback(() => {
@@ -648,7 +645,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const pending = pendingTrancheRef.current;
         if (pending?.mode === "place") {
           pendingTrancheRef.current = null;
-          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: placeLeg(d.tranches ?? [], pending.leg, pending.pct, r.picked!) } : d)));
+          setDrafts((ds) => ds.map((d) => (d.id === activeId ? { ...d, tranches: placeLeg(d.tranches ?? [], pending.leg, pending.pct, r.picked!, { allowOver: true }) } : d)));
           setNotice({ kind: pending.leg === "sell" ? "sell1" : "stop", price: r.picked });
           setMachine(IDLE);
         } else if (pending?.mode === "drag") {
@@ -1074,6 +1071,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     heldStatus,
     pandaMode,
     pandaGroups,
+    current,
+    selectedPct,
+    setSelectedPct,
     freeNonces: pandaList?.freeNonces ?? [],
     freeDepositLamports: (pandaList?.freeNonces.length ?? 0) * (pandaList?.rentLamports ?? 0),
     confirmPanda,

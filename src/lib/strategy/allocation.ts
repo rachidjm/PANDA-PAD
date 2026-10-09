@@ -16,6 +16,9 @@ export type Tranche = { id: string; pct: number; sell?: number; stop?: number };
  *  `remainingPct`). Order matters: this is also the order the buttons are drawn in. */
 export const PCT_PRESETS = [25, 50, 75, 100] as const;
 export const PCT_MORE_PRESETS = [5, 10, 15] as const;
+/** The one row of % buttons Draw Your Trade shows (plus "Otro"); the marked one applies to every new line. */
+export const PCT_ROW = [5, 10, 15, 20, 25, 50, 100] as const;
+export const DEFAULT_PCT = 100;
 
 function newId(): string {
   try {
@@ -100,11 +103,13 @@ export function pickHeldDraft<D extends { id: string; buy?: number }>(drafts: D[
  * input unchanged if `pct` no longer fits (callers are expected to have checked `canAddPct` already — this is
  * just the safe fallback, never a crash or a silently-oversized allocation).
  */
-export function placeLeg(tranches: Tranche[], leg: "sell" | "stop", pct: number, price: number): Tranche[] {
+export function placeLeg(tranches: Tranche[], leg: "sell" | "stop", pct: number, price: number, opts: { allowOver?: boolean } = {}): Tranche[] {
   const other: "sell" | "stop" = leg === "sell" ? "stop" : "sell";
   const partner = tranches.find((t) => t.pct === pct && t[other] !== undefined && t[leg] === undefined);
   if (partner) return tranches.map((t) => (t.id === partner.id ? { ...t, [leg]: price } : t));
-  if (!canAddPct(tranches, pct)) return tranches;
+  // `allowOver`: the line is drawn anyway and the total over 100% is reported next to the confirm button (the
+  // drawing never silently ignores a tap); it can't be signed until it fits.
+  if (!(pct > 0 && pct <= 100) || (!opts.allowOver && !canAddPct(tranches, pct))) return tranches;
   return [...tranches, { id: newId(), pct, [leg]: price }];
 }
 
