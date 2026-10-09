@@ -26,6 +26,7 @@ export default async function LegalSlugPage({ params }: { params: Promise<{ slug
     referrals: isEnabled("REFERRALS"),
     aiAssistant: isEnabled("AI_ASSISTANT"),
     pandaOrders: isEnabled("PANDA_ORDERS"),
+    telegram: isEnabled("TELEGRAM_BOT"),
     pandaToken: !!process.env.NEXT_PUBLIC_PANDA_TOKEN_MINT?.trim(),
   });
   return <LegalPageLayout page={page} />;

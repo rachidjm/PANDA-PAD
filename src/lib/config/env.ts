@@ -12,7 +12,7 @@ import { isValidReferralTiersJson } from "@/lib/referrals/tiers-config";
 
 export type Env = Record<string, string | undefined>;
 export type EnvStatus = "present" | "absent" | "invalid";
-export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits" | "referrals" | "ai";
+export type EnvGroup = "core" | "storage" | "strategies" | "rewards" | "airdrops" | "market" | "alerts" | "limits" | "referrals" | "ai" | "telegram";
 
 export type EnvSpec = {
   /** Accepted names, first is canonical (Vercel's Blob integration names its token in more than one way). */
@@ -107,6 +107,17 @@ export const ENV_SPECS: EnvSpec[] = [
   },
   { names: ["PANDA_ORDERS_ALLOWLIST"], group: "strategies", required: never, valid: (v) => v.trim() === "*" || v.split(",").map((s) => s.trim()).filter(Boolean).every(isPubkey), affects: "who may use PANDA orders during the rollout: ADMIN_WALLETS always, plus these wallets (comma-separated); unset = admins only; \"*\" = everyone" },
   { names: ["PANDA_ORDERS_LOOKUP_TABLE"], group: "strategies", required: never, valid: isPubkey, affects: "PANDA orders on PumpSwap coins: the frozen lookup table that makes them fit in one transaction (docs/PANDA_ORDERS.md) — unset, those with a recruiter share are refused as too large" },
+  { names: ["TELEGRAM_BOT_TOKEN"], group: "telegram", required: (e) => isEnabled("TELEGRAM_BOT", e), valid: (v) => /^\d{5,16}:[A-Za-z0-9_-]{30,64}$/.test(v.trim()), affects: "the Telegram bot (FEATURE_TELEGRAM_BOT): the bot's token from @BotFather — server-only, never sent to the browser or logged" },
+  { names: ["TELEGRAM_WEBHOOK_SECRET"], group: "telegram", required: (e) => isEnabled("TELEGRAM_BOT", e), valid: (v) => /^[A-Za-z0-9_-]{32,256}$/.test(v.trim()), affects: "the Telegram bot: every webhook call must carry it (X-Telegram-Bot-Api-Secret-Token) — without it the webhook refuses everything" },
+  { names: ["TELEGRAM_BOT_USERNAME"], group: "telegram", required: (e) => isEnabled("TELEGRAM_BOT", e), valid: (v) => /^[A-Za-z0-9_]{5,32}$/.test(v.trim().replace(/^@/, "")), affects: "the Telegram bot: its @username, for deep links (t.me/<username>?start=…)" },
+  { names: ["TELEGRAM_ADMIN_IDS"], group: "telegram", required: never, valid: (v) => v.split(",").map((s) => s.trim()).filter(Boolean).every((s) => /^\d{1,16}$/.test(s)), affects: "the Telegram bot: numeric Telegram user ids allowed to use /chatid and /stats (comma-separated) — unset, nobody" },
+  { names: ["TELEGRAM_CHANNEL_ID"], group: "telegram", required: never, valid: (v) => /^-?\d{1,20}$/.test(v.trim()), affects: "the Telegram bot: the official channel's id (announcements from /admin) — unset, announcements can't be sent" },
+  { names: ["TELEGRAM_GROUP_ID"], group: "telegram", required: never, valid: (v) => /^-?\d{1,20}$/.test(v.trim()), affects: "the Telegram bot: the community group's id (new coins, $PANDA buys, holder payouts) — unset, nothing is posted to the group" },
+  { names: ["TELEGRAM_TOPIC_NEW_COINS"], group: "telegram", required: never, valid: (v) => /^\d{1,12}$/.test(v.trim()), affects: "the Telegram bot: the group topic for coins launched on PANDA — unset, they go to the group's main topic" },
+  { names: ["TELEGRAM_TOPIC_BUYS"], group: "telegram", required: never, valid: (v) => /^\d{1,12}$/.test(v.trim()), affects: "the Telegram bot: the group topic for $PANDA buys — unset, the group's main topic" },
+  { names: ["TELEGRAM_TOPIC_PAYOUTS"], group: "telegram", required: never, valid: (v) => /^\d{1,12}$/.test(v.trim()), affects: "the Telegram bot: the group topic for holder payouts — unset, the group's main topic" },
+  { names: ["TELEGRAM_TOPIC_SUGGESTIONS"], group: "telegram", required: never, valid: (v) => /^\d{1,12}$/.test(v.trim()), affects: "the Telegram bot: the group's Suggestions topic (used from Block 2 on) — unset, nothing" },
+  { names: ["TELEGRAM_MIN_BUY_USD"], group: "telegram", required: never, valid: isPositiveNumber, affects: "the Telegram bot: the smallest $PANDA buy (USD) posted to the group — unset, 20" },
   { names: ["OPENAI_API_KEY"], group: "ai", required: (e) => isEnabled("AI_ASSISTANT", e), valid: nonEmpty, affects: "the AI Assistant (FEATURE_AI_ASSISTANT) — create-with-AI, analyze a coin, Draw Your Trade help, search" },
   { names: ["AI_DAILY_BUDGET_USD"], group: "ai", required: never, valid: isPositiveNumber, affects: "the AI Assistant's daily spend cap across every wallet — unset, it has no cap (only the per-wallet/IP query limits apply)" },
 ];

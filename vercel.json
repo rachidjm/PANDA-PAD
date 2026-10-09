@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/panda-orders",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/telegram",
+      "schedule": "* * * * *"
     }
   ]
 }

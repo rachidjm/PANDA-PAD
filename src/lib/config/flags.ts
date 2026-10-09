@@ -21,6 +21,7 @@ export const FEATURES = [
   "FOUNDER_NFT", // the 1,000 permanent Founder slots (flat 30% share, soulbound NFT once the collection exists) — requires REFERRALS
   "FOUNDER_PANDA_REWARDS", // Founders' daily variable $PANDA accrual + claim — requires FOUNDER_NFT and a real $PANDA mint
   "PANDA_ORDERS", // PANDA orders: pre-signed sells / stops on a held Pump.fun / PumpSwap coin (durable nonce) — non-custodial, PANDA only sends what the user signed
+  "TELEGRAM_BOT", // the PANDA Telegram bot (webhook, automatic posts, personal alerts, wallet linking) — docs/TELEGRAM.md
   "AI_ASSISTANT", // GPT-6 Luna assistant (create-with-AI, analyze a coin, Draw Your Trade help, search) — needs OPENAI_API_KEY
 ] as const;
 

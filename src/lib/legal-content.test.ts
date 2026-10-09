@@ -67,6 +67,7 @@ test("each optional feature's sections appear only with its flag, in both langua
     { flag: "airdrops", opts: { custody: false, airdrops: true }, word: /Merkle/, slug: "terms-of-service" },
     { flag: "pandaOrders", opts: { custody: false, pandaOrders: true }, word: /nonce/, slug: "terms-of-service" },
     { flag: "pandaOrders", opts: { custody: false, pandaOrders: true }, word: /cifrada|encrypted/, slug: "privacy-policy" },
+    { flag: "telegram", opts: { custody: false, telegram: true }, word: /Telegram user id|usuario de Telegram/, slug: "privacy-policy" },
   ];
   for (const c of cases) {
     for (const lang of LANGS) {

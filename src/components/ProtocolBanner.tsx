@@ -16,6 +16,7 @@ const LABEL_KEYS: Record<string, DictKey> = {
   reward_calculations: "pause.reward_calculations",
   fee_processing: "pause.fee_processing",
   panda_orders: "pause.panda_orders",
+  telegram: "pause.telegram",
 };
 
 const NET_KEYS: Record<string, DictKey> = {
@@ -35,6 +36,8 @@ const FEATURE_OF: Record<string, keyof Features | undefined> = {
   nft_market: "market",
   panda_orders: "pandaOrders",
 };
+/** Pauses that concern no one on the website (the Telegram bot is paused for Telegram only): never announced here. */
+const NOT_ON_SITE = new Set(["telegram"]);
 
 /** Shown only while a protocol subsystem is paused; renders nothing otherwise. Status is read from the server, never assumed. */
 export default function ProtocolBanner() {
@@ -42,6 +45,7 @@ export default function ProtocolBanner() {
   const features = useFeatures();
   const [allPaused, setPaused] = useState<PausedItem[]>([]);
   const paused = allPaused.filter((p) => {
+    if (NOT_ON_SITE.has(p.subsystem)) return false;
     const f = FEATURE_OF[p.subsystem];
     return !f || features[f];
   });

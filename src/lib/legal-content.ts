@@ -526,7 +526,22 @@ export type LegalOptions = {
   /** FEATURE_REFERRALS */ referrals?: boolean;
   /** FEATURE_AI_ASSISTANT */ aiAssistant?: boolean;
   /** FEATURE_PANDA_ORDERS */ pandaOrders?: boolean;
+  /** FEATURE_TELEGRAM_BOT */ telegram?: boolean;
   /** NEXT_PUBLIC_PANDA_TOKEN_MINT is set: $PANDA exists */ pandaToken?: boolean;
+};
+
+/**
+ * Paragraphs that exist ONLY while FEATURE_TELEGRAM_BOT is on: what the Telegram bot keeps and why (docs/TELEGRAM.md).
+ */
+export const TELEGRAM_ADDENDA: Addenda = {
+  "privacy-policy": {
+    en: [
+      "PANDA Telegram bot. Only if you use it: your numeric Telegram user id and the language Telegram reports (to answer you in English or Spanish), your watchlist and your price / market-cap alerts (to send them to you), the suggestions you send with /suggest (shown to the PANDA team), and — only if you link one by signing a message with it — one wallet address. PANDA does not store your Telegram name, username, phone number or messages; in groups the bot only receives the commands addressed to it. Telegram itself (Telegram FZ-LLC) processes your messages under its own privacy policy. How long: until you unlink the wallet (/unlink), remove your watchlist entries and alerts, or ask us to delete your data; a fired alert is deleted 30 days later, sent bot messages 14 days later, and /link codes (stored only as a hash) a day after they expire. The bot never asks for your seed phrase or private key.",
+    ],
+    es: [
+      "Bot de Telegram de PANDA. Solo si lo usas: tu identificador numérico de usuario de Telegram y el idioma que indica Telegram (para responderte en inglés o español), tu lista de seguimiento y tus alertas de precio o cap. de mercado (para enviártelas), las sugerencias que envías con /suggest (las ve el equipo de PANDA) y — solo si vinculas una firmando un mensaje con ella — una dirección de wallet. PANDA no guarda tu nombre de Telegram, tu nombre de usuario, tu teléfono ni tus mensajes; en los grupos el bot solo recibe los comandos dirigidos a él. Telegram (Telegram FZ-LLC) trata tus mensajes según su propia política de privacidad. Cuánto tiempo: hasta que desvinculas la wallet (/unlink), quitas tu lista y tus alertas o nos pides borrar tus datos; una alerta que ya ha saltado se borra 30 días después, los mensajes enviados por el bot 14 días después y los códigos de /link (guardados solo como hash) un día después de caducar. El bot nunca te pide tu frase semilla ni tu clave privada.",
+    ],
+  },
 };
 
 /** The legal page as it applies to this deployment: the base text, plus the sections of only the features that are on. */
@@ -543,6 +558,7 @@ export function getLegalPage(slug: LegalSlug, opts: LegalOptions): LegalPage {
     opts.referrals ? REFERRAL_ADDENDA[slug] : undefined,
     opts.aiAssistant ? AI_ADDENDA[slug] : undefined,
     opts.pandaOrders ? PANDA_ORDERS_ADDENDA[slug] : undefined,
+    opts.telegram ? TELEGRAM_ADDENDA[slug] : undefined,
   ].filter((e): e is Record<Lang, string[]> => !!e);
   const withToken = opts.pandaToken && slug === "disclaimer";
   if (extras.length === 0 && !withToken) return base;

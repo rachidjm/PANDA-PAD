@@ -6,6 +6,7 @@ const NAMES: Partial<Record<Feature, string>> = {
   OTC_REWARDS: "PANDA Rewards launches (OTC)",
   HOLDER_REWARDS: "Holder rewards (the Holders share of creator fees)",
   PANDA_ORDERS: "PANDA orders (pre-signed sells and stops)",
+  TELEGRAM_BOT: "The PANDA Telegram bot",
 };
 
 /**

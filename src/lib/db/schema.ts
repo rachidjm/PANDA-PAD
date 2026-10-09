@@ -562,10 +562,127 @@ export const pandaOrders = pgTable(
   ]
 );
 
+// ── Telegram bot (src/lib/telegram, docs/TELEGRAM.md) ────────────────────────────────────────────────────────────────
+/** One row per Telegram user who talked to the bot. Only what the bot needs: the numeric id, the language to answer in, and — once
+ *  they link it by signing with it — ONE wallet. A wallet can be linked to one Telegram account at a time (unique). `blocked`: the
+ *  user blocked the bot (Telegram answered 403), so nothing more is queued for them. */
+export const telegramUsers = pgTable(
+  "telegram_users",
+  {
+    telegramId: bigint("telegram_id", { mode: "number" }).primaryKey(),
+    lang: text("lang").notNull().default("en"),
+    wallet: text("wallet"),
+    linkedAt: bigint("linked_at", { mode: "number" }),
+    blocked: boolean("blocked").notNull().default(false),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [uniqueIndex("telegram_users_wallet").on(t.wallet).where(sql`${t.wallet} IS NOT NULL`), check("telegram_users_lang", sql`${t.lang} IN ('en', 'es')`)]
+);
+
+/** /link codes: only the SHA-256 of the code is stored. One use, 10 minutes, bound to the Telegram user who asked for it. */
+export const telegramLinkCodes = pgTable(
+  "telegram_link_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    usedAt: bigint("used_at", { mode: "number" }),
+    usedByWallet: text("used_by_wallet"),
+  },
+  (t) => [index("telegram_link_codes_user").on(t.telegramId), index("telegram_link_codes_expires").on(t.expiresAt)]
+);
+
+export const telegramWatchlist = pgTable(
+  "telegram_watchlist",
+  {
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    mint: text("mint").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.telegramId, t.mint] })]
+);
+
+/** A personal price / market-cap alert. It fires ONCE (then `firedAt` is set and it stops being checked). */
+export const telegramAlerts = pgTable(
+  "telegram_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    mint: text("mint").notNull(),
+    ticker: text("ticker").notNull(),
+    metric: text("metric").notNull(),
+    direction: text("direction").notNull(),
+    value: doublePrecision("value").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    firedAt: bigint("fired_at", { mode: "number" }),
+  },
+  (t) => [
+    index("telegram_alerts_user").on(t.telegramId),
+    index("telegram_alerts_live").on(t.mint).where(sql`${t.firedAt} IS NULL`),
+    check("telegram_alerts_metric", sql`${t.metric} IN ('price', 'mcap')`),
+    check("telegram_alerts_direction", sql`${t.direction} IN ('above', 'below')`),
+    check("telegram_alerts_value", sql`${t.value} > 0`),
+  ]
+);
+
+/** Everything the bot sends goes through here: retried with backoff, paced to Telegram's limits, never blocking PANDA.
+ *  `dedupeKey`: the same event (a launch, a buy's signature…) is queued once, however many times it is seen. */
+export const telegramOutbox = pgTable(
+  "telegram_outbox",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    dedupeKey: text("dedupe_key"),
+    chatId: text("chat_id").notNull(),
+    method: text("method").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: smallint("attempts").notNull().default(0),
+    nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
+    lastError: text("last_error"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    sentAt: bigint("sent_at", { mode: "number" }),
+  },
+  (t) => [
+    uniqueIndex("telegram_outbox_dedupe").on(t.dedupeKey).where(sql`${t.dedupeKey} IS NOT NULL`),
+    index("telegram_outbox_due").on(t.status, t.nextAttemptAt),
+    index("telegram_outbox_chat_sent").on(t.chatId, t.sentAt),
+    check("telegram_outbox_status", sql`${t.status} IN ('pending', 'sent', 'failed')`),
+    check("telegram_outbox_method", sql`${t.method} IN ('sendMessage', 'sendPhoto')`),
+  ]
+);
+
+/** Telegram re-delivers an update it thinks wasn't answered: each update_id is handled once. Old rows are cleaned up. */
+export const telegramUpdates = pgTable("telegram_updates", {
+  updateId: bigint("update_id", { mode: "number" }).primaryKey(),
+  receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+});
+
+/** Small cursors for the automatic posts (last launch seen, last $PANDA buy seen…). */
+export const telegramState = pgTable("telegram_state", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+/** /suggest: the text, who sent it (Telegram id) and when. Shown in /admin. */
+export const telegramSuggestions = pgTable(
+  "telegram_suggestions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    text: text("text").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("telegram_suggestions_created").on(t.createdAt), check("telegram_suggestions_len", sql`char_length(${t.text}) BETWEEN 1 AND 1000`)]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays, holderPayoutRuns,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralAttemptLog, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
   legacyFeeWallets, recruiterCodes, reservedMintKeys, pandaNonceAccounts, pandaOrders,
+  telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions,
 };
