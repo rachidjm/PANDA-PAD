@@ -38,6 +38,10 @@ La comisión de trading de PANDA (1 % por defecto, 0,5 % referido/veterano) sobr
 3. Redesplegar.
 4. Probar con importes pequeños (abajo).
 
+**Quién lo ve (lanzamiento por fases):** solo las wallets de `ADMIN_WALLETS` y las de `PANDA_ORDERS_ALLOWLIST` (separadas por comas). Si la variable no existe, solo los admins. Para abrirlo a todo el mundo: `PANDA_ORDERS_ALLOWLIST=*` y redesplegar. El resto de usuarios sigue viendo Draw Your Trade con Jupiter, como antes.
+
+**Tabla de direcciones de producción:** `33SheDtp2V21FVNwiLj3FiozzFDv9PbgPCAZvEjZq8Xk` (creada y congelada el 2026-10-09).
+
 **Pausa de emergencia:** en `/admin`, el interruptor `panda_orders` detiene el vigilante y los endpoints al momento. Las órdenes firmadas siguen guardadas y el usuario puede cancelarlas desde su wallet.
 
 **No cambies `PANDA_ORDERS_KEY`** con órdenes activas: dejarían de poder leerse (el vigilante avisa por alerta y no envía nada).

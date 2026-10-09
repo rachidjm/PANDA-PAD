@@ -149,7 +149,11 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const mint = coin?.mint ?? "";
   // PANDA orders: a held coin's sells / stops are pre-signed and kept by PANDA (no $10 minimum, any %) — only for
   // Pump.fun / PumpSwap coins and only with the flag on. Everything else keeps Jupiter Trigger exactly as before.
-  const pandaMode = !!coin && features.pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap");
+  const pandaEligible = !!coin && features.pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap");
+  // While PANDA orders are rolled out to a list of wallets, only the server knows who's on it: the mode turns on once
+  // /api/panda-orders/list answers for this wallet (403 = not on the list → Jupiter, exactly as before).
+  const [pandaAllowed, setPandaAllowed] = useState(false);
+  const pandaMode = pandaEligible && pandaAllowed;
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [records, setRecords] = useState<StrategyRecord[]>([]);
@@ -301,22 +305,32 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   // subtracted here: a new line's % is of what ISN'T in another order yet. ─────────────────────────────────────────
   const [pandaList, setPandaList] = useState<OrdersList | null>(null);
   const refreshPanda = useCallback(async () => {
-    if (!pandaMode || !mint || !publicKey) return;
+    if (!pandaEligible || !mint || !publicKey) return;
     try {
       const res = await fetch(`/api/panda-orders/list?mint=${mint}`, { cache: "no-store" });
       if (res.status === 401) {
         setNeedsSignIn(true);
         return;
       }
-      if (res.ok) setPandaList((await res.json()) as OrdersList);
+      if (res.status === 403) {
+        setPandaAllowed(false);
+        return;
+      }
+      if (res.ok) {
+        setPandaList((await res.json()) as OrdersList);
+        setPandaAllowed(true);
+      }
     } catch {}
-  }, [pandaMode, mint, publicKey]);
+  }, [pandaEligible, mint, publicKey]);
   useEffect(() => {
-    if (!pandaMode || !connected) return;
+    if (!pandaEligible || !connected) {
+      Promise.resolve().then(() => setPandaAllowed(false));
+      return;
+    }
     Promise.resolve().then(refreshPanda);
     const t = setInterval(refreshPanda, 30_000);
     return () => clearInterval(t);
-  }, [pandaMode, connected, refreshPanda]);
+  }, [pandaEligible, connected, refreshPanda, publicKey]);
   const committedUi = useMemo(() => {
     const raw = pandaList?.committedRaw ? Number(pandaList.committedRaw) : 0;
     const decimals = balanceRead?.decimals ?? pandaList?.orders[0]?.tokenDecimals ?? null;
