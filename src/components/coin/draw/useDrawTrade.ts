@@ -5,6 +5,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import type { Coin } from "@/lib/types";
+import type { TriggerOrder } from "@/lib/jupiter/trigger";
 import { useReadConnection } from "@/lib/solana/useReadConnection";
 import { useWalletSession } from "@/lib/auth/useWalletSession";
 import { base64ToTransaction, base64ToVersionedTransaction, transactionToBase64, versionedTransactionToBase64 } from "@/lib/pump/wire";
@@ -45,6 +46,7 @@ import {
 import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { groupOrders, LIVE, type OrdersList } from "@/lib/panda-orders/client-types";
+import { accessFromStatus, pandaAccessFor, type PandaAccess } from "@/lib/panda-orders/access-state";
 
 /**
  * The "Draw Your Trade" controller: drafts being drawn (kept in this browser only — they are not orders),
@@ -61,7 +63,7 @@ export type Draft = {
   amount: string;
   /** Percentage tranches of a held token's position (allocation.ts) — only meaningful while `buy` is unset:
    *  the full buy→sell→stop strategy always exits 100% and never uses this. Each tranche is validated and
-   *  submitted as its own order (see confirmTranches). */
+   *  signed as PANDA orders (see confirmPanda) — never Jupiter ones. */
   tranches?: Tranche[];
   /** What the amount is typed in. */
   unit: BuyUnit;
@@ -98,9 +100,6 @@ export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | nu
 
 export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "create" | "cancel" | "done";
 
-/** Progress through a percentage-tranche batch (confirmTranches) — how many of its own orders are done, for a
- *  "2/3" next to the step label; null outside a batch (a normal single-order confirm never sets this). */
-export type BatchProgress = { done: number; total: number } | null;
 
 /** One percentage tranche's own order shape, issues and readiness (allocation.ts's rules). */
 export type TrancheView = { tranche: Tranche; kind: OrderKind | null; issues: KindIssue[]; ready: boolean };
@@ -150,13 +149,17 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const { ensureSession } = useWalletSession();
   const features = useFeatures();
   const mint = coin?.mint ?? "";
-  // PANDA orders: a held coin's sells / stops are pre-signed and kept by PANDA (no $10 minimum, any %) — only for
-  // Pump.fun / PumpSwap coins and only with the flag on. Everything else keeps Jupiter Trigger exactly as before.
+  // PANDA orders: a held coin's sells / stops are pre-signed and kept by PANDA (no $10 minimum, any %). A sell / stop
+  // with no buy is ALWAYS one of these — never a Jupiter order, not even as a fallback (access-state.ts). When they
+  // aren't available (no session, not on the rollout list, not a Pump.fun coin, server down) nothing is sent and the
+  // panel says why; Jupiter is only for a drawn buy.
   const pandaEligible = !!coin && features.pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap");
-  // While PANDA orders are rolled out to a list of wallets, only the server knows who's on it: the mode turns on once
-  // /api/panda-orders/list answers for this wallet (403 = not on the list → Jupiter, exactly as before).
-  const [pandaAllowed, setPandaAllowed] = useState(false);
-  const pandaMode = pandaEligible && pandaAllowed;
+  // Only the server knows who's on the rollout list and whether the PANDA session is still valid: it answers on
+  // /api/panda-orders/list (401 = sign in, or sign in AGAIN once it had worked on this page — sessions last 2 h).
+  const [serverAccess, setServerAccess] = useState<PandaAccess>("checking");
+  const hadAccess = useRef(false);
+  const pandaAccess = pandaAccessFor({ featureOn: features.pandaOrders, source: coin?.source, server: serverAccess });
+  const pandaMode = pandaAccess === "ok";
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [records, setRecords] = useState<StrategyRecord[]>([]);
@@ -191,7 +194,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string; pandaIssues?: Record<string, string[]> } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress>(null);
   const jwt = useRef<{ token: string; at: number } | null>(null);
   const loaded = useRef(false);
 
@@ -323,25 +325,24 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [pandaList, setPandaList] = useState<OrdersList | null>(null);
   const refreshPanda = useCallback(async () => {
     if (!pandaEligible || !mint || !publicKey) return;
+    let status: number | "network";
+    let list: OrdersList | null = null;
     try {
       const res = await fetch(`/api/panda-orders/list?mint=${mint}`, { cache: "no-store" });
-      if (res.status === 401) {
-        setNeedsSignIn(true);
-        return;
-      }
-      if (res.status === 403) {
-        setPandaAllowed(false);
-        return;
-      }
-      if (res.ok) {
-        setPandaList((await res.json()) as OrdersList);
-        setPandaAllowed(true);
-      }
-    } catch {}
+      status = res.status;
+      if (res.ok) list = (await res.json()) as OrdersList;
+    } catch {
+      status = "network";
+    }
+    if (status === 200 && list) {
+      setPandaList(list);
+      hadAccess.current = true;
+    }
+    setServerAccess(accessFromStatus(status === 200 && !list ? "network" : status, hadAccess.current));
   }, [pandaEligible, mint, publicKey]);
   useEffect(() => {
     if (!pandaEligible || !connected) {
-      Promise.resolve().then(() => setPandaAllowed(false));
+      Promise.resolve().then(() => setServerAccess("checking"));
       return;
     }
     Promise.resolve().then(refreshPanda);
@@ -411,9 +412,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
           const balanceUsd = tokenBalance !== null && currentUsd !== null ? tokenBalance * currentUsd : null;
           // A PANDA order has no $10 floor and doesn't depend on Jupiter's liquidity rules: it only executes if the
           // curve/pool pays what the user signed. Jupiter's held-coin path keeps both checks.
-          const trancheIssues = pandaMode
-            ? validateTranches(tranches, { currentUsd, balanceUsd, minOrderUsd: 0 })
-            : validateTranches(tranches, { currentUsd, balanceUsd, liquidityUsd: quote ? quote.liquidityUsd : undefined });
+          // Held-coin lines are only ever PANDA orders: PANDA's rules (no $10 minimum, no pool-liquidity floor).
+          const trancheIssues = validateTranches(tranches, { currentUsd, balanceUsd, minOrderUsd: 0 });
           const tv: TrancheView[] = tranches.map((t) => {
             const issues = trancheIssues.get(t.id) ?? [];
             return { tranche: t, kind: trancheKind(t), issues, ready: issues.length === 0 };
@@ -439,7 +439,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const ready = complete && issues.length === 0 && !!funding?.ok;
         return { draft, asset, amountUsd, funding, issues, metrics, ready, kind, tranches: [], allocatedPct: 0, remainingPct: 100, tokenBalance };
       }),
-    [drafts, rates, balances, currentUsd, quote, tokenBalance, pandaMode]
+    [drafts, rates, balances, currentUsd, quote, tokenBalance]
   );
 
   const lines: ChartLine[] = useMemo(() => {
@@ -805,98 +805,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
   );
 
-  // ── confirm a held-coin draft's percentage tranches: each is prepared on its own (nothing deposited yet),
-  // then EVERY deposit + fee in the batch is signed in ONE Phantom approval, then each order is created in
-  // order. If one fails to be created, every order already created in this batch is cancelled (one more
-  // single approval covers all of them) and the user is told plainly — nothing is left half-done.
-  const confirmTranches = useCallback(
-    async (view: DraftView) => {
-      const d = view.draft;
-      const tranches = d.tranches ?? [];
-      if (!view.ready || !coin || !signTransaction || tranches.length === 0) return;
-      setError(null);
-      try {
-        setStep("session");
-        await ensureSession();
-        setStep("jupiter");
-        const token = await ensureJwt();
-        const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-
-        setStep("prepare");
-        setBatchProgress({ done: 0, total: tranches.length });
-        const prepared: { record: StrategyRecord; transaction: string; feeTransaction: string | null }[] = [];
-        for (const t of tranches) {
-          const res = await fetch("/api/strategy/prepare", {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              id: t.id,
-              n: d.n,
-              mint: coin.mint,
-              ticker: coin.ticker,
-              sellUsd: t.sell,
-              stopUsd: t.stop,
-              sellPct: t.pct,
-              amount: { unit: "USD", value: 0 },
-              fundingAsset: null,
-              groupId: d.id,
-              legIndex: prepared.length,
-              legCount: tranches.length,
-              legPct: t.pct,
-            }),
-          });
-          const p = await res.json();
-          if (!res.ok) throw new ApiError(p.error, p.code, p.issues);
-          prepared.push({ record: p.strategy as StrategyRecord, transaction: p.transaction as string, feeTransaction: p.feeTransaction as string | null });
-          setBatchProgress({ done: prepared.length, total: tranches.length });
-        }
-
-        setStep("sign");
-        const deposits = prepared.map((p) => base64ToVersionedTransaction(p.transaction));
-        const feeTxs = prepared.map((p) => (p.feeTransaction ? base64ToTransaction(p.feeTransaction) : null));
-        const toSign: (VersionedTransaction | Transaction)[] = [...deposits, ...feeTxs.filter((f): f is Transaction => f !== null)];
-        const signed = signAllTransactions ? await signAllTransactions(toSign) : await signOneByOne(toSign, signTransaction);
-        const signedDeposits = signed.slice(0, deposits.length) as VersionedTransaction[];
-        const signedFees: (Transaction | null)[] = [];
-        let cursor = deposits.length;
-        for (const f of feeTxs) signedFees.push(f === null ? null : (signed[cursor++] as Transaction));
-
-        setStep("create");
-        const created: StrategyRecord[] = [];
-        for (let i = 0; i < prepared.length; i++) {
-          setBatchProgress({ done: i, total: prepared.length });
-          const body: Record<string, unknown> = { id: prepared[i].record.id, depositSignedTx: versionedTransactionToBase64(signedDeposits[i]) };
-          if (signedFees[i]) body.feeSignedTx = transactionToBase64(signedFees[i]!);
-          const res = await fetch("/api/strategy/create", { method: "POST", headers, body: JSON.stringify(body) });
-          const result = await res.json();
-          if (!res.ok) {
-            const hadCreated = created.length > 0;
-            if (hadCreated) {
-              setStep("cancel");
-              await cancelBatch(created, token, headers, signAllTransactions, signTransaction);
-            }
-            throw new ApiError(result.error, hadCreated ? "BATCH_ROLLED_BACK" : result.code, result.issues);
-          }
-          created.push(result.strategy as StrategyRecord);
-          setBatchProgress({ done: created.length, total: prepared.length });
-        }
-
-        setRecords((rs) => [...rs.filter((r) => r.groupId !== d.id && r.id !== d.id), ...created]);
-        setDrafts((ds) => ds.filter((x) => x.id !== d.id));
-        setActiveId(null);
-        setStep("done");
-        setBatchProgress(null);
-        setTimeout(() => setStep("idle"), 3500);
-      } catch (err) {
-        setStep("idle");
-        setBatchProgress(null);
-        if (err instanceof ApiError && err.code === "JUPITER_AUTH_REQUIRED") jwt.current = null;
-        setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
-      }
-    },
-    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
-  );
-
   // ── PANDA orders: sign every sell / stop of a held-coin draft at once; PANDA keeps them (encrypted) and sends them
   // only when the price is reached. First time only: one extra approval creates the order accounts (a small deposit
   // per tranche, returned when cancelled or after it sells). ───────────────────────────────────────────────────────
@@ -1080,6 +988,55 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [ensureJwt, ensureSession, signTransaction, sync]
   );
 
+  // ── Jupiter orders on this coin that Draw Your Trade didn't create (the old "Stop Loss / Take Profit" panel, now
+  // gone): listed on request — reading them needs Jupiter's sign-in, a free message signature — and cancellable. ──
+  const [otherOrders, setOtherOrders] = useState<TriggerOrder[] | null>(null);
+  const [otherLoading, setOtherLoading] = useState(false);
+  const loadOtherOrders = useCallback(async () => {
+    if (!mint) return;
+    setError(null);
+    setOtherLoading(true);
+    try {
+      const token = await ensureJwt();
+      const res = await fetch(`/api/jupiter/trigger/orders?state=active&mint=${mint}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = (await res.json()) as { orders?: TriggerOrder[]; error?: string };
+      if (!res.ok) throw new ApiError(data.error ?? "JUPITER_LIST");
+      const ours = new Set(records.map((r) => r.jupiterOrderId).filter(Boolean));
+      setOtherOrders((data.orders ?? []).filter((o) => !ours.has(o.id)));
+    } catch (err) {
+      setError({ message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+    } finally {
+      setOtherLoading(false);
+    }
+  }, [mint, ensureJwt, records]);
+
+  const cancelOtherOrder = useCallback(
+    async (orderId: string) => {
+      if (!signTransaction) return;
+      setError(null);
+      setCancelling(orderId);
+      try {
+        const token = await ensureJwt();
+        const craft = await fetch(`/api/jupiter/trigger/orders/${orderId}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        const crafted = await craft.json();
+        if (!craft.ok) throw new ApiError(crafted.error);
+        const signed = await signTransaction(base64ToVersionedTransaction(crafted.transaction));
+        const done = await fetch(`/api/jupiter/trigger/orders/${orderId}/confirm-cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ signedTransaction: versionedTransactionToBase64(signed), cancelRequestId: crafted.requestId }),
+        });
+        if (!done.ok) throw new ApiError((await done.json()).error);
+        setOtherOrders((os) => (os ?? []).filter((o) => o.id !== orderId));
+      } catch (err) {
+        setError({ message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+      } finally {
+        setCancelling(null);
+      }
+    },
+    [ensureJwt, signTransaction]
+  );
+
   // The notice is a short confirmation, not a permanent banner.
   useEffect(() => {
     if (!notice) return;
@@ -1107,6 +1064,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     tokenBalance,
     heldStatus,
     pandaMode,
+    pandaAccess,
     pandaGroups,
     current,
     selectedPct,
@@ -1124,8 +1082,6 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     removeLine,
     removeTranche,
     setTranchePct,
-    confirmTranches,
-    batchProgress,
     connected,
     quote,
     currentUsd,
@@ -1157,11 +1113,15 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     confirm,
     sync,
     cancelLive,
+    otherOrders,
+    otherLoading,
+    loadOtherOrders,
+    cancelOtherOrder,
     refreshList,
     signIn: async () => {
       try {
         await ensureSession();
-        await refreshList();
+        await Promise.all([refreshList(), refreshPanda()]);
       } catch (err) {
         setError({ message: err instanceof Error ? err.message : String(err) });
       }
@@ -1176,42 +1136,6 @@ async function signOneByOne<T extends Transaction | VersionedTransaction>(txs: T
   const out: T[] = [];
   for (const tx of txs) out.push(await signTransaction(tx));
   return out;
-}
-
-/** Undoes every order already created in a failed batch: crafts each one's cancellation, signs them all in
- *  ONE approval (or one by one as a fallback), then confirms each — so a partial batch never needs more than
- *  a single extra Phantom popup to clean up. Failures here are swallowed on purpose: the caller has already
- *  surfaced the batch's own failure, and anything left live still has its normal "Cancelar" button. */
-async function cancelBatch(
-  created: StrategyRecord[],
-  token: string,
-  headers: Record<string, string>,
-  signAllTransactions: (<T extends Transaction | VersionedTransaction>(txs: T[]) => Promise<T[]>) | undefined,
-  signTransaction: (<T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>) | undefined
-): Promise<void> {
-  const crafts: { record: StrategyRecord; transaction: string; requestId: string }[] = [];
-  for (const r of created) {
-    if (!r.jupiterOrderId) continue;
-    try {
-      const res = await fetch(`/api/jupiter/trigger/orders/${r.jupiterOrderId}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-      const c = await res.json();
-      if (res.ok) crafts.push({ record: r, transaction: c.transaction, requestId: c.requestId });
-    } catch {}
-  }
-  if (crafts.length === 0 || !signTransaction) return;
-  try {
-    const txs = crafts.map((c) => base64ToVersionedTransaction(c.transaction));
-    const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
-    await Promise.all(
-      crafts.map((c, i) =>
-        fetch(`/api/jupiter/trigger/orders/${c.record.jupiterOrderId}/confirm-cancel`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ signedTransaction: versionedTransactionToBase64(signed[i]), cancelRequestId: c.requestId }),
-        })
-      )
-    );
-  } catch {}
 }
 
 class ApiError extends Error {

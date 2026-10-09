@@ -93,151 +93,23 @@ test("buy only: one single buy from the funding asset, triggered below the buy t
   assert.equal(order.triggerCondition, "below");
 });
 
-// ── sell only (held token) ─────────────────────────────────────────────────────────────────────────────────────────
+// ── sell / stop on a held coin: never Jupiter ─────────────────────────────────────────────────────────────────────
 
-test("sell only: sells the held token at the chosen share, one single above the target, the deposit is the token itself", async () => {
-  const { deps, seen } = fakeDeps();
-  const w = wallet();
-  const prepared = await prepareStrategy(deps, base(w, { sellUsd: 2, sellPct: 25 }));
-  assert.equal(prepared.ok, true);
-  if (!prepared.ok) return;
-  assert.equal(prepared.record.kind, "sell");
-  assert.equal(prepared.record.sellPct, 25);
-  assert.equal(seen.deposits[0].inputMint, MINT, "the deposit is the held token");
-  assert.equal(seen.deposits[0].amount, "25000000", "25% of 100 tokens, in raw units");
-  assert.equal(seen.deposits[0].orderSubType, "single");
-
-  const created = await createStrategy(deps, { wallet: w, token: "jwt", id: prepared.record.id, depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
-  assert.equal(created.ok, true);
-  const order = seen.orders[0];
-  assert.equal(order.orderType, "single");
-  assert.equal(order.inputMint, MINT);
-  assert.equal(order.triggerCondition, "above");
-  assert.equal(order.triggerPriceUsd, 2);
-  assert.equal(order.inputAmount, "25000000");
-});
-
-test("sell only: a percentage tranche's grouping metadata is kept on the record (so a batch's legs show as one card)", async () => {
-  const { deps } = fakeDeps();
-  const w = wallet();
-  const prepared = await prepareStrategy(deps, base(w, { sellUsd: 2, sellPct: 25, groupId: "draft-abc", legIndex: 1, legCount: 3, legPct: 25 }));
-  assert.equal(prepared.ok, true);
-  if (!prepared.ok) return;
-  assert.equal(prepared.record.groupId, "draft-abc");
-  assert.equal(prepared.record.legIndex, 1);
-  assert.equal(prepared.record.legCount, 3);
-  assert.equal(prepared.record.legPct, 25);
-});
-
-test("sell only: a sell percentage is required — no percentage means no order", async () => {
-  const { deps, seen } = fakeDeps();
-  const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 2 }));
-  assert.equal(res.ok, false);
-  assert.equal(seen.deposits.length, 0, "no deposit crafted");
-});
-
-test("sell only: a wallet without the token is refused before any deposit (no_balance)", async () => {
-  const { deps, seen } = fakeDeps({}, BigInt(0));
-  const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 2, sellPct: 50 }));
-  assert.equal(res.ok, false);
-  if (res.ok) return;
-  assert.equal(res.status, 422);
-  assert.ok(res.issues?.includes("no_balance"));
-  assert.equal(seen.deposits.length, 0);
-});
-
-test("sell only: a held amount worth under $10 is refused (the $10 minimum)", async () => {
-  // 5 tokens at $1 = $5.
-  const { deps, seen } = fakeDeps({}, BigInt(5_000_000));
-  const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 2, sellPct: 100 }));
-  assert.equal(res.ok, false);
-  if (res.ok) return;
-  assert.ok(res.issues?.includes("below_minimum"));
-  assert.equal(seen.deposits.length, 0);
-});
-
-test("held coin, partly in open orders: the % is of the wallet's FREE balance re-read on the server (the rest is in Jupiter's vault)", async () => {
-  // 100 tokens bought, 60 already deposited in an open order → the wallet holds 40. 100% sells those 40, never 100.
-  const { deps, seen } = fakeDeps({}, BigInt(40_000_000));
-  const prepared = await prepareStrategy(deps, base(wallet(), { sellUsd: 2, stopUsd: 0.5, sellPct: 100 }));
-  assert.equal(prepared.ok, true);
-  if (!prepared.ok) return;
-  assert.equal(seen.deposits[0].amount, "40000000");
-  assert.equal(seen.deposits[0].orderSubType, "oco");
-  assert.equal(prepared.record.amountUsd, 40);
-
-  // 20% of what's left (8 tokens = $8) is under the $10 minimum: refused before any deposit.
-  const small = await prepareStrategy(deps, base(wallet(), { stopUsd: 0.5, sellPct: 20 }));
-  assert.equal(small.ok, false);
-  if (small.ok) return;
-  assert.ok(small.issues?.includes("below_minimum"));
-  assert.equal(seen.deposits.length, 1, "no second deposit crafted");
-});
-
-test("sell only: a sell target at or below the price is refused — it would fire at once", async () => {
-  const { deps, seen } = fakeDeps();
-  const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 0.9, sellPct: 50 }));
-  assert.equal(res.ok, false);
-  if (res.ok) return;
-  assert.ok(res.issues?.includes("sell_not_above_current"));
-  assert.equal(seen.deposits.length, 0);
-});
-
-// ── stop only ──────────────────────────────────────────────────────────────────────────────────────────────────────
-
-test("stop only: a single sell of the held token, triggered below the stop", async () => {
-  const { deps, seen } = fakeDeps();
-  const w = wallet();
-  const prepared = await prepareStrategy(deps, base(w, { stopUsd: 0.5, sellPct: 100 }));
-  assert.equal(prepared.ok, true);
-  if (!prepared.ok) return;
-  assert.equal(prepared.record.kind, "stop");
-  await createStrategy(deps, { wallet: w, token: "jwt", id: prepared.record.id, depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
-  const order = seen.orders[0];
-  assert.equal(order.orderType, "single");
-  assert.equal(order.triggerCondition, "below");
-  assert.equal(order.triggerPriceUsd, 0.5);
-  assert.equal(order.inputAmount, "100000000");
-});
-
-test("stop only: a stop at or above the price is refused", async () => {
-  const { deps, seen } = fakeDeps();
-  const res = await prepareStrategy(deps, base(wallet(), { stopUsd: 1.5, sellPct: 100 }));
-  assert.equal(res.ok, false);
-  if (res.ok) return;
-  assert.ok(res.issues?.includes("stop_not_below_current"));
-  assert.equal(seen.deposits.length, 0);
-});
-
-// ── sell + stop (oco) ──────────────────────────────────────────────────────────────────────────────────────────────
-
-test("sell + stop: one oco on one deposit of the held token, take-profit above and stop below", async () => {
-  const { deps, seen } = fakeDeps();
-  const w = wallet();
-  const prepared = await prepareStrategy(deps, base(w, { sellUsd: 2, stopUsd: 0.5, sellPct: 50 }));
-  assert.equal(prepared.ok, true);
-  if (!prepared.ok) return;
-  assert.equal(prepared.record.kind, "sell_stop");
-  assert.equal(seen.deposits[0].orderSubType, "oco");
-  assert.equal(seen.deposits[0].inputMint, MINT);
-  assert.equal(seen.deposits[0].amount, "50000000");
-
-  await createStrategy(deps, { wallet: w, token: "jwt", id: prepared.record.id, depositSignedTx: "s".repeat(200), feeSignedTx: "GOODFEE" });
-  const order = seen.orders[0];
-  assert.equal(order.orderType, "oco");
-  assert.equal(order.tpPriceUsd, 2);
-  assert.equal(order.slPriceUsd, 0.5);
-  assert.equal(order.inputAmount, "50000000");
-});
-
-test("sell + stop: a take-profit at or below the stop is refused", async () => {
-  const { deps, seen } = fakeDeps();
-  const res = await prepareStrategy(deps, base(wallet(), { sellUsd: 0.6, stopUsd: 0.7, sellPct: 50 }));
-  assert.equal(res.ok, false);
-  if (res.ok) return;
-  assert.ok(res.issues?.includes("tp_not_above_stop") || res.issues?.includes("sell_not_above_current"));
-  assert.equal(seen.deposits.length, 0);
-});
+for (const [name, legs] of [
+  ["sell only", { sellUsd: 2 }],
+  ["stop only", { stopUsd: 0.5 }],
+  ["sell + stop", { sellUsd: 2, stopUsd: 0.5 }],
+] as const) {
+  test(`${name} with no buy is refused: it's a PANDA order, never a Jupiter one (no deposit, no order)`, async () => {
+    const { deps, seen } = fakeDeps();
+    const r = await prepareStrategy(deps, base(wallet(), { ...legs, sellPct: 25 }));
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.equal(r.code, "panda_orders_only");
+    assert.equal(seen.deposits.length, 0);
+    assert.equal(seen.orders.length, 0);
+  });
+}
 
 // ── buy + sell + stop (otoco, unchanged) ───────────────────────────────────────────────────────────────────────────
 
@@ -326,8 +198,8 @@ test("held status: executing is sell_triggered, open is waiting, cancelled and f
 test("the shapes are stored with their kind, so a later sync reads them with the right rule", async () => {
   const { deps } = fakeDeps();
   const w = wallet();
-  const prepared = await prepareStrategy(deps, base(w, { stopUsd: 0.5, sellPct: 100 }));
+  const prepared = await prepareStrategy(deps, base(w, { buyUsd: 0.5 }));
   assert.equal(prepared.ok, true);
   const stored = (await listStrategies(w, 1_000_000)).find((s) => s.id === (prepared.ok ? prepared.record.id : ""));
-  assert.equal(stored?.kind, "stop");
+  assert.equal(stored?.kind, "buy");
 });

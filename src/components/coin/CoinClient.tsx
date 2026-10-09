@@ -11,7 +11,6 @@ import CoinAvatar from "@/components/CoinAvatar";
 import Panda from "@/components/panda/Panda";
 import Tooltip from "@/components/Tooltip";
 import TradingPanel from "@/components/coin/TradingPanel";
-import StopLossTakeProfit from "@/components/coin/StopLossTakeProfit";
 import PriceChart from "@/components/coin/PriceChart";
 import FeeLockNotice from "@/components/coin/FeeLockNotice";
 import ShareCoinPrompt from "@/components/coin/ShareCoinPrompt";
@@ -132,7 +131,6 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
         <div className="contents lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:block lg:space-y-4 lg:self-start">
           <div className="order-2 space-y-4 lg:order-none">
             <TradingPanel coin={coin} />
-            {strategies && <StopLossTakeProfit coin={coin} />}
           </div>
           <div className="order-4 space-y-4 lg:order-none">
             <MarketActivityCard coin={coin} />

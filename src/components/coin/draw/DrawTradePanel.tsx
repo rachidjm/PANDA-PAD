@@ -30,6 +30,7 @@ import { usePriceImpact } from "@/components/coin/usePriceImpact";
 import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { LIVE, NONCE_DEPOSIT_LAMPORTS_ESTIMATE, type ClientOrder, type OrderGroup } from "@/lib/panda-orders/client-types";
+import { ACCESS_MESSAGE, confirmRoute, needsSignIn } from "@/lib/panda-orders/access-state";
 import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
 const STEP_KEYS: Record<string, DictKey> = {
@@ -89,8 +90,16 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   // the wallet already holds — so they're usable whenever there's a buy line OR a real balance of this coin.
   const current = draw.current;
   const heldLines = !!current && current.buy === undefined && (current.tranches?.length ?? 0) > 0;
-  const canSell = !!current?.buy || draw.heldStatus === "has";
-  const sellHint: DictKey = !draw.connected ? "draw.sellNeedsConnect" : draw.heldStatus === "unknown" ? "draw.balanceLoading" : "draw.sellNeedsCoin";
+  // With no buy drawn, Venta / Stop are PANDA orders and nothing else: usable only once PANDA has said yes for this
+  // wallet and coin (access-state.ts). Otherwise the panel says why, and never falls back to Jupiter.
+  const canSell = !!current?.buy || (draw.heldStatus === "has" && draw.pandaMode);
+  const sellHint: DictKey = !draw.connected
+    ? "draw.sellNeedsConnect"
+    : draw.pandaAccess !== "ok"
+      ? ACCESS_MESSAGE[draw.pandaAccess]
+      : draw.heldStatus === "unknown"
+        ? "draw.balanceLoading"
+        : "draw.sellNeedsCoin";
   const busy = draw.step !== "idle" && draw.step !== "done";
 
   // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
@@ -101,7 +110,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   const count = (view ? 1 : 0) + draw.recordGroups.length + draw.pandaGroups.length;
   // Venta / Stop on a coin already held are a % of it; Compra is an amount of money, never a %.
   const showBuy = target === "buy" || !!current?.buy;
-  const showPct = !showBuy && (draw.heldStatus === "has" || heldLines);
+  const showPct = !showBuy && draw.pandaMode && (draw.heldStatus === "has" || heldLines);
 
   return (
     <section className="mt-4 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5" aria-labelledby="draw-title">
@@ -151,9 +160,10 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
         !heldLines && (
           // A `title` tooltip never shows on a touch tap, so without this a phone gives zero explanation
           // for why "Venta"/"Stop" look disabled — this is always visible instead, on every device.
-          <p className="mt-2 text-xs text-panda-grey">
-            {t(sellHint)}
-            {draw.connected && draw.heldStatus === "none" && <span className="block text-panda-grey/80">{t("draw.sellNeedsCoinBuy")}</span>}
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-panda-grey">
+            <span>{t(sellHint)}</span>
+            {draw.connected && needsSignIn(draw.pandaAccess) && <SignInButton draw={draw} />}
+            {draw.connected && draw.pandaMode && draw.heldStatus === "none" && <span className="block w-full text-panda-grey/80">{t("draw.sellNeedsCoinBuy")}</span>}
           </p>
         )
       )}
@@ -184,12 +194,22 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       )}
 
       {draw.recordGroups.length > 0 && <SavedStrategies draw={draw} formatValue={formatValue} />}
+      {draw.strategiesOn && draw.connected && <OtherJupiterOrders draw={draw} />}
       {draw.pandaMode && (draw.pandaGroups.length > 0 || draw.freeNonces.length > 0) && <PandaOrders draw={draw} formatValue={formatValue} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
       </>
       )}
     </section>
+  );
+}
+
+function SignInButton({ draw }: { draw: DrawApi }) {
+  const { t } = useLanguage();
+  return (
+    <button type="button" onClick={draw.signIn} className="font-semibold text-meme-orange hover:brightness-110">
+      {t("draw.signIn")}
+    </button>
   );
 }
 
@@ -282,7 +302,9 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
   // below; a buy-including draft is complete once its legs make one of the two offered shapes (kinds.ts).
   const heldMode = draft.buy === undefined;
   const complete = heldMode ? view.tranches.length > 0 : view.kind !== null;
-  const panda = heldMode && draw.pandaMode;
+  // A held-coin drawing (no buy) is a PANDA order or nothing — never Jupiter (access-state.ts's confirmRoute).
+  const panda = heldMode;
+  const route = confirmRoute(draft, draw.pandaAccess);
   const hasStop = (draft.tranches ?? []).some((t) => t.stop !== undefined);
 
   // A trade this big moves the price — estimated from the coin's own real liquidity, same as a normal buy
@@ -339,7 +361,12 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
   const balanceKnown = draw.connected && draw.heldStatus !== "unknown";
   const issues = (heldMode ? view.tranches.flatMap((tv) => tv.issues) : draft.amount !== "" ? view.issues : []).filter((i) => balanceKnown || i !== "no_balance");
   const problem = draw.connected ? firstProblem(issues, heldMode ? view.allocatedPct : 0) : null;
-  const message = problem ? { text: t(`draw.issue.${problem}` as DictKey), tone: "text-clay-red font-semibold" } : notice;
+  const blocked = route === "blocked";
+  const message = blocked
+    ? { text: t(ACCESS_MESSAGE[draw.pandaAccess as keyof typeof ACCESS_MESSAGE] ?? "draw.access.error"), tone: "text-clay-red font-semibold" }
+    : problem
+      ? { text: t(`draw.issue.${problem}` as DictKey), tone: "text-clay-red font-semibold" }
+      : notice;
   const orders = heldMode ? orderCount(draft.tranches ?? []) : 1;
 
   return (
@@ -389,8 +416,9 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
           )}
 
           {/* Fixed, always visible right above the confirm button — one discrete line, never a stack of boxes. */}
-          <p className={`mt-3 text-xs ${message.tone}`} role={message.tone.includes("clay-red") ? "alert" : undefined}>
-            {message.text}
+          <p className={`mt-3 flex flex-wrap items-center gap-x-2 text-xs ${message.tone}`} role={message.tone.includes("clay-red") ? "alert" : undefined}>
+            <span>{message.text}</span>
+            {blocked && draw.connected && needsSignIn(draw.pandaAccess) && <SignInButton draw={draw} />}
           </p>
           {impactHigh && (
             <label className="mt-1.5 flex cursor-pointer items-start gap-2 text-[11px] text-clay-red">
@@ -401,11 +429,11 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
 
           <button
             type="button"
-            onClick={() => (panda ? draw.confirmPanda(view, hasStop && ack) : heldMode ? draw.confirmTranches(view) : draw.confirm(view))}
-            disabled={!view.ready || !!problem || !draw.connected || !ack || confirming || (!panda && (!draw.engine || (!heldMode && impactHigh && !impactAck)))}
+            onClick={() => (route === "panda" ? draw.confirmPanda(view, hasStop && ack) : route === "jupiter" ? draw.confirm(view) : undefined)}
+            disabled={blocked || !view.ready || !!problem || !draw.connected || !ack || confirming || (route === "jupiter" && (!draw.engine || (impactHigh && !impactAck)))}
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {confirming || draw.step === "done" ? `${t(STEP_KEYS[draw.step])}${draw.batchProgress ? ` (${draw.batchProgress.done}/${draw.batchProgress.total})` : ""}` : t(orders === 1 ? "draw.sign1" : "draw.signN", { n: orders })}
+            {confirming || draw.step === "done" ? t(STEP_KEYS[draw.step]) : t(orders === 1 ? "draw.sign1" : "draw.signN", { n: orders })}
           </button>
         </>
       )}
@@ -793,6 +821,48 @@ function PriceSummary({ buy, sells, stop, formatValue }: { buy?: number; sells: 
         </>
       ) : null}
     </p>
+  );
+}
+
+/** Jupiter orders on this coin that Draw Your Trade didn't create — the old "Stop Loss / Take Profit" panel's. Listed
+ *  on request (Jupiter's sign-in is a message signature) and cancellable here, so none is left without a way out. */
+function OtherJupiterOrders({ draw }: { draw: DrawApi }) {
+  const { t } = useLanguage();
+  const list = draw.otherOrders;
+  return (
+    <div className="mt-5 text-xs">
+      {list === null ? (
+        <button type="button" onClick={draw.loadOtherOrders} disabled={draw.otherLoading} className="text-left text-panda-grey underline underline-offset-2 hover:text-paper disabled:opacity-50">
+          {draw.otherLoading ? t("draw.other.loading") : t("draw.other.show")}
+        </button>
+      ) : (
+        <>
+          <p className="font-medium text-paper/80">{t("draw.other.title")}</p>
+          {list.length === 0 ? (
+            <p className="mt-1 text-panda-grey">{t("draw.other.none")}</p>
+          ) : (
+            <div className="mt-1.5 space-y-1.5">
+              {list.map((o) => (
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl bg-ink px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-medium">{t(o.orderType === "oco" ? "draw.other.oco" : o.triggerCondition === "below" ? "draw.line.stop" : "draw.line.sell")}</p>
+                    <p className="text-panda-grey">{o.triggerPriceUsd ? formatPrice(o.triggerPriceUsd) : "—"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => draw.cancelOtherOrder(o.id)}
+                    disabled={draw.cancelling === o.id}
+                    className="shrink-0 rounded-lg bg-clay-red/15 px-2.5 py-1.5 font-semibold text-clay-red hover:bg-clay-red/25 disabled:opacity-50"
+                  >
+                    {draw.cancelling === o.id ? t("draw.other.cancelling") : t("draw.other.cancel")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

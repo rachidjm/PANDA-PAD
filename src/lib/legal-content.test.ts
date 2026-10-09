@@ -249,7 +249,7 @@ test("the strategy vault notice says whose it is and that PANDA has no access ‚Ä
       assert.match(t, /Privy/, `${slug}/${lang}`);
     }
   }
-  for (const k of ["draw.custody", "sltp.disclosure"] as const) {
+  for (const k of ["draw.custody"] as const) {
     assert.match(dict[k].en, /Privy/); assert.match(dict[k].en, /no keys/); assert.match(dict[k].en, /only you/);
     assert.match(dict[k].es, /Privy/); assert.match(dict[k].es, /no tiene claves/); assert.match(dict[k].es, /solo t√∫/);
   }

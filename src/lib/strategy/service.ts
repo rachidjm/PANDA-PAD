@@ -62,7 +62,7 @@ export type Deps = {
 export type Failure = {
   ok: false;
   status: number;
-  code: "engine_unavailable" | "invalid" | "price_unavailable" | "issues" | "conflict" | "limit" | "expired" | "jupiter_error" | "not_found";
+  code: "engine_unavailable" | "invalid" | "price_unavailable" | "issues" | "conflict" | "limit" | "expired" | "jupiter_error" | "not_found" | "panda_orders_only";
   message: string;
   issues?: (StrategyIssue | KindIssue)[];
 };
@@ -123,6 +123,9 @@ export async function prepareStrategy(deps: Deps, i: PrepareInput): Promise<Fail
   if (!legs.ok) return fail(400, "invalid", "Invalid target prices.");
   const kind = kindOf(legs.value);
   if (!kind) return fail(400, "invalid", "That combination of orders isn't offered.");
+  // A sell / stop on a coin the wallet already holds (no buy) is ALWAYS a PANDA order (src/lib/panda-orders), never a
+  // Jupiter one — not even as a fallback. Jupiter is only for a drawn buy.
+  if (kind === "sell" || kind === "stop" || kind === "sell_stop") return fail(400, "panda_orders_only", "Sells and stops on a coin you already hold are PANDA orders, not Jupiter ones.");
   if (!["USD", "EUR", "SOL", "USDC"].includes(unit)) return fail(400, "invalid", "Invalid amount unit.");
   const preferred = i.fundingAsset === "SOL" || i.fundingAsset === "USDC" ? (i.fundingAsset as FundingAsset) : null;
   const ticker = typeof i.ticker === "string" && /^[\w.$-]{1,16}$/.test(i.ticker) ? i.ticker : "?";
