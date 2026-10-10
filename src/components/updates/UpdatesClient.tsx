@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { SiteUpdate } from "@/lib/db/updates";
 import { TAG_LABEL, type UpdateTag } from "@/lib/updates/format";
+import { useLatestUpdate } from "./useLatestUpdate";
 
 /**
  * The public Updates page: every update of PANDA, newest first (or oldest first), each with its date, its tag, a short
@@ -83,6 +84,12 @@ export default function UpdatesClient({ entries, initialOrder = "newest", single
   const [order, setOrder] = useState<Order>(initialOrder);
   // `entries` arrive newest first; the other order is the same list, reversed.
   const shown = useMemo(() => (order === "newest" ? entries : [...entries].reverse()), [entries, order]);
+  // Opening the list is "seeing" the updates: the newest one is remembered in this browser and the menu's dot goes.
+  const { markSeen } = useLatestUpdate();
+  const newestId = single ? null : entries[0]?.id ?? null;
+  useEffect(() => {
+    if (newestId) markSeen(newestId);
+  }, [newestId, markSeen]);
 
   if (single) {
     return (

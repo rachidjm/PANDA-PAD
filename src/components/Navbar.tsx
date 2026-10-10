@@ -12,12 +12,16 @@ import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useAIAssistant } from "@/components/ai/AIAssistantProvider";
 import SparkleIcon from "@/components/icons/SparkleIcon";
+import { useLatestUpdate } from "@/components/updates/useLatestUpdate";
 
 export default function Navbar() {
   const pathname = usePathname();
   const { t } = useLanguage();
   const { themes, holderRewards, referrals, aiAssistant } = useFeatures();
   const { show: showAI } = useAIAssistant();
+  // A small dot on "Updates" while the newest one hasn't been seen in this browser (it goes when /updates is opened).
+  const { unseen } = useLatestUpdate();
+  const newDot = unseen && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-meme-orange align-middle" role="img" aria-label={t("updates.newBadge")} />;
 
   // Things that stick under the header (the PANDA ecosystem strip) need to know how tall it is: 68px on a desktop, more on a phone with its second row.
   const headerRef = useRef<HTMLElement>(null);
@@ -41,10 +45,12 @@ export default function Navbar() {
     ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
     ...(referrals ? [{ href: "/recruiters", label: t("nav.recruiters") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
+    { href: "/updates", label: t("nav.updates") },
   ];
 
   // Phone: Home / Discover / Create / Rewards / Portfolio live in the bottom bar; the rest is here, short enough not to scroll.
   const more = [
+    { href: "/updates", label: t("nav.updates") },
     ...(themes ? [{ href: "/themes", label: t("nav.themes") }] : []),
     ...(referrals ? [{ href: "/recruiters", label: t("nav.recruiters") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
@@ -70,9 +76,10 @@ export default function Navbar() {
                 key={l.href}
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors 2xl:px-4 2xl:py-2 2xl:text-base ${active ? "bg-paper/10 text-paper" : "text-paper/60 hover:text-paper"}`}
+                className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors 2xl:px-4 2xl:py-2 2xl:text-base ${l.href === "/updates" ? "hidden lg:inline-block " : ""}${active ? "bg-paper/10 text-paper" : "text-paper/60 hover:text-paper"}`}
               >
                 {l.label}
+                {l.href === "/updates" && newDot}
               </Link>
             );
           })}
@@ -98,15 +105,16 @@ export default function Navbar() {
         </div>
       </div>
 
-      <nav aria-label={t("nav.more")} className="flex items-center gap-1 border-t border-paper/10 px-4 py-1.5 sm:hidden">
+      <nav aria-label={t("nav.more")} className="flex items-center gap-1 overflow-x-auto border-t border-paper/10 px-4 py-1.5 [scrollbar-width:none] sm:hidden">
         {more.map((l) => (
           <Link
             key={l.href}
             href={l.href}
             aria-current={isActive(l.href) ? "page" : undefined}
-            className={`inline-flex min-h-11 items-center rounded-full px-3 py-1.5 text-sm ${isActive(l.href) ? "bg-paper/10 text-paper" : "text-paper/70 hover:text-paper"}`}
+            className={`inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${isActive(l.href) ? "bg-paper/10 text-paper" : "text-paper/70 hover:text-paper"}`}
           >
             {l.label}
+            {l.href === "/updates" && newDot}
           </Link>
         ))}
       </nav>

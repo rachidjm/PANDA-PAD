@@ -1,7 +1,9 @@
 "use client";
 
 import { sanitizeDecimalInput } from "@/lib/trading/input";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import DrawTutorial from "./DrawTutorial";
+import { shouldAutoShow, TUTORIAL_SEEN_KEY } from "@/lib/draw-tutorial";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { needsNoStopNotice } from "@/lib/strategy/summary";
 import { availableForLeg, linesOf, PCT_ROW } from "@/lib/strategy/allocation";
@@ -144,6 +146,26 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   const isDesktop = useIsDesktop();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = !!target || (userOpen ?? isDesktop);
+  // The four-step tutorial opens by itself the first time this panel is open in this browser; afterwards only from its
+  // own button. Closing it (any way) is what marks it as seen.
+  const [tutorial, setTutorial] = useState(false);
+  useEffect(() => {
+    let seen = true;
+    try {
+      seen = localStorage.getItem(TUTORIAL_SEEN_KEY) === "1";
+    } catch {
+      seen = true; // nowhere to remember it: never insist
+    }
+    if (shouldAutoShow(open, seen)) Promise.resolve().then(() => setTutorial(true));
+  }, [open]);
+  const closeTutorial = useCallback(() => {
+    setTutorial(false);
+    try {
+      localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
+    } catch {
+      // nothing to remember it in
+    }
+  }, []);
   const view = current ? draw.views.find((v) => v.draft.id === current.id) ?? null : null;
   const count = (view ? 1 : 0) + draw.recordGroups.length + draw.pandaGroups.length;
   // Venta / Stop on a coin already held are a % of it; Compra is an amount of money, never a %.
@@ -163,10 +185,19 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       </button>
       {open && (
       <>
+      {tutorial && <DrawTutorial onClose={closeTutorial} />}
       <div className="mt-3 sm:mt-0">
-        <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
-          {t("draw.title")}
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
+            {t("draw.title")}
+          </h2>
+          <button type="button" onClick={() => setTutorial(true)} className="ml-auto inline-flex min-h-9 items-center gap-1.5 text-xs font-semibold text-panda-grey transition-colors hover:text-paper">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] leading-none" aria-hidden>
+              ?
+            </span>
+            {t("tutorial.open")}
+          </button>
+        </div>
         <p className="mt-0.5 text-xs text-panda-grey">{t("draw.subtitle")}</p>
       </div>
 

@@ -8,6 +8,7 @@ import ActivityFeed from "@/components/ActivityFeed";
 import HomeSection from "@/components/home/HomeSection";
 import PandaEcosystemCard from "@/components/home/PandaEcosystemCard";
 import BannerCarousel from "@/components/home/banners/BannerCarousel";
+import LatestUpdateCard from "@/components/updates/LatestUpdateCard";
 import ActivitySidebar from "@/components/home/ActivitySidebar";
 import { buildHomeSections, SECTION_TITLE_KEYS, SectionId } from "@/lib/home-sections";
 import { ensurePandaLaunchedFirst } from "@/lib/panda-showcase";
@@ -102,6 +103,7 @@ export default function HomeFeed({
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div>
           <BannerCarousel />
+          <LatestUpdateCard />
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="whitespace-nowrap font-display text-xl font-bold">{t("home.liveCoins")}</h2>
