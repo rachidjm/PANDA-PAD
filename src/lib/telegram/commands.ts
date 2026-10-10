@@ -1,3 +1,4 @@
+import { WEB_START } from "./public";
 import type { Db } from "@/lib/db/client";
 import {
   tgAddAlert,
@@ -14,6 +15,7 @@ import {
   tgUserAlerts,
   tgWatch,
   tgWatchlist,
+  tgBumpCounter,
   type Lang,
 } from "@/lib/db/telegram";
 import { currentOf, fmtMetric, isCrossed, MAX_ALERTS, MAX_WATCH, parseAlertSpec } from "./alerts";
@@ -51,6 +53,8 @@ export type BotDeps = {
   /** Rewrites one of the bot's own messages in place (text + buttons). Best effort. */
   editMessage?: (chatId: number, messageId: number, payload: Record<string, unknown>) => Promise<void>;
 };
+
+export const WEB_START_COUNTER = "count:start-web";
 
 const PRIVATE_ONLY = new Set(["/watch", "/unwatch", "/watchlist", "/alert", "/alerts", "/link", "/unlink"]);
 const KNOWN = new Set(["/start", "/help", "/new", "/trending", "/token", "/suggest", "/chatid", "/stats", ...PRIVATE_ONLY]);
@@ -190,7 +194,11 @@ async function start(d: BotDeps, m: Incoming, payload: string | undefined): Prom
   } else if (payload === "link" && m.chatType === "private") {
     // t.me/<bot>?start=link: straight into wallet linking (the same one-time link /link gives).
     await link(d, m);
+  } else if (payload === WEB_START) {
+    // t.me/<bot>?start=web: the website's "Join us on Telegram" button. Counted (a number, nothing about who), then the normal welcome.
+    await tgBumpCounter(d.db, WEB_START_COUNTER, d.now()).catch(() => undefined);
   }
+  // Any other payload (unknown, malformed) is simply ignored: the welcome below is the same for everyone.
   await say(d, m, tt(m.lang, "welcome", { site: d.cfg.siteUrl.replace(/^https?:\/\//, ""), domain: d.cfg.domain }), startButtons(d.cfg, m.lang));
 }
 

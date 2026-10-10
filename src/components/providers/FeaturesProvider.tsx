@@ -21,6 +21,8 @@ export type Features = {
   founderNft: boolean;
   aiAssistant: boolean;
   pandaOrders: boolean;
+  /** The Telegram bot's public @username (without @) while the bot is on — null hides every "open the bot" link. Not a secret. */
+  telegramBot: string | null;
 };
 
 const OFF: Features = {
@@ -37,6 +39,7 @@ const OFF: Features = {
   founderNft: false,
   aiAssistant: false,
   pandaOrders: false,
+  telegramBot: null,
 };
 const FeaturesContext = createContext<Features>(OFF);
 

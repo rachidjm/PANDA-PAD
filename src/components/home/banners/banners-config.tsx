@@ -3,6 +3,7 @@ import type { DictKey } from "@/lib/i18n/translations";
 import XCommunityArt from "./XCommunityArt";
 import NftTeaserArt from "./NftTeaserArt";
 import RecruitersArt from "./RecruitersArt";
+import { botStartUrl } from "@/lib/telegram/public";
 
 /**
  * The home banner carousel's content lives here, not in BannerCarousel.tsx — add, remove or reorder a banner by
@@ -33,13 +34,16 @@ export type BannerConfig = {
   /** Fine-print disclaimer (smallest, gray), rendered BELOW the carousel, never over the art — e.g. "the 30%
    *  only applies to traders you invite yourself". */
   noteKey?: DictKey;
-  cta: { labelKey: DictKey; href: string; external?: boolean } | null;
+  cta: BannerCta | null;
+  /** A second button next to the first (desktop: to its right; phone: full width, ABOVE the first). */
+  cta2?: BannerCta | null;
 };
+export type BannerCta = { labelKey: DictKey; href: string; external?: boolean; icon?: "telegram" };
 
 /** PANDA's public X account. Overridable per deploy, but this is the real default — no env var needed to show the banner. */
 const X_ACCOUNT_URL = process.env.NEXT_PUBLIC_X_ACCOUNT_URL || "https://x.com/LaunchOnPanda";
 
-export function getHomeBanners(features: { referrals: boolean; founderNft: boolean }): BannerConfig[] {
+export function getHomeBanners(features: { referrals: boolean; founderNft: boolean; telegramBot?: string | null }): BannerConfig[] {
   const banners: BannerConfig[] = [
     {
       id: "x-community",
@@ -49,6 +53,8 @@ export function getHomeBanners(features: { referrals: boolean; founderNft: boole
       titleKey: "banner.xCommunity.title",
       hideTitle: true, // the real art (XCommunityArt.tsx) already has the headline/subtitle/icons drawn in, per language
       cta: { labelKey: "banner.xCommunity.cta", href: X_ACCOUNT_URL, external: true },
+      // The bot, opened with ?start=web. No bot username (or the bot is off) → no second button.
+      cta2: features.telegramBot ? { labelKey: "banner.xCommunity.telegram", href: botStartUrl(features.telegramBot), external: true, icon: "telegram" } : null,
     },
     {
       id: "nft-teaser",

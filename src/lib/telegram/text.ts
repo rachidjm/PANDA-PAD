@@ -76,7 +76,7 @@ const EN = {
   suggestTooMany: "You've sent several suggestions today — thanks! Try again tomorrow.",
   // admin
   chatId: "Chat id: <code>{chatId}</code>\nType: {type}{title}{thread}",
-  stats: "Users: {users} · linked wallets: {linked}\nActive alerts: {alerts} · watched coins: {watched}\nSuggestions: {suggestions}\nUpdates received (1h): {updates1h}\nOutbox: {pending} pending · {failed} failed · {sent24h} sent in 24h",
+  stats: "Users: {users} · linked wallets: {linked}\nActive alerts: {alerts} · watched coins: {watched}\nSuggestions: {suggestions} · starts from the website: {startsWeb}\nUpdates received (1h): {updates1h}\nOutbox: {pending} pending · {failed} failed · {sent24h} sent in 24h",
   // automatic posts
   launchPost: "🆕 <b>New coin launched on PANDA</b>\n<b>{name}</b> (${ticker})\nFee split: {split}\n<code>{mint}</code>\n\n{nfa}",
   buyPost: "🟢 <b>$PANDA buy</b> · {usd}{sol}\nWallet: <code>{wallet}</code>\n<a href=\"{tx}\">Transaction</a>\n\n{nfa}",
@@ -155,7 +155,7 @@ const ES: Record<Key, string> = {
   suggestSaved: "Gracias — tu sugerencia se ha guardado para el equipo.",
   suggestTooMany: "Hoy ya has enviado varias sugerencias — ¡gracias! Vuelve a intentarlo mañana.",
   chatId: "Id del chat: <code>{chatId}</code>\nTipo: {type}{title}{thread}",
-  stats: "Usuarios: {users} · wallets vinculadas: {linked}\nAlertas activas: {alerts} · monedas seguidas: {watched}\nSugerencias: {suggestions}\nActualizaciones recibidas (1 h): {updates1h}\nCola: {pending} pendientes · {failed} fallidos · {sent24h} enviados en 24 h",
+  stats: "Usuarios: {users} · wallets vinculadas: {linked}\nAlertas activas: {alerts} · monedas seguidas: {watched}\nSugerencias: {suggestions} · /start desde la web: {startsWeb}\nActualizaciones recibidas (1 h): {updates1h}\nCola: {pending} pendientes · {failed} fallidos · {sent24h} enviados en 24 h",
   launchPost: "🆕 <b>Nueva moneda lanzada en PANDA</b>\n<b>{name}</b> (${ticker})\nReparto de comisiones: {split}\n<code>{mint}</code>\n\n{nfa}",
   buyPost: "🟢 <b>Compra de $PANDA</b> · {usd}{sol}\nWallet: <code>{wallet}</code>\n<a href=\"{tx}\">Transacción</a>\n\n{nfa}",
   buyMore: "…y {n} compras más de $PANDA por encima de {min} en los últimos minutos.",

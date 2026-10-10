@@ -135,6 +135,7 @@ export default function TelegramPanel() {
           {row("min $PANDA buy", `$${status.minBuyUsd}`)}
           {row("webhook", wh ? `${wh.url || "(none)"} · pending ${wh.pending}${wh.lastError ? ` · last error: ${wh.lastError}` : ""}` : status.webhook && "error" in status.webhook ? status.webhook.error : "—")}
           {status.stats && row("users / linked / alerts / watched", `${status.stats.users} / ${status.stats.linked} / ${status.stats.alerts} / ${status.stats.watched}`)}
+          {status.stats && row("/start from the website", String(status.stats.startsWeb ?? 0))}
           {status.outbox && row("outbox pending / failed / sent 24h", `${status.outbox.pending} / ${status.outbox.failed} / ${status.outbox.sent24h}`)}
           {status.error && row("database", status.error)}
         </dl>

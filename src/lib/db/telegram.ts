@@ -97,6 +97,18 @@ export async function tgSetState(db: Db, key: string, value: unknown, now: numbe
   await db.insert(telegramState).values({ key, value, updatedAt: now }).onConflictDoUpdate({ target: telegramState.key, set: { value, updatedAt: now } });
 }
 
+/** Adds one to a plain counter kept in the bot's state (`{ n }`), atomically. */
+export async function tgBumpCounter(db: Db, key: string, now: number): Promise<void> {
+  await db
+    .insert(telegramState)
+    .values({ key, value: { n: 1 }, updatedAt: now })
+    .onConflictDoUpdate({ target: telegramState.key, set: { value: sql`jsonb_build_object('n', COALESCE((${telegramState.value}->>'n')::bigint, 0) + 1)`, updatedAt: now } });
+}
+
+export async function tgCounter(db: Db, key: string): Promise<number> {
+  return Number((await tgGetState<{ n?: number }>(db, key))?.n ?? 0);
+}
+
 // ── watchlist ────────────────────────────────────────────────────────────────────────────────────────────────────────
 export async function tgWatch(db: Db, telegramId: number, mint: string, now: number): Promise<boolean> {
   const rows = await db.insert(telegramWatchlist).values({ telegramId, mint, createdAt: now }).onConflictDoNothing().returning({ mint: telegramWatchlist.mint });
@@ -208,17 +220,18 @@ export async function tgWalletHolder(db: Db, wallet: string): Promise<number | n
 // ── stats & cleanup ──────────────────────────────────────────────────────────────────────────────────────────────────
 /** `updates1h`: how many updates Telegram delivered in the last hour — ids only, never content (it's how the privacy-mode test
  *  in docs/TELEGRAM.md §6 checks what the bot receives from the group). */
-export async function tgStats(db: Db, now: number = Date.now()): Promise<{ users: number; linked: number; alerts: number; watched: number; suggestions: number; updates1h: number }> {
+export async function tgStats(db: Db, now: number = Date.now()): Promise<{ users: number; linked: number; alerts: number; watched: number; suggestions: number; updates1h: number; startsWeb: number }> {
   const one = async (q: Promise<{ n: number }[]>) => Number((await q)[0]?.n ?? 0);
-  const [users, linked, alerts, watched, suggestions, updates1h] = await Promise.all([
+  const [users, linked, alerts, watched, suggestions, updates1h, startsWeb] = await Promise.all([
     one(db.select({ n: count() }).from(telegramUsers)),
     one(db.select({ n: count() }).from(telegramUsers).where(sql`${telegramUsers.wallet} IS NOT NULL`)),
     one(db.select({ n: count() }).from(telegramAlerts).where(isNull(telegramAlerts.firedAt))),
     one(db.select({ n: count() }).from(telegramWatchlist)),
     one(db.select({ n: count() }).from(telegramSuggestions)),
     one(db.select({ n: count() }).from(telegramUpdates).where(gt(telegramUpdates.receivedAt, now - 3_600_000))),
+    tgCounter(db, "count:start-web"), // /start coming from the website's "Join us on Telegram" button
   ]);
-  return { users, linked, alerts, watched, suggestions, updates1h };
+  return { users, linked, alerts, watched, suggestions, updates1h, startsWeb };
 }
 
 /** Old bookkeeping only: processed update ids (2 days), link codes (1 day after expiry), sent/failed messages (14 days), fired alerts (30 days). */

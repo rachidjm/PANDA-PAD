@@ -1,3 +1,4 @@
+import { publicBotUsername } from "@/lib/telegram/public";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
@@ -71,6 +72,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 founderNft: isEnabled("FOUNDER_NFT"),
                 aiAssistant: isEnabled("AI_ASSISTANT"),
                 pandaOrders: isEnabled("PANDA_ORDERS"),
+                telegramBot: publicBotUsername(),
               }}
             >
               <WalletProvider>

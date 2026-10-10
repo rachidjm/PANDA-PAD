@@ -1,3 +1,5 @@
+import { tgCounter, tgStats } from "@/lib/db/telegram";
+import { WEB_START_COUNTER } from "./commands";
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import type { Db } from "@/lib/db/client";
@@ -262,4 +264,21 @@ test("rate limit per Telegram user: over it, one short notice and then silence",
   const q = await queued(db, u);
   assert.equal(q.length, 1);
   assert.match(q[0].text, /Too many messages/);
+});
+
+test("/start web (the website's button) and /start with any unknown parameter: the normal welcome with its buttons, once, no error — and web starts are counted", async () => {
+  const d = botDeps(db);
+  const before = await tgCounter(db, WEB_START_COUNTER);
+  for (const [text, counted] of [["/start web", 1], ["/start whatever_else", 0], ["/start ../../etc 😀", 0], ["/start web", 1]] as const) {
+    const u = newUserId();
+    const was = await tgCounter(db, WEB_START_COUNTER);
+    await handleMessage(d, dm(u, text));
+    const q = await queued(db, u);
+    assert.equal(q.length, 1, `${text}: exactly one message`);
+    assert.match(q[0].text, /Welcome to PANDA/);
+    assert.deepEqual(buttonsOf(q[0]).map((b) => b.text), ["💬 Join the Community", "📢 Updates channel", "🌐 Open PANDA", "🔔 How alerts work"]);
+    assert.equal((await tgCounter(db, WEB_START_COUNTER)) - was, counted, text);
+  }
+  assert.equal((await tgCounter(db, WEB_START_COUNTER)) - before, 2);
+  assert.equal((await tgStats(db)).startsWeb, await tgCounter(db, WEB_START_COUNTER));
 });

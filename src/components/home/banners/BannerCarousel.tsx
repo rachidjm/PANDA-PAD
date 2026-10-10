@@ -127,7 +127,15 @@ export default function BannerCarousel() {
         // Phone only: the button and the fine print sit centered right under the box (on desktop they live
         // inside it, see SlideContent).
         <div className="mt-3 flex flex-col items-center gap-2 text-center sm:hidden">
-          {banner.cta && <CtaButton cta={banner.cta} t={t} />}
+          {banner.cta && banner.cta2 ? (
+            // Two buttons: one on top of the other, each the full width — the second one (Telegram) FIRST.
+            <div className="flex w-full flex-col gap-2 px-4">
+              <CtaButton cta={banner.cta2} t={t} full />
+              <CtaButton cta={banner.cta} t={t} full />
+            </div>
+          ) : (
+            banner.cta && <CtaButton cta={banner.cta} t={t} />
+          )}
           {banner.noteKey && <p className="px-4 text-[11px] text-panda-grey">{t(banner.noteKey)}</p>}
         </div>
       )}
@@ -154,16 +162,31 @@ export default function BannerCarousel() {
   );
 }
 
-function CtaButton({ cta, t }: { cta: NonNullable<BannerConfig["cta"]>; t: ReturnType<typeof useLanguage>["t"] }) {
-  const className = "inline-block rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink shadow-lg transition hover:brightness-90 sm:text-sm";
+function CtaButton({ cta, t, full }: { cta: NonNullable<BannerConfig["cta"]>; t: ReturnType<typeof useLanguage>["t"]; full?: boolean }) {
+  const className = `${full ? "flex w-full" : "inline-flex"} items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-paper px-5 py-2 text-xs font-semibold text-ink shadow-lg transition hover:brightness-90 sm:text-sm`;
+  const content = (
+    <>
+      {cta.icon === "telegram" && <TelegramIcon />}
+      {t(cta.labelKey)}
+    </>
+  );
   return cta.external ? (
     <a href={cta.href} target="_blank" rel="noopener noreferrer" className={className}>
-      {t(cta.labelKey)}
+      {content}
     </a>
   ) : (
     <Link href={cta.href} className={className}>
-      {t(cta.labelKey)}
+      {content}
     </Link>
+  );
+}
+
+/** Telegram's paper plane, small, in the button's own text color. */
+function TelegramIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" fill="currentColor">
+      <path d="M21.94 4.3a1.2 1.2 0 0 0-1.63-1.32L2.7 9.86a1.1 1.1 0 0 0 .07 2.08l4.4 1.4 1.7 5.36a1 1 0 0 0 1.66.42l2.5-2.38 4.3 3.16a1.2 1.2 0 0 0 1.88-.72L21.94 4.3ZM9.3 13.1l8.2-5.2c.22-.14.45.15.26.33l-6.6 6.2a1 1 0 0 0-.3.56l-.37 2.2c-.03.2-.31.22-.37.03l-1.1-3.5a.6.6 0 0 1 .28-.62Z" />
+    </svg>
   );
 }
 
@@ -184,7 +207,12 @@ function SlideContent({ banner, Art, priority }: { banner: BannerConfig; Art: Ba
             text. On phones the same button is rendered below the box instead (BannerCarousel). */}
         {(banner.cta || banner.noteKey) && (
           <div className="absolute bottom-[7%] left-[6%] hidden flex-col items-start gap-2 sm:flex">
-            {banner.cta && <CtaButton cta={banner.cta} t={t} />}
+            {banner.cta && (
+              <div className="flex items-center gap-2">
+                <CtaButton cta={banner.cta} t={t} />
+                {banner.cta2 && <CtaButton cta={banner.cta2} t={t} />}
+              </div>
+            )}
             {banner.noteKey && <p className="text-[11px] text-paper/90 [text-shadow:0_1px_3px_rgb(0_0_0_/_0.9)]">{t(banner.noteKey)}</p>}
           </div>
         )}
