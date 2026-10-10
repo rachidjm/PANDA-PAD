@@ -81,6 +81,9 @@ export const dict = {
   "tutorial.next": { en: "Next", es: "Siguiente" },
   "tutorial.back": { en: "Back", es: "Atrás" },
   "tutorial.skip": { en: "Skip", es: "Saltar" },
+  "tutorial.try": { en: "Try it yourself", es: "Pruébalo tú" },
+  "tutorial.demo": { en: "Example", es: "Ejemplo" },
+  "tutorial.demoNote": { en: "This is only an example: nothing is signed or sent.", es: "Esto es solo un ejemplo: no se firma ni se envía nada." },
   "tutorial.done": { en: "Got it", es: "Entendido" },
   "tutorial.step1": {
     en: "Pick what you want: Sell sells when the price rises to your mark. Stop sells if it drops, to protect you.",

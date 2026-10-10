@@ -2,7 +2,7 @@
 
 import { sanitizeDecimalInput } from "@/lib/trading/input";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import DrawTutorial from "./DrawTutorial";
+import DrawTutorial, { TUTORIAL_SLOT_ID } from "./DrawTutorial";
 import { shouldAutoShow, TUTORIAL_SEEN_KEY } from "@/lib/draw-tutorial";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
 import { needsNoStopNotice } from "@/lib/strategy/summary";
@@ -166,6 +166,13 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       // nothing to remember it in
     }
   }, []);
+  // "Pruébalo tú": the tutorial closes and — only if selling is possible for this wallet and coin right now — "Venta" is
+  // left selected, so the next tap on the chart places the user's own first line. Nothing else is done for them.
+  const startTarget = draw.startTarget;
+  const tryIt = useCallback(() => {
+    closeTutorial();
+    if (canSell && !busy) startTarget("sell1");
+  }, [closeTutorial, canSell, busy, startTarget]);
   const view = current ? draw.views.find((v) => v.draft.id === current.id) ?? null : null;
   const count = (view ? 1 : 0) + draw.recordGroups.length + draw.pandaGroups.length;
   // Venta / Stop on a coin already held are a % of it; Compra is an amount of money, never a %.
@@ -185,7 +192,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       </button>
       {open && (
       <>
-      {tutorial && <DrawTutorial onClose={closeTutorial} />}
+      {tutorial && <DrawTutorial onClose={closeTutorial} onTry={tryIt} />}
       <div className="mt-3 sm:mt-0">
         <div className="flex items-center justify-between gap-3">
           <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
@@ -201,6 +208,10 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
         <p className="mt-0.5 text-xs text-panda-grey">{t("draw.subtitle")}</p>
       </div>
 
+      {/* While the tutorial is open, its DEMO is drawn here and the real controls below are only hidden — still mounted,
+          not touched: closing the tutorial shows them exactly as they were. */}
+      {tutorial && <div id={TUTORIAL_SLOT_ID} />}
+      <div className={tutorial ? "hidden" : "contents"}>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <TargetTabs target={target} canSell={canSell} canBuy={draw.strategiesOn && !heldLines} busy={busy} onPick={draw.startTarget} disabledTitle={t(sellHint)} buyOffTitle={t(heldLines ? "draw.buyClearLines" : "draw.buyOff")} />
         {target && (
@@ -267,6 +278,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       {draw.pandaMode && (draw.pandaGroups.length > 0 || draw.freeNonces.length > 0) && <PandaOrders draw={draw} formatValue={formatValue} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
+      </div>
       </>
       )}
     </section>

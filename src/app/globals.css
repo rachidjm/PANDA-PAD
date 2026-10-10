@@ -238,3 +238,15 @@ main:focus {
 .sticker-card:nth-child(even):hover {
   transform: rotate(1deg) translateY(-4px);
 }
+
+/* ---------------------------------------------------------------- */
+/* Draw Your Trade tutorial: the sign button's soft pulse in the demo */
+/* ---------------------------------------------------------------- */
+@keyframes tutorial-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bamboo) 55%, transparent); }
+  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--bamboo) 0%, transparent); }
+}
+.tutorial-pulse { animation: tutorial-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-pulse { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--bamboo) 55%, transparent); }
+}

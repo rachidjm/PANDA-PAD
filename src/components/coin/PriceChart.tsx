@@ -554,7 +554,7 @@ function AreaChart({
       : [];
 
   return (
-    <div className="relative">
+    <div className="relative" data-tutorial="chart">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
