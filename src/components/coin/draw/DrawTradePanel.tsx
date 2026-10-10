@@ -88,6 +88,16 @@ const PANDA_ERR = [
   "advance_unconfirmed",
   "advance_failed",
   "last_leg",
+  "no_deposit",
+  "already_closed",
+  "unreadable",
+  "AUTH_REQUIRED",
+  "NOT_ALLOWED",
+  "too_many_requests",
+  "server_error",
+  "wallet_error",
+  "close_failed",
+  "close_unconfirmed",
 ];
 
 const money = (n: number) => `${n < 0 ? "-" : ""}${formatUsd(Math.abs(n))}`;

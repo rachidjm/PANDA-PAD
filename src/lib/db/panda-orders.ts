@@ -28,6 +28,12 @@ export async function pgLiveOrders(db: Db, wallet: string, mint?: string): Promi
   return db.select().from(pandaOrders).where(where);
 }
 
+/** Unsigned drawings on these accounts are deleted (the accounts are being closed; a signed order is never touched). */
+export async function pgDropPrepared(db: Db, wallet: string, nonces: string[]): Promise<void> {
+  if (nonces.length === 0) return;
+  await db.delete(pandaOrders).where(and(eq(pandaOrders.wallet, wallet), eq(pandaOrders.state, "prepared"), inArray(pandaOrders.nonceAccount, nonces)));
+}
+
 export async function pgNonceAccounts(db: Db, wallet: string): Promise<NonceRow[]> {
   return db.select().from(pandaNonceAccounts).where(eq(pandaNonceAccounts.wallet, wallet));
 }

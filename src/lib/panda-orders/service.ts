@@ -9,6 +9,7 @@ import {
   pgLiveOrders,
   pgNonceAccounts,
   pgPurgeExpiredPrepared,
+  pgDropPrepared,
   pgReplacePrepared,
   pgSetNonceState,
   pgTransition,
@@ -365,18 +366,37 @@ export type CloseInput = { wallet: string; groupId?: unknown; trancheId?: unknow
 
 /** The transaction that closes nonce accounts (deposit back to the wallet): those of a group / one tranche (= cancel
  *  those orders), or every FREE one (`recover`: deposits of orders already executed or cancelled). The user signs it. */
+/** Network fee of the one-signature transaction that closes order accounts (the deposits it returns arrive after it is paid). */
+export const CLOSE_FEE_LAMPORTS = 5_000;
+
+/**
+ * The wallet's order accounts as BOTH the list and "Recuperar depósitos" must see them — one rule, so the button can never
+ * offer a deposit the server then refuses to return:
+ *
+ *  - only SIGNED orders count as live. A "prepared" one is a drawing that was never signed (the wallet was closed, or
+ *    it was refused): it holds nothing, so it neither occupies an account nor makes a reserve necessary;
+ *  - `free`: every account that isn't closed and has no signed order on it;
+ *  - `recoverable`: all of them — except one, the reserve, while a signed order is still live.
+ */
+export function accountsView<O extends { nonceAccount: string; state: string }>(orders: readonly O[], rows: readonly { address: string; state: string }[]) {
+  const live = orders.filter((o) => o.state !== "prepared");
+  const inUse = new Set(live.map((o) => o.nonceAccount));
+  const free = rows.filter((r) => r.state !== "closed" && !inUse.has(r.address)).map((r) => r.address).sort();
+  return { live, free, recoverable: live.length > 0 ? free.slice(RESERVE_ACCOUNTS) : free };
+}
+
 export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true; transaction: string; nonceAccounts: string[]; lamports: number } | Failure> {
   const wallet = key(i.wallet);
   if (!wallet) return fail(400, "invalid", "Invalid wallet.");
   const db = deps.db();
-  const live = await pgLiveOrders(db, i.wallet);
+  await pgPurgeExpiredPrepared(db, deps.now());
+  const all = await pgLiveOrders(db, i.wallet);
+  const { live, free, recoverable } = accountsView(all, await pgNonceAccounts(db, i.wallet));
   let targets: string[];
-  const inUse = new Set(live.map((o) => o.nonceAccount));
-  const free = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state !== "closed" && !inUse.has(r.address)).map((r) => r.address);
   if (i.recover === true) {
     // While orders are live, one free account stays as the reserve (it is what lets an order be changed or one line
     // cancelled for real); everything beyond it — or everything, once no order is left — goes back to the wallet.
-    targets = live.length > 0 ? free.slice(RESERVE_ACCOUNTS) : free;
+    targets = recoverable;
   } else if (i.allOf !== undefined) {
     // "Cancelar todo": every live order on one coin (up to CLOSE_PER_TX accounts per approval).
     if (!key(i.allOf)) return fail(400, "invalid", "Invalid coin.");
@@ -388,14 +408,16 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
   targets = targets.slice(0, CLOSE_PER_TX);
   // Cancelling the LAST live orders: the reserve has no more use, so its deposit comes back in the same transaction.
   const alsoFree = i.recover !== true && live.every((o) => targets.includes(o.nonceAccount)) ? free.slice(0, CLOSE_PER_TX - targets.length) : [];
-  if (targets.length === 0) return fail(404, "nothing", "Nothing to close.");
+  if (targets.length === 0) return i.recover === true ? fail(404, "no_deposit", "There is no deposit to recover right now.") : fail(404, "nothing", "Nothing to close.");
   const infos = await deps.accounts(targets.map((t) => new PublicKey(t)));
   const closable = targets.map((t, k) => parseNonce(t, infos[k] ?? null)).filter((p): p is ParsedNonce => !!p && p.authority === i.wallet);
   if (closable.length === 0) {
     // Only accounts that are really GONE on chain (closed by a transaction the wallet signed) end their orders here. One
     // that still exists but couldn't be read as this wallet's nonce is left alone: cancelling always takes a signature.
-    await markClosed(deps, i.wallet, targets.filter((_, k) => !infos[k]));
-    return fail(404, "nothing", "Those accounts are already closed.");
+    const gone = targets.filter((_, k) => !infos[k]);
+    await markClosed(deps, i.wallet, gone);
+    // Every one is gone: the deposits already went back. One that still exists but can't be read as this wallet's is said so.
+    return gone.length === targets.length ? fail(404, "already_closed", "Those accounts are already closed: their deposits were already returned.") : fail(409, "unreadable", "Those accounts couldn't be read right now — try again in a moment.");
   }
   // …but only alongside a cancel that is whole: if an order account couldn't be read, nothing else rides along.
   if (alsoFree.length && closable.length === targets.length) {
@@ -403,9 +425,23 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
     closable.push(...alsoFree.map((t, k) => parseNonce(t, freeInfos[k] ?? null)).filter((p): p is ParsedNonce => !!p && p.authority === i.wallet));
   }
   const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...closeInstructions(wallet, closable.map((c) => ({ address: new PublicKey(c.address), lamports: c.lamports }))));
+  const bytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  // Nothing reaches the wallet that would fail there: the fee is checked and the transaction simulated first, and each
+  // case answers with its reason.
+  const short = await solCheck(deps, wallet, CLOSE_FEE_LAMPORTS);
+  if (short) return short;
+  let sim: { err: unknown; logs: string[] | null };
+  try {
+    sim = await deps.simulate(bytes, { replaceBlockhash: true });
+  } catch {
+    return fail(503, "simulation_unavailable", "The transaction couldn't be checked right now — try again in a moment.");
+  }
+  if (sim.err) return fail(422, "simulation_failed", "This transaction would fail, so it wasn't sent to your wallet.");
+  // A drawing that was never signed and sat on one of these accounts is over: it could not be signed any more.
+  await pgDropPrepared(db, i.wallet, closable.map((c) => c.address));
   return {
     ok: true,
-    transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+    transaction: bytes.toString("base64"),
     nonceAccounts: closable.map((c) => c.address),
     lamports: closable.reduce((s, c) => s + c.lamports, 0),
   };
@@ -458,11 +494,9 @@ export async function listOrders(
   const now = deps.now();
   await pgPurgeExpiredPrepared(db, now);
   const orders = await pgListOrders(db, i.wallet, i.mint);
-  const live = await pgLiveOrders(db, i.wallet);
-  const inUse = new Set(live.map((o) => o.nonceAccount));
-  const allFree = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state === "ready" && !inUse.has(r.address)).map((r) => r.address);
-  // What "Recuperar depósitos" would give back now: not the reserve while there are live orders (closeNonces).
-  const freeNonces = live.some((o) => o.state !== "prepared") ? allFree.slice(RESERVE_ACCOUNTS) : allFree;
+  const all = await pgLiveOrders(db, i.wallet);
+  // What "Recuperar depósitos" would give back now — the same rule closeNonces applies (accountsView).
+  const { live, recoverable: freeNonces } = accountsView(all, await pgNonceAccounts(db, i.wallet));
   const committed = i.mint ? committedRaw(live.filter((o) => o.mint === i.mint && o.state !== "prepared").map((o) => ({ nonceAccount: o.nonceAccount, tokenAmountRaw: o.tokenAmountRaw, state: o.state as OrderState }))) : null;
   return {
     // An order the user CHANGED lives on as its replacement: the old row is history, not a cancelled order to show.

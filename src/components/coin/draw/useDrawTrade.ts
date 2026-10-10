@@ -46,6 +46,7 @@ import {
 import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { groupOrders, LIVE, type OrdersList } from "@/lib/panda-orders/client-types";
+import { closeError, closeFailureCode } from "@/lib/panda-orders/close-errors";
 import { accessFromStatus, pandaAccessFor, type PandaAccess } from "@/lib/panda-orders/access-state";
 
 /**
@@ -1105,20 +1106,17 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       setCancelling("recover" in target ? "recover" : "allOf" in target ? "all" : target.trancheId ?? target.groupId);
       try {
         await ensureSession();
-        const res = await fetch("/api/panda-orders/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target) });
-        const data = await res.json();
-        if (!res.ok) {
-          if (data.code === "nothing") {
-            await refreshPanda();
-            return;
-          }
-          throw new ApiError(data.error, data.code);
-        }
+        const res = await fetch("/api/panda-orders/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target), signal: AbortSignal.timeout(30_000) });
+        const data = await res.json().catch(() => ({}));
+        // Whatever the server refuses is SAID (closeError): this never ends in silence. The list is read again first, so
+        // what is on screen is what is really there.
+        if (!res.ok) throw new ApiError(data.error ?? "", closeFailureCode(res.status, data.code), undefined, undefined, data.detail);
         await sendAndConfirm(data.transaction);
-        await fetch("/api/panda-orders/closed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonceAccounts: data.nonceAccounts }) });
+        await fetch("/api/panda-orders/closed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonceAccounts: data.nonceAccounts }) }).catch(() => undefined);
         await refreshPanda();
       } catch (err) {
-        setError({ message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+        await refreshPanda().catch(() => undefined);
+        setError(closeError(err));
       } finally {
         setCancelling(null);
       }
@@ -1359,6 +1357,8 @@ async function signOneByOne<T extends Transaction | VersionedTransaction>(txs: T
 }
 
 class ApiError extends Error {
+  /** Built from the server's own answer (close-errors.ts tells these apart from wallet and network errors). */
+  readonly api = true;
   constructor(message: string, public code?: string, public issues?: StrategyIssue[], public pandaIssues?: Record<string, string[]>, public detail?: { needLamports: number; haveLamports: number }) {
     super(message);
   }
