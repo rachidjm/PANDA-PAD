@@ -1573,6 +1573,11 @@ export const dict = {
   "admin.tg.changelog.published": { en: "Published", es: "Publicado" },
   "admin.tg.changelog.discarded": { en: "Discarded", es: "Descartado" },
   "admin.tg.done": { en: "Done.", es: "Hecho." },
+  "pause.x_posting": { en: "Posting on X", es: "Publicar en X" },
+  "admin.tg.changelog.deferred": { en: "Kept for the weekly summary", es: "Guardado para el resumen semanal" },
+  "admin.tg.changelog.digested": { en: "Went into a weekly summary", es: "Incluido en un resumen semanal" },
+  "admin.tg.changelog.publishing": { en: "Being published", es: "Publicándose" },
+  "admin.tg.changelog.failed": { en: "Unknown outcome — check X", es: "Resultado desconocido: revisa X" },
   "pause.telegram": { en: "The PANDA Telegram bot", es: "El bot de Telegram de PANDA" },
   "pause.panda_orders": { en: "PANDA orders (pre-signed sells and stops)", es: "Órdenes PANDA (ventas y stops pre-firmados)" },
   // Themes

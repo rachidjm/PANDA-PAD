@@ -1,0 +1,3 @@
+ALTER TABLE "telegram_changelogs" DROP CONSTRAINT "telegram_changelogs_status";--> statement-breakpoint
+ALTER TABLE "telegram_changelogs" ADD COLUMN "meta" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "telegram_changelogs" ADD CONSTRAINT "telegram_changelogs_status" CHECK ("telegram_changelogs"."status" IN ('pending', 'published', 'discarded', 'deferred', 'digested', 'publishing', 'failed'));

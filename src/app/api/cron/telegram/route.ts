@@ -7,6 +7,8 @@ import { evaluateAlerts } from "@/lib/telegram/alerts";
 import { postNewLaunches, postPandaBuys, postPayoutDigest } from "@/lib/telegram/feeds";
 import { realFeedDeps, realMarket, realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
+import { runWeekly } from "@/lib/telegram/changelog";
+import { xConfig } from "@/lib/x/client";
 
 export const maxDuration = 60;
 
@@ -42,6 +44,8 @@ export async function GET(req: Request) {
   await step("buys", () => postPandaBuys(feeds));
   await step("payouts", () => postPayoutDigest(feeds));
   await step("alerts", () => evaluateAlerts({ db: getDb(), market: realMarket, now: Date.now }));
+  // Monday: the week's small updates become one draft for Telegram and one for X (sent to the admins, never published).
+  await step("weekly", () => runWeekly({ db: getDb(), now: Date.now, cfg, x: { config: xConfig() } }));
   await step("outbox", () => processOutbox(realQueueDeps(), 40_000));
   await step("cleanup", async () => {
     const db = getDb();

@@ -333,3 +333,33 @@ ni promesas de futuro, de precio o de recompensas. Solo cambios ya subidos a `ma
 Requisitos: `FEATURE_TELEGRAM_BOT` encendido, webhook registrado con `callback_query` (para que funcionen los botones),
 `TELEGRAM_ADMIN_IDS`, `TELEGRAM_CHANNEL_ID`, y que el admin haya abierto el chat privado con el bot (/start).
 Migraciones 0015 y 0016.
+
+## 10. Publicar en X con aprobación por Telegram
+
+Cada actualización llega al endpoint de borradores (§9) y produce **dos mensajes separados** en el privado de los admins, cada uno con sus 3 versiones y sus botones:
+
+- `📢 TELEGRAM · Borrador` — el changelog de siempre (New / Improved / Fixed), para el canal.
+- `🐦 X · Borrador` — un post corto para @LaunchOnPanda.
+
+Debajo de cada versión va `🇪🇸 En resumen:` con una o dos frases muy fáciles (y, si hace falta, `Tono:` en una o dos palabras). Solo lo ven los admins; nunca se publica.
+
+**Nivel.** `Level: important` → los dos borradores salen al momento. `Level: small` → no sale ningún borrador: se guarda y el lunes (08:00 UTC, si hay algo) el bot envía un resumen semanal, otra vez un borrador para cada sitio. El de X se compone con la línea `Digest:` de cada actualización.
+
+**Reglas del texto de X** (`src/lib/x/text.ts`): máximo 280 caracteres; frases normales; sin lista, títulos, fechas, hashtags, guiones largos ni frases de marketing; 0 o 1 emoji; sin enlaces ni dominios escritos (X cobra el post con enlace a otro precio: se escribe «Pumpfun», no «Pump.fun»). Además, las mismas reglas de contenido del changelog.
+
+**Botones del borrador de X.** `1` `2` `3` `🔄` · `✏️ Editar` · `🖼 Imagen: sí/no` (la del anuncio o `X_DEFAULT_IMAGE_URL`) · `🔗 Enlace: sí/no` (por defecto no) · `⏳ Al resumen semanal` · `✅ Publicar en X` · `❌ Descartar`. La vista previa muestra los caracteres y el coste aproximado. Solo cuentan las pulsaciones de `TELEGRAM_ADMIN_IDS`.
+
+**Al publicar.** Se comprueba todo antes de llamar a X (encendido, pausa, credenciales, texto ya publicado, límite diario `X_MAX_POSTS_PER_DAY`, por defecto 1). Se llama a X **una sola vez**:
+
+- X lo publica → se guarda el id del post y el bot responde con el enlace.
+- X lo rechaza → el bot dice el motivo y el borrador queda como estaba. No se reintenta solo: volver a pulsar es decisión del admin (cada intento se cobra).
+- X no contesta → el post puede existir: el borrador queda cerrado para siempre y el bot pide mirar el perfil.
+- Superado el límite diario → no se publica; el borrador pasa al resumen semanal y el bot lo dice.
+
+**Variables** (valores solo en Vercel, como Sensitive): `FEATURE_X_POSTING`, `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET` (OAuth 1.0a de usuario, leer y escribir), `X_MAX_POSTS_PER_DAY`, `X_DEFAULT_IMAGE_URL`. Con el flag apagado los borradores de X se pueden revisar pero no publicar.
+
+**Comprobar las credenciales** (solo lectura, no publica nada): `npm run x:check`. Pregunta a X quién es la cuenta conectada y devuelve su nombre de usuario, o el motivo del fallo. Nunca muestra una credencial.
+
+**Pausa de emergencia:** «Publicar en X» en /admin. **Auditoría:** `x.post.publish`, `x.post.rejected`, `x.post.unknown`, `x.post.limit`, `x.post.defer`, `x.post.discard`, `x.post.edit`, `x.credentials.check`.
+
+**Coste** (lista de precios de pago por uso de X, puede cambiar): unos 0,015 $ por post y 0,20 $ si lleva enlace. X no publica el precio de subir una imagen.

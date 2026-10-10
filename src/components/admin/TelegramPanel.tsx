@@ -23,7 +23,7 @@ type Status = {
   suggestions?: { id: string; telegramId: number; text: string; createdAt: number }[];
   changelogEnabled?: boolean;
   hasChangelogSecret?: boolean;
-  changelogs?: { id: string; text: string; versions?: unknown[]; publishedVersion?: number | null; status: "pending" | "published" | "discarded"; decidedBy: number | null; decidedAt: number | null; createdAt: number }[];
+  changelogs?: { id: string; text: string; versions?: unknown[]; publishedVersion?: number | null; kind?: string; status: "pending" | "published" | "discarded" | "deferred" | "digested" | "publishing" | "failed"; decidedBy: number | null; decidedAt: number | null; createdAt: number }[];
   error?: string;
 };
 

@@ -1,3 +1,4 @@
+import type { XDeps } from "@/lib/x/client";
 import { WEB_START } from "./public";
 import type { Db } from "@/lib/db/client";
 import {
@@ -52,6 +53,8 @@ export type BotDeps = {
   answerCallback?: (callbackId: string, text?: string) => Promise<void>;
   /** Rewrites one of the bot's own messages in place (text + buttons). Best effort. */
   editMessage?: (chatId: number, messageId: number, payload: Record<string, unknown>) => Promise<void>;
+  /** PANDA's account on X: what "✅ Publicar en X" on a draft uses (changelog.ts). Absent → nothing can be published there. */
+  x?: XDeps;
 };
 
 export const WEB_START_COUNTER = "count:start-web";

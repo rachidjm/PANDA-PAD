@@ -22,6 +22,8 @@ import {
   parseChangelogMarkdown,
   parseDraftMarkdown,
   receiveDraft,
+  checkSummary,
+  buildExplanationText,
 } from "./changelog";
 import { ADMIN_TG, botDeps, queued, testConfig } from "./testing";
 
@@ -72,12 +74,21 @@ after(() => {
 const NOW = Date.UTC(2026, 9, 10, 12);
 /** Three really different versions; each Spanish line carries a marker so a leak into the channel would be seen. */
 const GOOD = {
+  level: "important",
+  digest: "your holdings on every coin page",
   versions: [
-    { new: ["See what you hold of each coin, right on its page."], fixed: ["Buying no longer shows an error when the purchase went through."], es: { new: ["TRAD-1 En la página de cada moneda se ve cuántas tienes (la línea «Tienes…»).", "TRAD-1 También cuánto valen en $."], fixed: ["TRAD-1 Comprar ya no muestra un error falso."] } },
-    { new: ["Your balance of a coin now sits above the trade box."], fixed: ["No more false errors after a buy that worked."], es: { new: ["TRAD-2 Tu saldo aparece encima del panel."], fixed: ["TRAD-2 Se acabaron los errores falsos."], tone: "TRAD-2 cercano y con humor" } },
-    { new: ["Open a coin and your holdings are right there."], fixed: ["A finished buy is shown as finished."], es: { new: ["TRAD-3 Abre una moneda y ahí está tu saldo."], fixed: ["TRAD-3 Una compra hecha se muestra como hecha."] } },
+    { new: ["See what you hold of each coin, right on its page."], fixed: ["Buying no longer shows an error when the purchase went through."], es: { summary: "TRAD-1 Cuenta que ahora ves cuántas monedas tienes y que comprar ya no da un error falso." } },
+    { new: ["Your balance of a coin now sits above the trade box."], fixed: ["No more false errors after a buy that worked."], es: { summary: "TRAD-2 Dice lo mismo con otras palabras: tu saldo se ve arriba y se acabaron los errores falsos.", tone: "TRAD-2 cercano" } },
+    { new: ["Open a coin and your holdings are right there."], fixed: ["A finished buy is shown as finished."], es: "TRAD-3 Al abrir una moneda ves lo que tienes. Una compra hecha se muestra como hecha." },
+  ],
+  x: [
+    { text: "You can now see how much of a coin you hold right on its page. Buying also stopped showing an error when the purchase had gone through.", es: { summary: "XTRAD-1 Cuenta en dos frases que ves tu saldo y que comprar ya no da un error falso." } },
+    { text: "Small one today. Your balance of each coin shows above the trade box, and a buy that worked no longer looks like it failed.", es: { summary: "XTRAD-2 Lo mismo, más informal.", tone: "cercano" } },
+    { text: "Open a coin on PANDA and your holdings are there. A finished buy is shown as finished.", es: "XTRAD-3 Versión muy corta de lo mismo." },
   ],
 };
+/** The last draft of one place the admin got in private. */
+const lastDraft = async (label = "📢 TELEGRAM") => (await queued(db, ADMIN_TG)).filter((m) => m.text.startsWith(`<b>${label} · Borrador</b>`)).at(-1)!;
 const post = (body: unknown, auth?: string) =>
   new Request("https://launchonpanda.app/api/telegram/changelog", { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: typeof body === "string" ? body : JSON.stringify(body) });
 const DRAFT_MESSAGE = 77;
@@ -151,36 +162,59 @@ test("forbidden content is refused, line by line: addresses, variables, secrets,
   for (const ok of ["Security improvements", "See what you hold of each coin, right on its page.", "Pump.fun and PumpSwap coins load faster.", "The buy button now tells you what really happened on Solana."]) assert.equal(lineProblem(ok), null, ok);
 });
 
-test("a draft is exactly 3 versions, each within the rules, each with its Spanish explanation (not line by line), and really different", () => {
+test("a draft is exactly 3 versions, each within the rules, each with its very plain Spanish summary, and really different", () => {
   assert.equal(checkDraft(GOOD).ok, true);
   const problems = (input: unknown) => {
     const r = checkDraft(input);
     return r.ok ? "" : r.problems.join(" | ");
   };
+  const [v1, v2, v3] = GOOD.versions;
   assert.match(problems({ versions: GOOD.versions.slice(0, 2) }), /exactly 3 versions \(got 2\)/);
   assert.match(problems({ new: ["Only one."] }), /exactly 3 versions/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { ...GOOD.versions[2], fixed: ["Closed an exploit."] }] }), /Version 3 · .*security detail/);
-  // The Spanish part explains each SECTION — it is not a line-by-line translation: more (or fewer) lines than the English are fine…
-  assert.equal(checkDraft({ versions: [GOOD.versions[0], GOOD.versions[1], { new: ["One.", "Two.", "Three."], es: { new: ["Las tres cosas, explicadas en una sola línea."] } }] }).ok, true);
-  // …but a section the English has must be explained, and nothing may be explained that isn't there.
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { new: ["No explanation here."] }] }), /Version 3 · ✨ Nuevo: the Spanish explanation is missing/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { ...GOOD.versions[2], es: { new: ["Solo una."], fixed: [] } }] }), /Version 3 · 🐛 Corregido: the Spanish explanation is missing/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { new: ["A thing."], es: { new: ["Una cosa."], improved: ["Sobra."] } }] }), /Version 3 · 🔧 Mejorado: explained in Spanish, but the English text has no such section/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { new: ["A thing."], es: { new: ["a", "b", "c", "d", "e"] } }] }), /at most 4 lines of explanation/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { new: ["A thing."], es: { new: ["Una cosa."], tone: "x".repeat(161) } }] }), /tone line/);
-  assert.match(problems({ versions: [GOOD.versions[0], GOOD.versions[1], { ...GOOD.versions[0], es: GOOD.versions[2].es }] }), /Two versions are the same/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, fixed: ["Closed an exploit."] }] }), /Version 3 · .*security detail/);
+  // The summary: there must be one; one or two easy sentences; no list; nothing technical; the tone in a word or two.
+  assert.match(problems({ versions: [v1, v2, { new: ["No summary here."] }] }), /Version 3 · the Spanish summary \("En resumen"\) is missing/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, es: "Una. Dos. Tres frases son demasiadas." }] }), /2 sentences at most/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, es: "- Esto es una lista. - Y no vale." }] }), /not a list/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, es: "Se cambió useDrawTrade.ts para que vaya más rápido." }] }), /files, functions or settings/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, es: "x".repeat(321) }] }), /too long/);
+  assert.match(problems({ versions: [v1, v2, { ...v3, es: { summary: "Dice que hay una novedad.", tone: "muy cercano y con bastante humor" } }] }), /tone must be a word or two/);
+  assert.equal(checkDraft({ versions: [v1, v2, { ...v3, es: { summary: "🇪🇸 En resumen: dice que hay una novedad.", tone: "Tono: directo." } }] }).ok, true, "labels written by hand are tolerated");
+  assert.match(problems({ versions: [v1, v2, { ...v1, es: v3.es }] }), /Two versions are the same/);
+  assert.deepEqual(checkSummary({ summary: "  En resumen:  Anuncia   una novedad.  ", tone: "tono: directo" }), { ok: true, value: { summary: "Anuncia una novedad.", tone: "directo" } });
+  assert.equal(buildExplanationText("Anuncia una novedad.", "directo"), "Anuncia una novedad.\nTono: directo");
+  assert.equal(buildExplanationText("Anuncia una novedad.", null), "Anuncia una novedad.");
 });
 
-test("a Markdown draft: '# Version N', its sections, '### ES' for the explanation and an optional 'Tono:' line; everything else is ignored", () => {
+test("a Markdown draft: level, digest and image on top; '# Version N' for Telegram and '# X N' for X; under each, '### ES' with the summary and an optional 'Tono:'", () => {
   assert.deepEqual(parseChangelogMarkdown("# PANDA Update\n\nnote\n\n## ✨ New\n- First.\n\n### Improved:\n* Faster charts.\n\nFixed\n- A bug.\n\n## Internal\n- never sent\n"), { new: ["First."], improved: ["Faster charts."], fixed: ["A bug."] });
-  const md = ["intro, ignored", "# Version 1", "## New", "- A thing.", "### ES", "## Nuevo", "- Una cosa.", "# Versión 2", "## Fixed", "- A bug.", "## Traducción", "## Corregido", "- Un fallo.", "- Y por qué importa.", "", "Tono: cercano y con humor", "# Version 3", "## Improved", "- Faster.", "### ES", "## Mejorado", "- Más rápido."].join("\n");
+  const md = [
+    "intro, ignored",
+    "Level: small",
+    "Digest: faster charts",
+    "Image: https://launchonpanda.app/a.png",
+    "# Version 1", "## New", "- A thing.", "### ES", "Cuenta que hay", "una cosa nueva.",
+    "# Versión 2", "## Fixed", "- A bug.", "## En resumen", "Dice que se arregló un fallo.", "", "Tono: cercano",
+    "# Version 3", "## Improved", "- Faster.", "### ES", "Va más rápido.",
+    "# X 1", "A thing is new.", "Second line.", "### ES", "Cuenta la novedad.", "Tono: directo",
+    "# X 2", "Something else.", "### ES", "Otra forma de decirlo.",
+  ].join("\n");
   assert.deepEqual(parseDraftMarkdown(md), {
+    level: "small",
+    digest: "faster charts",
+    imageUrl: "https://launchonpanda.app/a.png",
     versions: [
-      { new: ["A thing."], es: { new: ["Una cosa."] } },
-      { fixed: ["A bug."], es: { fixed: ["Un fallo.", "Y por qué importa."], tone: "cercano y con humor" } },
-      { improved: ["Faster."], es: { improved: ["Más rápido."] } },
+      { new: ["A thing."], es: { summary: "Cuenta que hay una cosa nueva." } },
+      { fixed: ["A bug."], es: { summary: "Dice que se arregló un fallo.", tone: "cercano" } },
+      { improved: ["Faster."], es: { summary: "Va más rápido." } },
+    ],
+    x: [
+      { text: "A thing is new.\nSecond line.", es: { summary: "Cuenta la novedad.", tone: "directo" } },
+      { text: "Something else.", es: { summary: "Otra forma de decirlo." } },
     ],
   });
+  assert.equal(parseDraftMarkdown("Nivel: importante\n# Version 1\n## New\n- A.\n### ES\nUna.").level, "important");
+  assert.equal(parseDraftMarkdown("# Version 1\n## New\n- A.\n### ES\nUna.").x, undefined);
 });
 
 // ── the endpoint ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -214,7 +248,7 @@ test("endpoint: switched off with the flag (or without a secret) it doesn't exis
 test("endpoint: a draft with forbidden data in ANY version → 422 with the reason, and it never reaches anyone", async () => {
   const before = (await tgListChangelogs(db, 100)).length;
   const dms = (await queued(db, ADMIN_TG)).length;
-  const bad = { versions: [GOOD.versions[0], { ...GOOD.versions[1], fixed: ["Closed an exploit in the wallet 35gHkr4E2NuvemMqMLSjRXx2jsqaVf6FnuBjs7yqRVkh."] }, GOOD.versions[2]] };
+  const bad = { ...GOOD, versions: [GOOD.versions[0], { ...GOOD.versions[1], fixed: ["Closed an exploit in the wallet 35gHkr4E2NuvemMqMLSjRXx2jsqaVf6FnuBjs7yqRVkh."] }, GOOD.versions[2]] };
   const res = await changelogRoute(post(bad, `Bearer ${SECRET}`));
   assert.equal(res.status, 422);
   const body = (await res.json()) as { problems: string[] };
@@ -229,16 +263,21 @@ test("endpoint: a good draft is stored as PENDING with its 3 versions and goes t
   const posts = (await channelPosts()).length;
   const res = await changelogRoute(post(GOOD, `Bearer ${SECRET}`));
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { id: string; sentTo: number; versions: number };
-  assert.deepEqual([body.sentTo, body.versions], [1, 3]);
+  const body = (await res.json()) as { id: string; xId: string; deferred: boolean; sentTo: number; versions: number; xVersions: number };
+  assert.deepEqual([body.sentTo, body.versions, body.xVersions, body.deferred], [1, 3, 3, false]);
   const row = await tgGetChangelog(db, body.id);
   assert.equal(row?.status, "pending");
   assert.equal(row?.kind, "changelog");
   assert.equal(row?.versions.length, 3);
   assert.ok(row!.versions.every((v) => v.en.startsWith("🛠 PANDA Update · ") && v.en.endsWith("🌐 launchonpanda.app") && v.es?.includes("TRAD-") && !v.en.includes("TRAD-")));
-  assert.equal(row!.versions[0].es, "✨ Nuevo\n- TRAD-1 En la página de cada moneda se ve cuántas tienes (la línea «Tienes…»).\n- TRAD-1 También cuánto valen en $.\n🐛 Corregido\n- TRAD-1 Comprar ya no muestra un error falso.", "the explanation as written: no title, no site line");
-  assert.ok(row!.versions[1].es!.endsWith("\n\nTono: TRAD-2 cercano y con humor"), "the tone, when given, is the last line");
+  assert.equal(row!.versions[0].es, "TRAD-1 Cuenta que ahora ves cuántas monedas tienes y que comprar ya no da un error falso.", "the summary as the admin will read it");
+  assert.ok(row!.versions[1].es!.endsWith("\nTono: TRAD-2 cercano"), "the tone, when given, is the last line");
   assert.ok(!row!.versions[2].es!.includes("Tono:"));
+  // …and its twin for X: its own row, its own three texts.
+  const xRow = await tgGetChangelog(db, body.xId);
+  assert.deepEqual([xRow?.status, xRow?.kind, xRow?.versions.length], ["pending", "x", 3]);
+  assert.equal(xRow!.versions[0].en, GOOD.x[0].text);
+  assert.deepEqual([(row!.meta as { pair?: string }).pair, (xRow!.meta as { pair?: string }).pair], [body.xId, body.id]);
   assert.equal((await channelPosts()).length, posts, "nothing is published by sending a draft");
 });
 
@@ -253,19 +292,20 @@ test("a draft is refused while there is nobody to approve it or nowhere to publi
 
 // ── the approval message ────────────────────────────────────────────────────────────────────────────────────────────
 
-test("the approval message: 'Versión 1/3', the English text, then — apart, in italics — '🇪🇸 Qué dice (no se publica)'; buttons 1 2 3 🔄 / Editar / Publicar Descartar", async () => {
+test("the approval message starts with its place — '📢 TELEGRAM · Borrador' — then 'Versión 1/3', the English text and, apart and in italics, '🇪🇸 En resumen:'; buttons 1 2 3 🔄 / Editar / Publicar Descartar", async () => {
   const { id, versions } = await draft();
-  const dm = (await queued(db, ADMIN_TG)).at(-1)!;
-  assert.ok(dm.text.startsWith("<b>📝 Borrador</b> · Versión 1/3\n\n🛠 PANDA Update"));
-  const [english, translation] = dm.text.split("\n\n———\n");
+  const dm = await lastDraft();
+  assert.ok(dm.text.startsWith("<b>📢 TELEGRAM · Borrador</b> · Versión 1/3\n\n🛠 PANDA Update"));
+  const [english, summary] = dm.text.split("\n\n———\n");
   assert.ok(english.includes("See what you hold") && !english.includes("TRAD-"));
-  assert.ok(translation.startsWith("<i>🇪🇸 Qué dice (no se publica)</i>\n\n<i>✨ Nuevo\n- TRAD-1 ") && translation.endsWith("</i>") && !translation.includes("Traducción"));
+  assert.equal(summary, "<i>🇪🇸 En resumen: TRAD-1 Cuenta que ahora ves cuántas monedas tienes y que comprar ya no da un error falso.</i>");
+  assert.ok((await approvalMessage({ id, versions, kind: "changelog", meta: {} }, 1)).text!.toString().endsWith("\nTono: TRAD-2 cercano</i>"), "the tone sits under the summary");
   const rows = keyboard(dm.payload);
   assert.deepEqual(rows.map((r) => r.map((b) => b.text)), [["• 1 •", "2", "3", "🔄"], ["✏️ Editar"], ["✅ Publicar", "❌ Descartar"]]);
   assert.deepEqual(rows[0].map((b) => b.callback_data), [`${CB_VERSION}${id}_0`, `${CB_VERSION}${id}_1`, `${CB_VERSION}${id}_2`, `${CB_VERSION}${id}_1`]);
   assert.equal(rows[2][0].callback_data, `${CB_PUBLISH}${id}_0`);
   // Version 3: marked, 🔄 wraps round to the first, and Publicar now points at version 3.
-  const third = approvalMessage({ id, versions }, 2);
+  const third = approvalMessage({ id, versions, kind: "changelog", meta: {} }, 2);
   assert.deepEqual(keyboard(third)[0].map((b) => b.text), ["1", "2", "• 3 •", "🔄"]);
   assert.equal(keyboard(third)[0][3].callback_data, `${CB_VERSION}${id}_0`);
   assert.equal(keyboard(third)[2][0].callback_data, `${CB_PUBLISH}${id}_2`);
@@ -309,10 +349,10 @@ test("✅ Publicar publishes the version THAT message shows — its English text
   assert.deepEqual((out.payload.reply_markup as { inline_keyboard: { text: string; url: string }[][] }).inline_keyboard, [[{ text: "💬 Discuss in Community", url: "https://t.me/pandacommunity" }]]);
   // Nothing Spanish anywhere in what the channel got — not the translation, not its label.
   const everything = JSON.stringify((await queued(db, CHANNEL)).map((m) => m.payload));
-  for (const leak of ["TRAD-", "Qué dice", "Tono", "🇪🇸", "Nuevo", "Corregido", "Versión", "Borrador"]) assert.ok(!everything.includes(leak), leak);
+  for (const leak of ["TRAD-", "En resumen", "Tono", "🇪🇸", "Versión", "Borrador", "TELEGRAM"]) assert.ok(!everything.includes(leak), leak);
   // The approval message loses its buttons and says what happened.
   const last = edits.at(-1)!;
-  assert.ok(String(last.payload.text).startsWith("<b>✅ Publicado</b> · versión 2") && last.payload.reply_markup === undefined && !String(last.payload.text).includes("TRAD-"));
+  assert.ok(String(last.payload.text).startsWith("<b>✅ TELEGRAM · Publicado · versión 2</b>") && last.payload.reply_markup === undefined && !String(last.payload.text).includes("TRAD-"));
   assert.deepEqual(d.audits, ["telegram.changelog.publish"]);
 });
 
@@ -333,7 +373,7 @@ test("❌ Descartar: marked discarded, nothing published, and it can never be pu
   const posts = (await channelPosts()).length;
   assert.equal(await handleUpdate(d, press(++updateId, `${CB_DISCARD}${id}`, ADMIN_TG)), "handled");
   assert.equal((await tgGetChangelog(db, id))?.status, "discarded");
-  assert.ok(String(edits.at(-1)!.payload.text).startsWith("<b>❌ Descartado</b>"));
+  assert.ok(String(edits.at(-1)!.payload.text).startsWith("<b>❌ TELEGRAM · Descartado"));
   const tryPublish = await handleChangelogCallback(d, { data: `${CB_PUBLISH}${id}_1`, fromId: ADMIN_TG, chatId: ADMIN_TG });
   assert.deepEqual([tryPublish.outcome, tryPublish.toast], ["already", "Ya está descartado."]);
   assert.equal((await channelPosts()).length, posts);
@@ -392,7 +432,7 @@ test("✏️ Editar: a valid text becomes version '4 · mía' (no translation), 
   assert.ok(row.versions[3].en.startsWith("🛠 PANDA Update · ") && row.versions[3].en.includes("- My own wording for the balance line.") && row.versions[3].en.endsWith("🌐 launchonpanda.app"), "put in the fixed format");
   const shown = edits.at(-1)!;
   assert.deepEqual([shown.chatId, shown.messageId], [ADMIN_TG, DRAFT_MESSAGE], "the draft's own message is rewritten");
-  assert.ok(String(shown.payload.text).includes("Versión 4 · mía") && !String(shown.payload.text).includes("Qué dice"));
+  assert.ok(String(shown.payload.text).includes("Versión 4 · mía") && !String(shown.payload.text).includes("En resumen"));
   assert.deepEqual(keyboard(shown.payload)[0].map((b) => b.text), ["1", "2", "3", "• 4 · mía •", "🔄"]);
   assert.ok((await queued(db, ADMIN_TG)).at(-1)!.text.includes("«4 · mía»"));
   // Editing again replaces it (there is only ever one "mía").

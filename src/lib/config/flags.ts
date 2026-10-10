@@ -23,6 +23,7 @@ export const FEATURES = [
   "PANDA_ORDERS", // PANDA orders: pre-signed sells / stops on a held Pump.fun / PumpSwap coin (durable nonce) — non-custodial, PANDA only sends what the user signed
   "TELEGRAM_BOT", // the PANDA Telegram bot (webhook, automatic posts, personal alerts, wallet linking) — docs/TELEGRAM.md
   "TELEGRAM_CHANGELOG", // public changelog: a draft is sent to the admins in private and only published to the channel when one presses "Publicar" — requires TELEGRAM_BOT
+  "X_POSTING", // posts on X (@LaunchOnPanda): a draft goes to the admins in private and is only published when one presses "Publicar en X" — requires TELEGRAM_CHANGELOG
   "AI_ASSISTANT", // GPT-6 Luna assistant (create-with-AI, analyze a coin, Draw Your Trade help, search) — needs OPENAI_API_KEY
 ] as const;
 

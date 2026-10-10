@@ -27,7 +27,7 @@ const FORBIDDEN: { why: string; re: RegExp }[] = [
   { why: "how a feature works inside", re: /\bdurable nonce|\bpre-?signed\b/i },
   { why: "a security detail", re: /\b(?:vulnerab\w*|exploit\w*|bypass\w*|injection|xss|csrf|attack\w*|hack\w*|leak\w*|breach\w*|spoof\w*|phishing|malicious|unauthori[sz]ed|csp|sandbox\w*)\b/i },
   { why: "a promise about the future", re: /\b(?:soon|coming|upcoming|will be|we will|we'll|going to|next (?:week|month|release|update)|roadmap|stay tuned|planned|eta)\b/i },
-  { why: "a promise about price or rewards", re: /\b(?:price (?:will|is going)|pump(?!\.fun|swap)\w*|moon\w*|100x|guarantee\w*|profit\w*|airdrops?|giveaway\w*|earn (?:more|free)|free (?:money|tokens|sol))\b/i },
+  { why: "a promise about price or rewards", re: /\b(?:price (?:will|is going)|pump(?!\.?\s?fun|swap)\w*|moon\w*|100x|guarantee\w*|profit\w*|airdrops?|giveaway\w*|earn (?:more|free)|free (?:money|tokens|sol))\b/i },
 ];
 /** PANDA orders may be named only once they are open to everyone (the access list is "*"): until then only the admins and the list see them. */
 const ORDERS = /\bpanda orders?\b/i;
@@ -36,16 +36,21 @@ export const ordersOpenToAll = (env: Record<string, string | undefined> = proces
 /** The ONE thing that may be said about a security change. */
 const SECURITY_OK = /^security improvements\.?$/i;
 
+/** The content rules alone (what may never be said in public), whatever the format: a changelog line or a post on X. */
+export function contentProblem(text: string): string | null {
+  if (SECURITY_OK.test(text.trim())) return null;
+  if (/\bsecurity\b/i.test(text)) return 'a security detail (the most that may be said is "Security improvements")';
+  for (const f of FORBIDDEN) if (f.re.test(text)) return f.why;
+  if (ORDERS.test(text) && !ordersOpenToAll()) return "a feature that isn't open to everyone";
+  return null;
+}
+
 export function lineProblem(line: string): string | null {
   const text = line.trim();
   if (!text) return "an empty line";
   if (text.length > MAX_ITEM_CHARS) return `more than ${MAX_ITEM_CHARS} characters`;
   if (/[\r\n<>]/.test(text)) return "line breaks or markup";
-  if (SECURITY_OK.test(text)) return null;
-  if (/\bsecurity\b/i.test(text)) return 'a security detail (the most that may be said is "Security improvements")';
-  for (const f of FORBIDDEN) if (f.re.test(text)) return f.why;
-  if (ORDERS.test(text) && !ordersOpenToAll()) return "a feature that isn't open to everyone";
-  return null;
+  return contentProblem(text);
 }
 
 export type Checked = { ok: true; sections: { title: string; items: string[] }[] } | { ok: false; problems: string[] };
@@ -105,52 +110,65 @@ export function parseChangelogMarkdown(md: string): ChangelogInput {
   return out;
 }
 
-// ── three versions, each with an explanation in plain Spanish ───────────────────────────────────────────────────────
+// ── a draft: three versions for Telegram, three for X, each with a very plain Spanish summary ───────────────────────
 
 export const VERSIONS = 3;
 /**
- * The Spanish part is NOT a translation: it tells the admin, in plain words, what each point of the English text means and
- * (in brackets, when it helps) which real change of PANDA it is about. It is only ever shown to the admins — never
- * published. Same sections, Spanish titles; an optional last line says the tone when the English is colloquial.
+ * The Spanish part is NOT a translation and not an explanation of each point: it is "🇪🇸 En resumen:" and one or two very
+ * easy sentences, as if told to someone who knows nothing about programming or crypto ("Anuncia que ahora puedes poner
+ * ventas y stops en el gráfico y se ejecutan solos."), plus — only if it helps — the tone in a word or two. It is only
+ * ever shown to the admins; it is never published.
  */
-export const ES_TITLES: Record<SectionKey, string> = { new: "✨ Nuevo", improved: "🔧 Mejorado", fixed: "🐛 Corregido" };
-export const MAX_ES_CHARS = 400;
-export const MAX_ES_LINES = 4;
-export const MAX_TONE_CHARS = 160;
+export const ES_LABEL = "🇪🇸 En resumen:";
+export const MAX_SUMMARY_CHARS = 320;
+export const MAX_SUMMARY_SENTENCES = 2;
+export const MAX_TONE_CHARS = 30;
+export const MAX_TONE_WORDS = 3;
 
-export type ExplanationInput = ChangelogInput & { tone?: string };
-export type VersionInput = ChangelogInput & { es?: ExplanationInput };
-export type DraftInput = { versions?: VersionInput[] };
-export type CheckedVersion = { sections: { title: string; items: string[] }[]; es: { title: string; items: string[] }[]; tone: string | null };
+export type SummaryInput = { summary?: string; tone?: string } | string;
+export type VersionInput = ChangelogInput & { es?: SummaryInput };
+export type XVersionInput = { text?: string; es?: SummaryInput };
+export type Level = "important" | "small";
+export type DraftInput = {
+  /** "important" → drafts for Telegram and X now. "small" → kept for Monday's weekly summary. */
+  level?: Level;
+  /** One short phrase for the weekly summary on X ("trades confirm faster"). */
+  digest?: string;
+  /** The announcement's own image, offered for the post on X (https). */
+  imageUrl?: string;
+  versions?: VersionInput[];
+  x?: XVersionInput[];
+};
+export type CheckedSummary = { summary: string; tone: string | null };
+export type CheckedVersion = { sections: { title: string; items: string[] }[] } & CheckedSummary;
 
-/** The explanation: every section the English has must be explained (one or more lines — not one per English line). It
- *  is never published, so only its shape is checked. */
-function checkExplanation(en: ChangelogInput, es: unknown): { ok: true; sections: { title: string; items: string[] }[]; tone: string | null } | { ok: false; problems: string[] } {
-  const o = (es && typeof es === "object" ? es : {}) as Record<string, unknown>;
+const TECHNICAL = /`|\bsrc\/|\/api\/|\.(?:tsx?|jsx?|sql|json|md|env)\b|\(\)|=>|\b[a-z]+[A-Z][A-Za-z]+\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/;
+
+/** One or two easy sentences, no markup, nothing technical; the tone, if given, in a word or two. */
+export function checkSummary(es: unknown): { ok: true; value: CheckedSummary } | { ok: false; problems: string[] } {
+  const o = (typeof es === "string" ? { summary: es } : es && typeof es === "object" ? es : {}) as { summary?: unknown; tone?: unknown };
+  const summary = typeof o.summary === "string" ? o.summary.trim().replace(/^(?:🇪🇸\s*)?en resumen\s*:\s*/i, "").replace(/\s+/g, " ") : "";
+  const tone = typeof o.tone === "string" ? o.tone.trim().replace(/^tono\s*:\s*/i, "").replace(/\.$/, "") : "";
   const problems: string[] = [];
-  const sections: { title: string; items: string[] }[] = [];
-  for (const s of SECTIONS) {
-    const used = (en[s.key] ?? []).length > 0;
-    const raw = o[s.key];
-    const items = Array.isArray(raw) && raw.every((x) => typeof x === "string") ? (raw as string[]).map((x) => x.trim().replace(/^[-•*]\s*/, "")).filter(Boolean) : [];
-    if (used && items.length === 0) {
-      problems.push(`${ES_TITLES[s.key]}: the Spanish explanation is missing for this section.`);
-      continue;
-    }
-    if (!used && items.length > 0) {
-      problems.push(`${ES_TITLES[s.key]}: explained in Spanish, but the English text has no such section.`);
-      continue;
-    }
-    if (items.length > MAX_ES_LINES) problems.push(`${ES_TITLES[s.key]}: at most ${MAX_ES_LINES} lines of explanation.`);
-    if (items.some((it) => it.length > MAX_ES_CHARS || /[\r\n<>]/.test(it))) problems.push(`${ES_TITLES[s.key]}: a line of the explanation is too long or has markup.`);
-    if (items.length) sections.push({ title: ES_TITLES[s.key], items });
+  if (!summary) problems.push('the Spanish summary ("En resumen") is missing.');
+  else {
+    if (summary.length > MAX_SUMMARY_CHARS || /[<>]/.test(summary)) problems.push(`the Spanish summary is too long (max ${MAX_SUMMARY_CHARS} characters) or has markup.`);
+    if ((summary.match(/[.!?…]+(?=\s|$)/g) ?? []).length > MAX_SUMMARY_SENTENCES) problems.push(`the Spanish summary must be ${MAX_SUMMARY_SENTENCES} sentences at most.`);
+    if (/(?:^|\s)[-•*]\s/.test(summary)) problems.push("the Spanish summary must be plain sentences, not a list.");
+    if (TECHNICAL.test(summary)) problems.push("the Spanish summary must not name files, functions or settings.");
   }
-  const tone = typeof o.tone === "string" ? o.tone.trim().replace(/^tono\s*:\s*/i, "") : "";
-  if (tone.length > MAX_TONE_CHARS || /[\r\n<>]/.test(tone)) problems.push("The tone line is too long or has markup.");
-  return problems.length ? { ok: false, problems } : { ok: true, sections, tone: tone || null };
+  if (tone && (tone.length > MAX_TONE_CHARS || tone.split(/\s+/).length > MAX_TONE_WORDS || /[<>\r\n]/.test(tone))) problems.push(`the tone must be a word or two (max ${MAX_TONE_WORDS}).`);
+  return problems.length ? { ok: false, problems } : { ok: true, value: { summary, tone: tone || null } };
 }
 
-/** Exactly three versions, each within the format and content rules, each with its Spanish explanation, and really different. */
+/** What the admin reads under a draft (after the "🇪🇸 En resumen:" label): the summary and, if given, the tone. */
+export function buildExplanationText(summary: string, tone: string | null): string {
+  return tone ? `${summary}\nTono: ${tone}` : summary;
+}
+
+export type CheckedDraft = { versions: CheckedVersion[] };
+
+/** Exactly three versions for Telegram, each within the format and content rules, each with its summary, and really different. */
 export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion[] } | { ok: false; problems: string[] } {
   const raw = (input && typeof input === "object" ? (input as DraftInput).versions : undefined) ?? [];
   if (!Array.isArray(raw) || raw.length !== VERSIONS) return { ok: false, problems: [`A draft needs exactly ${VERSIONS} versions (got ${Array.isArray(raw) ? raw.length : 0}).`] };
@@ -159,9 +177,9 @@ export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion
   raw.forEach((v, k) => {
     const en = checkChangelog(v);
     if (!en.ok) return problems.push(...en.problems.map((p) => `Version ${k + 1} · ${p}`));
-    const es = checkExplanation((v ?? {}) as ChangelogInput, (v as VersionInput).es);
+    const es = checkSummary((v as VersionInput)?.es);
     if (!es.ok) return problems.push(...es.problems.map((p) => `Version ${k + 1} · ${p}`));
-    versions.push({ sections: en.sections, es: es.sections, tone: es.tone });
+    versions.push({ sections: en.sections, ...es.value });
   });
   if (!problems.length) {
     const body = versions.map((v) => JSON.stringify(v.sections).toLowerCase());
@@ -170,47 +188,73 @@ export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion
   return problems.length ? { ok: false, problems } : { ok: true, versions };
 }
 
-/** What the admin reads under the English text: the explanation, section by section, and the tone if one was given. */
-export function buildExplanationText(sections: { title: string; items: string[] }[], tone: string | null): string {
-  const body = sections.map((s) => [s.title, ...s.items.map((i) => `- ${i}`)].join("\n")).join("\n");
-  return tone ? `${body}\n\nTono: ${tone}` : body;
-}
-
 /**
- * A draft file with its three versions (what `npm run changelog -- file.md` reads):
+ * A draft file (what `npm run changelog -- file.md` reads). The Telegram versions keep their format; the versions for X
+ * are plain text. Under each one, "### ES" and the summary in one or two easy sentences (+ an optional "Tono:" line):
+ *
+ *   Level: important            ← or "small": kept for Monday's weekly summary
+ *   Digest: orders on the chart for everyone
+ *   Image: https://…            ← optional
  *
  *   # Version 1
  *   ## New
  *   - …
  *   ### ES
- *   ## Nuevo
- *   - what that point means, in plain Spanish (and, in brackets, which real change it is)
- *   Tono: cercano y con humor        ← optional, only when the English is colloquial
- *   # Version 2
- *   …
+ *   Anuncia que …
+ *   Tono: cercano
+ *   # Version 2 …   # Version 3 …
+ *
+ *   # X 1
+ *   The post, as it would be published.
+ *   ### ES
+ *   Cuenta que …
+ *   # X 2 …   # X 3 …
  */
 export function parseDraftMarkdown(md: string): DraftInput {
-  const versions: VersionInput[] = [];
-  let chunk: { en: string[]; es: string[] } | null = null;
+  const out: DraftInput = { versions: [] };
+  const x: XVersionInput[] = [];
+  let chunk: { kind: "tg" | "x"; body: string[]; es: string[] } | null = null;
   let inEs = false;
+  const summaryOf = (lines: string[]): SummaryInput => {
+    const tone = lines.map((l) => /^\s*(?:[-•*]\s*)?tono\s*:\s*(.+)$/i.exec(l)?.[1]?.trim()).find(Boolean);
+    const summary = lines
+      .filter((l) => !/^\s*(?:[-•*]\s*)?tono\s*:/i.test(l))
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(" ");
+    return tone ? { summary, tone } : { summary };
+  };
   const flush = () => {
     if (!chunk) return;
-    const tone = chunk.es.map((l) => /^\s*(?:[-•*]\s*)?tono\s*:\s*(.+)$/i.exec(l)?.[1]?.trim()).find(Boolean);
-    const es: ExplanationInput = parseChangelogMarkdown(chunk.es.filter((l) => !/^\s*(?:[-•*]\s*)?tono\s*:/i.test(l)).join("\n"));
-    versions.push({ ...parseChangelogMarkdown(chunk.en.join("\n")), es: tone ? { ...es, tone } : es });
+    if (chunk.kind === "tg") out.versions!.push({ ...parseChangelogMarkdown(chunk.body.join("\n")), es: summaryOf(chunk.es) });
+    else x.push({ text: chunk.body.join("\n").trim(), es: summaryOf(chunk.es) });
   };
   for (const line of md.split(/\r?\n/)) {
-    const head = line.trim().replace(/^#+\s*/, "").toLowerCase();
-    if (/^#+\s*versi[oó]n\s*\d+\b/i.test(line.trim())) {
+    const t = line.trim();
+    const head = t.replace(/^#+\s*/, "").toLowerCase();
+    if (/^#+\s*versi[oó]n\s*\d+\b/i.test(t)) {
       flush();
-      chunk = { en: [], es: [] };
+      chunk = { kind: "tg", body: [], es: [] };
       inEs = false;
-    } else if (chunk && /^#+\s/.test(line.trim()) && /^(es|español|espanol|traducci[oó]n|spanish)\b/.test(head)) {
+    } else if (/^#+\s*x\s*\d+\b/i.test(t)) {
+      flush();
+      chunk = { kind: "x", body: [], es: [] };
+      inEs = false;
+    } else if (chunk && /^#+\s/.test(t) && /^(es|español|espanol|traducci[oó]n|spanish|en resumen)\b/.test(head)) {
       inEs = true;
     } else if (chunk) {
-      (inEs ? chunk.es : chunk.en).push(line);
+      (inEs ? chunk.es : chunk.body).push(line);
+    } else {
+      const m = /^(level|nivel|digest|resumen semanal|image|imagen)\s*:\s*(.+)$/i.exec(t);
+      if (!m) continue;
+      const key = m[1].toLowerCase();
+      const value = m[2].trim();
+      if (key === "level" || key === "nivel") out.level = /^(small|peque)/i.test(value) ? "small" : "important";
+      else if (key === "digest" || key === "resumen semanal") out.digest = value;
+      else out.imageUrl = value;
     }
   }
   flush();
-  return { versions };
+  if (x.length) out.x = x;
+  return out;
 }

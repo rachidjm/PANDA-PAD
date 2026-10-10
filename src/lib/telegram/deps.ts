@@ -1,3 +1,5 @@
+import { fetchImage, realXClient, xConfig, type XDeps } from "@/lib/x/client";
+import { checkActive } from "@/lib/protocol/pause-store";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { Coin } from "@/lib/types";
 import { getDb } from "@/lib/db/client";
@@ -91,7 +93,14 @@ export function realBotDeps(): BotDeps {
     audit: (action, object, data) => recordAudit({ actor: "system:telegram", action, object, ...(data ? { newState: data } : {}) }),
     editMessage: async (chatId, messageId, payload) => void (await makeTelegramCall()("editMessageText", { chat_id: chatId, message_id: messageId, ...payload })),
     answerCallback: async (callbackId, text) => void (await makeTelegramCall()("answerCallbackQuery", { callback_query_id: callbackId, ...(text ? { text } : {}) })),
+    x: realXDeps(),
   };
+}
+
+/** PANDA's account on X, from the deployment's settings. With a credential missing there is no client: nothing can be sent. */
+export function realXDeps(): XDeps {
+  const config = xConfig();
+  return { config, client: config.creds ? realXClient(config.creds) : null, fetchImage: (url) => fetchImage(url), paused: async () => (await checkActive("x_posting")).paused };
 }
 
 export function realQueueDeps(): QueueDeps {

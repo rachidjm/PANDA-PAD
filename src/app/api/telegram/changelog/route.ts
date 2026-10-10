@@ -6,6 +6,7 @@ import { telegramConfig } from "@/lib/telegram/config";
 import { changelogSecretMatches, receiveDraft } from "@/lib/telegram/changelog";
 import { realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
+import { xConfig } from "@/lib/x/client";
 
 export const maxDuration = 30;
 const MAX_BODY = 16_000;
@@ -29,10 +30,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
-  const r = await receiveDraft({ db: getDb(), now: Date.now, cfg }, json);
+  const r = await receiveDraft({ db: getDb(), now: Date.now, cfg, x: { config: xConfig() } }, json);
   if (!r.ok) return NextResponse.json({ error: r.error, problems: r.problems }, { status: r.status });
   await recordAudit({ actor: "system:changelog", action: "telegram.changelog.draft", object: r.id });
   // Straight to the admins' chat (the cron would deliver it within a minute anyway).
   await processOutbox(realQueueDeps(), 4_000).catch(() => undefined);
-  return NextResponse.json({ ok: true, id: r.id, sentTo: r.sentTo, versions: r.versions.length });
+  return NextResponse.json({ ok: true, id: r.id, xId: r.xId, deferred: r.deferred, sentTo: r.sentTo, versions: r.versions.length, xVersions: r.xVersions.length });
 }

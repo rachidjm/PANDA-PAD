@@ -690,6 +690,14 @@ export const telegramChangelogs = pgTable(
     /** Every version on offer: [{ en, es | null, mine? }]. `es` is the translation shown to the admins — never published. */
     versions: jsonb("versions").$type<{ en: string; es: string | null; mine?: boolean }[]>().notNull().default([]),
     publishedVersion: smallint("published_version"),
+    /**
+     * What a draft carries besides its versions: its level ("important" | "small"), its one-line summary for the weekly
+     * post, the draft it was sent with (`pair`), whether it IS a weekly summary, and — for a post on X — the image and
+     * link choices and, once published, the post's id. Never a credential.
+     */
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    /** pending → published | discarded | deferred (kept for the weekly summary) → digested (it went into one).
+     *  A post on X passes through "publishing" (claimed, being sent) and may end "failed" (outcome unknown: never sent again). */
     status: text("status").notNull().default("pending"),
     decidedBy: bigint("decided_by", { mode: "number" }),
     decidedAt: bigint("decided_at", { mode: "number" }),
@@ -697,7 +705,7 @@ export const telegramChangelogs = pgTable(
   },
   (t) => [
     index("telegram_changelogs_created").on(t.createdAt),
-    check("telegram_changelogs_status", sql`${t.status} IN ('pending', 'published', 'discarded')`),
+    check("telegram_changelogs_status", sql`${t.status} IN ('pending', 'published', 'discarded', 'deferred', 'digested', 'publishing', 'failed')`),
     check("telegram_changelogs_len", sql`char_length(${t.text}) BETWEEN 1 AND 3500`),
   ]
 );

@@ -270,8 +270,10 @@ export async function tgPayoutRunsSince(db: Db, since: number): Promise<{ mint: 
 export type ChangelogRow = typeof telegramChangelogs.$inferSelect;
 export type DraftVersion = { en: string; es: string | null; mine?: boolean };
 
-export async function tgInsertChangelog(db: Db, c: { id: string; kind?: string; versions: DraftVersion[]; now: number }): Promise<void> {
-  await db.insert(telegramChangelogs).values({ id: c.id, kind: c.kind ?? "changelog", text: c.versions[0].en, versions: c.versions, status: "pending", createdAt: c.now });
+export type DraftStatus = "pending" | "published" | "discarded" | "deferred" | "digested" | "publishing" | "failed";
+
+export async function tgInsertChangelog(db: Db, c: { id: string; kind?: string; versions: DraftVersion[]; now: number; status?: DraftStatus; meta?: Record<string, unknown> }): Promise<void> {
+  await db.insert(telegramChangelogs).values({ id: c.id, kind: c.kind ?? "changelog", text: c.versions[0].en, versions: c.versions, status: c.status ?? "pending", meta: c.meta ?? {}, createdAt: c.now });
 }
 
 export async function tgGetChangelog(db: Db, id: string): Promise<ChangelogRow | null> {
@@ -294,6 +296,48 @@ export async function tgDecideChangelog(db: Db, id: string, status: "published" 
     .where(and(eq(telegramChangelogs.id, id), eq(telegramChangelogs.status, "pending")))
     .returning();
   return row ?? null;
+}
+
+/** Replaces a pending draft's choices (image, link…). False if it is no longer pending. */
+export async function tgSetChangelogMeta(db: Db, id: string, meta: Record<string, unknown>): Promise<boolean> {
+  const rows = await db.update(telegramChangelogs).set({ meta }).where(and(eq(telegramChangelogs.id, id), eq(telegramChangelogs.status, "pending"))).returning({ id: telegramChangelogs.id });
+  return rows.length === 1;
+}
+
+/**
+ * One atomic step of a draft's life: `from` → `to`, or null if it wasn't in `from` any more (someone else decided it, or
+ * it is already being published). This is what makes "publish" happen once.
+ */
+export async function tgMoveChangelog(
+  db: Db,
+  id: string,
+  from: DraftStatus[],
+  to: DraftStatus,
+  set: { by?: number; now?: number; text?: string; version?: number; meta?: Record<string, unknown> } = {}
+): Promise<ChangelogRow | null> {
+  const [row] = await db
+    .update(telegramChangelogs)
+    .set({
+      status: to,
+      ...(set.by !== undefined ? { decidedBy: set.by } : {}),
+      ...(set.now !== undefined ? { decidedAt: set.now } : {}),
+      ...(set.text !== undefined ? { text: set.text } : {}),
+      ...(set.version !== undefined ? { publishedVersion: set.version } : {}),
+      ...(set.meta !== undefined ? { meta: set.meta } : {}),
+    })
+    .where(and(eq(telegramChangelogs.id, id), inArray(telegramChangelogs.status, from)))
+    .returning();
+  return row ?? null;
+}
+
+/** Everything waiting for the weekly summary, oldest first. */
+export async function tgDeferredDrafts(db: Db): Promise<ChangelogRow[]> {
+  return db.select().from(telegramChangelogs).where(eq(telegramChangelogs.status, "deferred")).orderBy(telegramChangelogs.createdAt);
+}
+
+/** Posts published on X (newest first): for the daily limit and for "never the same text twice". */
+export async function tgPublishedOnX(db: Db, limit = 200): Promise<ChangelogRow[]> {
+  return db.select().from(telegramChangelogs).where(and(eq(telegramChangelogs.kind, "x"), eq(telegramChangelogs.status, "published"))).orderBy(desc(telegramChangelogs.decidedAt)).limit(limit);
 }
 
 export async function tgListChangelogs(db: Db, limit = 20): Promise<ChangelogRow[]> {

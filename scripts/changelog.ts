@@ -23,7 +23,10 @@
  * Nothing is published by this: the bot sends the draft to the admins in private, and one of them presses "Publicar".
  */
 import { readFileSync } from "node:fs";
-import { buildChangelogText, buildExplanationText, checkDraft, parseDraftMarkdown } from "../src/lib/telegram/changelog-format";
+import { buildChangelogText, buildExplanationText, checkDraft, ES_LABEL, parseDraftMarkdown } from "../src/lib/telegram/changelog-format";
+import { xLength } from "../src/lib/x/text";
+
+const NL = String.fromCharCode(10);
 
 async function main() {
   const file = process.argv[2];
@@ -39,14 +42,23 @@ async function main() {
     console.error("This draft can't be sent:\n" + checked.problems.map((p) => `  - ${p}`).join("\n"));
     process.exit(1);
   }
-  checked.versions.forEach((v, k) => console.log(`── Version ${k + 1} ──\n${buildChangelogText(v.sections, Date.now())}\n\n   (ES — qué dice, not published)\n${buildExplanationText(v.es, v.tone)}\n`));
+  checked.versions.forEach((v, k) => console.log(`── Telegram ${k + 1} ──
+${buildChangelogText(v.sections, Date.now())}
+
+   (${ES_LABEL} not published)
+${buildExplanationText(v.summary, v.tone)}
+`));
+  (input.x ?? []).forEach((v, k) => console.log(`── X ${k + 1} (${xLength(v.text ?? "")}/280) ──
+${v.text}
+`));
   const res = await fetch(`${base}/api/telegram/changelog`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` }, body: JSON.stringify(input) });
-  const data = (await res.json().catch(() => ({}))) as { id?: string; sentTo?: number; versions?: number; error?: string; problems?: string[] };
+  const data = (await res.json().catch(() => ({}))) as { id?: string; xId?: string | null; deferred?: boolean; sentTo?: number; error?: string; problems?: string[] };
   if (!res.ok) {
-    console.error(`Not accepted (HTTP ${res.status})${data.error ? `: ${data.error}` : ""}${data.problems ? "\n" + data.problems.map((p) => `  - ${p}`).join("\n") : ""}`);
+    console.error(`Not accepted (HTTP ${res.status})${data.error ? `: ${data.error}` : ""}${data.problems ? NL + data.problems.map((p) => `  - ${p}`).join(NL) : ""}`);
     process.exit(1);
   }
-  console.log(`Draft ${data.id} (${data.versions} versions) sent to ${data.sentTo} admin(s) in private. Nothing is published until one presses "Publicar".`);
+  if (data.deferred) console.log(`Small update ${data.id} kept for Monday's weekly summary. Nothing was sent as a draft, nothing is published.`);
+  else console.log(`Drafts sent to ${data.sentTo} admin(s) in private: Telegram ${data.id}${data.xId ? ` and X ${data.xId}` : ""}. Nothing is published until one presses "Publicar".`);
 }
 
 main().catch((err) => {

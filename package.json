@@ -28,6 +28,7 @@
     "backfill-legacy-fee-wallets": "tsx --env-file-if-exists=.env.local scripts/backfill-legacy-fee-wallets.ts",
     "migrate-founder-slots": "tsx --env-file-if-exists=.env.local scripts/migrate-founder-slots-to-new-rule.ts",
     "changelog": "tsx --env-file-if-exists=.env.local scripts/changelog.ts",
+    "x:check": "tsx --env-file-if-exists=.env.local scripts/x-check.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
