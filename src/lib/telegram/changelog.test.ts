@@ -136,7 +136,7 @@ test("forbidden content is refused, line by line: addresses, variables, secrets,
     ["The RPC is now rate limited.", /infrastructure/],
     ["Fixed an XSS in the coin description.", /security detail/],
     ["Security: sessions can no longer be replayed.", /security detail/],
-    ["Change a PANDA order by dragging its line.", /isn't open to everyone/],
+    ["Orders are pre-signed with a durable nonce.", /works inside/],
     ["Limit orders are coming soon.", /promise about the future/],
     ["Next week we will add staking.", /promise about the future/],
     ["Holders get an airdrop for trading.", /price or rewards/],
@@ -426,4 +426,20 @@ test("an unknown or malformed draft id, or the changelog switched off, does noth
   assert.equal(off.outcome, "off");
   assert.equal((await tgGetChangelog(db, id))?.status, "pending");
   assert.equal((await channelPosts()).length, posts);
+});
+
+test("PANDA orders can be announced only once they are open to everyone", () => {
+  const line = "PANDA orders are open to everyone: sells and stops on the chart.";
+  const before = process.env.PANDA_ORDERS_ALLOWLIST;
+  try {
+    delete process.env.PANDA_ORDERS_ALLOWLIST;
+    assert.match(lineProblem(line) ?? "", /isn't open to everyone/);
+    process.env.PANDA_ORDERS_ALLOWLIST = "SomeWallet1,SomeWallet2";
+    assert.match(lineProblem(line) ?? "", /isn't open to everyone/);
+    process.env.PANDA_ORDERS_ALLOWLIST = " * ";
+    assert.equal(lineProblem(line), null);
+  } finally {
+    if (before === undefined) delete process.env.PANDA_ORDERS_ALLOWLIST;
+    else process.env.PANDA_ORDERS_ALLOWLIST = before;
+  }
 });

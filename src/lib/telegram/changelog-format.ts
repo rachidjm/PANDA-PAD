@@ -24,11 +24,15 @@ const FORBIDDEN: { why: string; re: RegExp }[] = [
   { why: "secrets or credentials", re: /\b(?:secret|password|private key|seed phrase|api key|credential|bearer|webhook)s?\b/i },
   { why: "the admin area or access lists", re: /\/admin|\badmins?\b|\ballow-?list|\bwhite-?list|\baccess list|\bfeature flag|\bbeta testers?\b/i },
   { why: "infrastructure", re: /\b(?:vercel|neon|postgres|database|upstash|redis|rpc|helius|cron|server|backend|deploy(?:ed|ment)?|blob storage|rate.?limit\w*)\b/i },
-  { why: "a feature that isn't open to everyone", re: /\bpanda orders?\b|\bdurable nonce|\bpre-?signed\b/i },
+  { why: "how a feature works inside", re: /\bdurable nonce|\bpre-?signed\b/i },
   { why: "a security detail", re: /\b(?:vulnerab\w*|exploit\w*|bypass\w*|injection|xss|csrf|attack\w*|hack\w*|leak\w*|breach\w*|spoof\w*|phishing|malicious|unauthori[sz]ed|csp|sandbox\w*)\b/i },
   { why: "a promise about the future", re: /\b(?:soon|coming|upcoming|will be|we will|we'll|going to|next (?:week|month|release|update)|roadmap|stay tuned|planned|eta)\b/i },
   { why: "a promise about price or rewards", re: /\b(?:price (?:will|is going)|pump(?!\.fun|swap)\w*|moon\w*|100x|guarantee\w*|profit\w*|airdrops?|giveaway\w*|earn (?:more|free)|free (?:money|tokens|sol))\b/i },
 ];
+/** PANDA orders may be named only once they are open to everyone (the access list is "*"): until then only the admins and the list see them. */
+const ORDERS = /\bpanda orders?\b/i;
+export const ordersOpenToAll = (env: Record<string, string | undefined> = process.env) => env.PANDA_ORDERS_ALLOWLIST?.trim() === "*";
+
 /** The ONE thing that may be said about a security change. */
 const SECURITY_OK = /^security improvements\.?$/i;
 
@@ -40,6 +44,7 @@ export function lineProblem(line: string): string | null {
   if (SECURITY_OK.test(text)) return null;
   if (/\bsecurity\b/i.test(text)) return 'a security detail (the most that may be said is "Security improvements")';
   for (const f of FORBIDDEN) if (f.re.test(text)) return f.why;
+  if (ORDERS.test(text) && !ordersOpenToAll()) return "a feature that isn't open to everyone";
   return null;
 }
 

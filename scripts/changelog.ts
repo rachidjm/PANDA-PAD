@@ -31,6 +31,8 @@ async function main() {
   const secret = process.env.CHANGELOG_PUBLISH_SECRET?.trim();
   if (!secret) throw new Error("CHANGELOG_PUBLISH_SECRET is missing from .env.local.");
   const base = (process.env.CHANGELOG_URL?.trim() || "https://launchonpanda.app").replace(/\/$/, "");
+  // Whether PANDA orders are open to everyone is the deployment's setting, not this computer's: the server decides that rule.
+  process.env.PANDA_ORDERS_ALLOWLIST = "*";
   const input = parseDraftMarkdown(readFileSync(file, "utf8"));
   const checked = checkDraft(input);
   if (!checked.ok) {
