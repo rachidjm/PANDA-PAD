@@ -3,18 +3,18 @@ import type { Db } from "@/lib/db/client";
 import { tgDecideChangelog, tgDeleteState, tgEnqueue, tgGetChangelog, tgGetState, tgInsertChangelog, tgSetChangelogVersions, tgSetState, type ChangelogRow, type DraftVersion } from "@/lib/db/telegram";
 import type { TelegramConfig } from "./config";
 import { esc, tt } from "./text";
-import { buildChangelogText, buildTranslationText, checkChangelog, checkDraft, parseChangelogMarkdown } from "./changelog-format";
+import { buildChangelogText, buildExplanationText, checkChangelog, checkDraft, parseChangelogMarkdown } from "./changelog-format";
 
 /**
  * Drafts that need an admin's approval before they are published (docs/TELEGRAM.md §9). Today: the public changelog, to
  * the channel. The flow is the same for any kind of draft (`kind`): it arrives on a secret-protected endpoint with THREE
- * versions, each with a Spanish translation, and goes to the admins' PRIVATE chat as one message they can flip through:
+ * versions, each with an explanation in plain Spanish (not a translation), and goes to the admins' PRIVATE chat as one message they can flip through:
  *
- *   Versión 2/3 · the English text · (in italics) "🇪🇸 Traducción (no se publica)" + the translation
+ *   Versión 2/3 · the English text · (in italics) "🇪🇸 Qué dice (no se publica)" + a plain-Spanish explanation
  *   [1] [• 2 •] [3] [🔄]   [✏️ Editar]   [✅ Publicar] [❌ Descartar]
  *
  * Only an admin's press counts (the id in the callback is checked against TELEGRAM_ADMIN_IDS). "Publicar" publishes the
- * version THAT message is showing — its English text only; the translation never leaves the private chat. A draft is
+ * version THAT message is showing — its English text only; the Spanish explanation never leaves the private chat. A draft is
  * decided once. The format is fixed and the content rules (changelog-format.ts) apply to every version, including the
  * admin's own ("✏️ Editar").
  */
@@ -41,13 +41,13 @@ export function changelogSecretMatches(header: string | null, secret: string | n
 
 const versionName = (versions: DraftVersion[], k: number) => (versions[k]?.mine ? `${k + 1} · mía` : String(k + 1));
 
-/** The approval message for version `k`: what would be published, then — apart and in italics — its translation. */
+/** The approval message for version `k`: what would be published, then — apart and in italics — what it says, in Spanish. */
 export function approvalMessage(row: Pick<ChangelogRow, "id" | "versions">, k: number): Record<string, unknown> {
   const versions = row.versions;
   const shown = versions[k] ? k : 0;
   const v = versions[shown];
   const head = v.mine ? `Versión ${shown + 1} · mía` : `Versión ${shown + 1}/${versions.filter((x) => !x.mine).length}`;
-  const translation = v.es ? `\n\n———\n<i>🇪🇸 Traducción (no se publica)</i>\n\n<i>${esc(v.es)}</i>` : "";
+  const translation = v.es ? `\n\n———\n<i>🇪🇸 Qué dice (no se publica)</i>\n\n<i>${esc(v.es)}</i>` : "";
   const pick = versions.map((_, n) => ({ text: n === shown ? `• ${versionName(versions, n)} •` : versionName(versions, n), callback_data: `${CB_VERSION}${row.id}_${n}` }));
   return {
     parse_mode: "HTML",
@@ -74,7 +74,7 @@ export async function receiveDraft(d: { db: Db; now: () => number; cfg: Telegram
   const checked = checkDraft(input);
   if (!checked.ok) return { ok: false, status: 422, error: "This draft can't be published as written.", problems: checked.problems };
   const now = d.now();
-  const versions: DraftVersion[] = checked.versions.map((v) => ({ en: buildChangelogText(v.sections, now), es: buildTranslationText(v.es, now) }));
+  const versions: DraftVersion[] = checked.versions.map((v) => ({ en: buildChangelogText(v.sections, now), es: buildExplanationText(v.es, v.tone) }));
   const id = randomBytes(8).toString("hex");
   await tgInsertChangelog(d.db, { id, kind, versions, now });
   for (const admin of d.cfg.adminIds) {

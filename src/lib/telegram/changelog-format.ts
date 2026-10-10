@@ -100,37 +100,52 @@ export function parseChangelogMarkdown(md: string): ChangelogInput {
   return out;
 }
 
-// ── three versions, each with its Spanish translation ───────────────────────────────────────────────────────────────
+// ── three versions, each with an explanation in plain Spanish ───────────────────────────────────────────────────────
 
 export const VERSIONS = 3;
-/** The translation is only ever shown to the admins (never published): same sections, Spanish titles. */
+/**
+ * The Spanish part is NOT a translation: it tells the admin, in plain words, what each point of the English text means and
+ * (in brackets, when it helps) which real change of PANDA it is about. It is only ever shown to the admins — never
+ * published. Same sections, Spanish titles; an optional last line says the tone when the English is colloquial.
+ */
 export const ES_TITLES: Record<SectionKey, string> = { new: "✨ Nuevo", improved: "🔧 Mejorado", fixed: "🐛 Corregido" };
-export const MAX_ES_CHARS = 220;
+export const MAX_ES_CHARS = 400;
+export const MAX_ES_LINES = 4;
+export const MAX_TONE_CHARS = 160;
 
-export type VersionInput = ChangelogInput & { es?: ChangelogInput };
+export type ExplanationInput = ChangelogInput & { tone?: string };
+export type VersionInput = ChangelogInput & { es?: ExplanationInput };
 export type DraftInput = { versions?: VersionInput[] };
-export type CheckedVersion = { sections: { title: string; items: string[] }[]; es: { title: string; items: string[] }[] };
+export type CheckedVersion = { sections: { title: string; items: string[] }[]; es: { title: string; items: string[] }[]; tone: string | null };
 
-/** The translation: one line per English line, section by section. It is never published, so only its shape is checked. */
-function checkTranslation(en: ChangelogInput, es: unknown): { ok: true; sections: { title: string; items: string[] }[] } | { ok: false; problems: string[] } {
+/** The explanation: every section the English has must be explained (one or more lines — not one per English line). It
+ *  is never published, so only its shape is checked. */
+function checkExplanation(en: ChangelogInput, es: unknown): { ok: true; sections: { title: string; items: string[] }[]; tone: string | null } | { ok: false; problems: string[] } {
   const o = (es && typeof es === "object" ? es : {}) as Record<string, unknown>;
   const problems: string[] = [];
   const sections: { title: string; items: string[] }[] = [];
   for (const s of SECTIONS) {
-    const want = (en[s.key] ?? []).length;
+    const used = (en[s.key] ?? []).length > 0;
     const raw = o[s.key];
-    const items = Array.isArray(raw) && raw.every((x) => typeof x === "string") ? (raw as string[]).map((x) => x.trim().replace(/^[-•*]\s*/, "")) : [];
-    if (items.length !== want) {
-      problems.push(`${ES_TITLES[s.key]}: the translation needs ${want} line(s), one per English line (got ${items.length}).`);
+    const items = Array.isArray(raw) && raw.every((x) => typeof x === "string") ? (raw as string[]).map((x) => x.trim().replace(/^[-•*]\s*/, "")).filter(Boolean) : [];
+    if (used && items.length === 0) {
+      problems.push(`${ES_TITLES[s.key]}: the Spanish explanation is missing for this section.`);
       continue;
     }
-    if (items.some((it) => !it || it.length > MAX_ES_CHARS || /[\r\n<>]/.test(it))) problems.push(`${ES_TITLES[s.key]}: a translated line is empty, too long or has markup.`);
+    if (!used && items.length > 0) {
+      problems.push(`${ES_TITLES[s.key]}: explained in Spanish, but the English text has no such section.`);
+      continue;
+    }
+    if (items.length > MAX_ES_LINES) problems.push(`${ES_TITLES[s.key]}: at most ${MAX_ES_LINES} lines of explanation.`);
+    if (items.some((it) => it.length > MAX_ES_CHARS || /[\r\n<>]/.test(it))) problems.push(`${ES_TITLES[s.key]}: a line of the explanation is too long or has markup.`);
     if (items.length) sections.push({ title: ES_TITLES[s.key], items });
   }
-  return problems.length ? { ok: false, problems } : { ok: true, sections };
+  const tone = typeof o.tone === "string" ? o.tone.trim().replace(/^tono\s*:\s*/i, "") : "";
+  if (tone.length > MAX_TONE_CHARS || /[\r\n<>]/.test(tone)) problems.push("The tone line is too long or has markup.");
+  return problems.length ? { ok: false, problems } : { ok: true, sections, tone: tone || null };
 }
 
-/** Exactly three versions, each within the format and content rules, each with its translation, and really different. */
+/** Exactly three versions, each within the format and content rules, each with its Spanish explanation, and really different. */
 export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion[] } | { ok: false; problems: string[] } {
   const raw = (input && typeof input === "object" ? (input as DraftInput).versions : undefined) ?? [];
   if (!Array.isArray(raw) || raw.length !== VERSIONS) return { ok: false, problems: [`A draft needs exactly ${VERSIONS} versions (got ${Array.isArray(raw) ? raw.length : 0}).`] };
@@ -139,9 +154,9 @@ export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion
   raw.forEach((v, k) => {
     const en = checkChangelog(v);
     if (!en.ok) return problems.push(...en.problems.map((p) => `Version ${k + 1} · ${p}`));
-    const es = checkTranslation((v ?? {}) as ChangelogInput, (v as VersionInput).es);
+    const es = checkExplanation((v ?? {}) as ChangelogInput, (v as VersionInput).es);
     if (!es.ok) return problems.push(...es.problems.map((p) => `Version ${k + 1} · ${p}`));
-    versions.push({ sections: en.sections, es: es.sections });
+    versions.push({ sections: en.sections, es: es.sections, tone: es.tone });
   });
   if (!problems.length) {
     const body = versions.map((v) => JSON.stringify(v.sections).toLowerCase());
@@ -150,12 +165,10 @@ export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion
   return problems.length ? { ok: false, problems } : { ok: true, versions };
 }
 
-/** "10 de octubre de 2026" (UTC). */
-export const changelogDateEs = (now: number) => new Date(now).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-
-export function buildTranslationText(sections: { title: string; items: string[] }[], now: number): string {
+/** What the admin reads under the English text: the explanation, section by section, and the tone if one was given. */
+export function buildExplanationText(sections: { title: string; items: string[] }[], tone: string | null): string {
   const body = sections.map((s) => [s.title, ...s.items.map((i) => `- ${i}`)].join("\n")).join("\n");
-  return `🛠 PANDA Update · ${changelogDateEs(now)}\n\n${body}\n\n${SITE_LINE}`;
+  return tone ? `${body}\n\nTono: ${tone}` : body;
 }
 
 /**
@@ -166,7 +179,8 @@ export function buildTranslationText(sections: { title: string; items: string[] 
  *   - …
  *   ### ES
  *   ## Nuevo
- *   - …
+ *   - what that point means, in plain Spanish (and, in brackets, which real change it is)
+ *   Tono: cercano y con humor        ← optional, only when the English is colloquial
  *   # Version 2
  *   …
  */
@@ -176,7 +190,9 @@ export function parseDraftMarkdown(md: string): DraftInput {
   let inEs = false;
   const flush = () => {
     if (!chunk) return;
-    versions.push({ ...parseChangelogMarkdown(chunk.en.join("\n")), es: parseChangelogMarkdown(chunk.es.join("\n")) });
+    const tone = chunk.es.map((l) => /^\s*(?:[-•*]\s*)?tono\s*:\s*(.+)$/i.exec(l)?.[1]?.trim()).find(Boolean);
+    const es: ExplanationInput = parseChangelogMarkdown(chunk.es.filter((l) => !/^\s*(?:[-•*]\s*)?tono\s*:/i.test(l)).join("\n"));
+    versions.push({ ...parseChangelogMarkdown(chunk.en.join("\n")), es: tone ? { ...es, tone } : es });
   };
   for (const line of md.split(/\r?\n/)) {
     const head = line.trim().replace(/^#+\s*/, "").toLowerCase();

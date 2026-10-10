@@ -1,7 +1,9 @@
 /**
  * Sends a changelog DRAFT to PANDA's bot:  npm run changelog -- path/to/draft.md
  *
- * The draft has THREE versions, each with its Spanish translation (shown only to the admins, never published):
+ * The draft has THREE versions, each followed by an explanation in plain Spanish — NOT a translation: what each point
+ * means and, in brackets, which real change it is about; plus "Tono: …" when the English is colloquial. The Spanish part
+ * is shown only to the admins, never published:
  *
  *   # Version 1
  *   ## New
@@ -13,6 +15,7 @@
  *   - …
  *   ## Corregido
  *   - …
+ *   Tono: cercano y con humor
  *   # Version 2
  *   …
  *
@@ -20,7 +23,7 @@
  * Nothing is published by this: the bot sends the draft to the admins in private, and one of them presses "Publicar".
  */
 import { readFileSync } from "node:fs";
-import { buildChangelogText, buildTranslationText, checkDraft, parseDraftMarkdown } from "../src/lib/telegram/changelog-format";
+import { buildChangelogText, buildExplanationText, checkDraft, parseDraftMarkdown } from "../src/lib/telegram/changelog-format";
 
 async function main() {
   const file = process.argv[2];
@@ -34,7 +37,7 @@ async function main() {
     console.error("This draft can't be sent:\n" + checked.problems.map((p) => `  - ${p}`).join("\n"));
     process.exit(1);
   }
-  checked.versions.forEach((v, k) => console.log(`── Version ${k + 1} ──\n${buildChangelogText(v.sections, Date.now())}\n\n   (ES, not published)\n${buildTranslationText(v.es, Date.now())}\n`));
+  checked.versions.forEach((v, k) => console.log(`── Version ${k + 1} ──\n${buildChangelogText(v.sections, Date.now())}\n\n   (ES — qué dice, not published)\n${buildExplanationText(v.es, v.tone)}\n`));
   const res = await fetch(`${base}/api/telegram/changelog`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` }, body: JSON.stringify(input) });
   const data = (await res.json().catch(() => ({}))) as { id?: string; sentTo?: number; versions?: number; error?: string; problems?: string[] };
   if (!res.ok) {

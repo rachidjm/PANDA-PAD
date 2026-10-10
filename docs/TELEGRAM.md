@@ -292,18 +292,20 @@ Nada se publica en el canal sin que un admin pulse un botón.
 
 1. **Borrador con 3 versiones.** `npm run changelog -- borrador.md` lee un Markdown con `# Version 1`, `# Version 2` y
    `# Version 3`. Cada versión lleva sus secciones `## New`, `## Improved`, `## Fixed` (líneas con `- `) y, tras un
-   `### ES`, su traducción (`## Nuevo`, `## Mejorado`, `## Corregido`, una línea por cada línea en inglés). Lo comprueba y
+   `### ES`, una EXPLICACIÓN en español sencillo — no una traducción — (`## Nuevo`, `## Mejorado`, `## Corregido`: qué
+   quiere decir cada punto y, entre paréntesis, a qué cambio real se refiere; opcionalmente una línea final `Tono: …`
+   si el inglés es coloquial). Basta con explicar cada sección que tenga el inglés. Lo comprueba y
    lo envía a `POST /api/telegram/changelog` con `Authorization: Bearer <CHANGELOG_PUBLISH_SECRET>` (el script lo lee de
    `.env.local`; en Vercel es Sensitive). Sin secreto o con uno incorrecto: 401. Flag apagado o sin secreto: 404.
 2. **Aprobación.** El bot guarda el borrador (`telegram_changelogs`, estado `pending`, columna `versions`) y lo envía por
    PRIVADO a cada id de `TELEGRAM_ADMIN_IDS` en UN mensaje: arriba «Versión 1/3», el texto en inglés y, debajo, separada
-   y en cursiva, «🇪🇸 Traducción (no se publica)». Botones:
+   y en cursiva, «🇪🇸 Qué dice (no se publica)». Botones:
    - «1», «2», «3» (la elegida marcada «• 2 •») y «🔄» (siguiente): cambian de versión editando el mismo mensaje.
    - «✏️ Editar»: el bot pide que respondas con tu texto (mismas secciones y líneas `- `). Se valida con las mismas
-     reglas; si algo está prohibido dice qué; si pasa, se añade como versión «4 · mía», sin traducción.
+     reglas; si algo está prohibido dice qué; si pasa, se añade como versión «4 · mía», sin explicación.
    - «✅ Publicar»: publica la versión que ese mensaje muestra — solo su texto en inglés. «❌ Descartar»: no publica nada.
    Solo cuenta la pulsación de un admin (se comprueba el id del callback) y se decide UNA vez (cambio de estado atómico).
-3. **Publicación.** Va a `TELEGRAM_CHANNEL_ID` con el botón «💬 Discuss in Community». La traducción nunca sale del
+3. **Publicación.** Va a `TELEGRAM_CHANNEL_ID` con el botón «💬 Discuss in Community». La explicación en español nunca sale del
    privado. Los borradores, su estado y la versión publicada se ven en /admin → Bot de Telegram.
 
 El mismo flujo sirve para otros tipos de borrador (columna `kind`; hoy solo `changelog` tiene dónde publicarse).
