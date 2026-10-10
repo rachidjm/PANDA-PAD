@@ -710,11 +710,35 @@ export const telegramChangelogs = pgTable(
   ]
 );
 
+/**
+ * The public Updates page (/updates): one row per entry, written only when an admin approves — a changelog published
+ * from the bot adds its detailed version here, and the project's history was added once, after approval. `id` is the
+ * entry's own address (/updates/<id>).
+ */
+export const siteUpdates = pgTable(
+  "site_updates",
+  {
+    id: text("id").primaryKey(),
+    /** When it happened (ms). The page is ordered by this. */
+    ts: bigint("ts", { mode: "number" }).notNull(),
+    tag: text("tag").notNull(),
+    titleEn: text("title_en").notNull(),
+    titleEs: text("title_es").notNull(),
+    bodyEn: text("body_en").notNull(),
+    bodyEs: text("body_es").notNull(),
+    imageUrl: text("image_url"),
+    /** Where it came from: "changelog:<draft id>" or "history:<draft id>". */
+    source: text("source").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("site_updates_ts").on(t.ts), check("site_updates_tag", sql`${t.tag} IN ('new', 'improved', 'fixed')`)]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays, holderPayoutRuns,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralAttemptLog, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
   legacyFeeWallets, recruiterCodes, reservedMintKeys, pandaNonceAccounts, pandaOrders,
-  telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions, telegramChangelogs,
+  telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions, telegramChangelogs, siteUpdates,
 };

@@ -16,6 +16,7 @@ export default function Footer() {
     ...(holderRewards ? [{ href: "/rewards", label: t("nav.rewards") }] : []),
     { href: "/analytics", label: t("nav.analytics") },
     { href: "/activity", label: t("act.title") },
+    { href: "/updates", label: t("nav.updates") },
   ];
 
   return (

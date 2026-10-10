@@ -363,3 +363,13 @@ Debajo de cada versión va `🇪🇸 En resumen:` con una o dos frases muy fáci
 **Pausa de emergencia:** «Publicar en X» en /admin. **Auditoría:** `x.post.publish`, `x.post.rejected`, `x.post.unknown`, `x.post.limit`, `x.post.defer`, `x.post.discard`, `x.post.edit`, `x.credentials.check`.
 
 **Coste** (lista de precios de pago por uso de X, puede cambiar): unos 0,015 $ por post y 0,20 $ si lleva enlace. X no publica el precio de subir una imagen.
+
+## 11. La página pública de Novedades (/updates)
+
+`/updates` lista todas las actualizaciones de PANDA (la más reciente arriba; se puede invertir el orden), en el idioma de la web. Cada entrada tiene fecha, etiqueta (New / Improved / Fixed), un título corto y de dos a cinco frases; y su propia dirección para compartirla: `/updates/<id>`.
+
+**De dónde sale.** Cada borrador trae, además de las versiones de Telegram y de X, su versión detallada para la web (bloques `# Web N`, en inglés y español). El bot la enseña en un mensaje aparte marcado «🌐 WEB», sin botones: se añade a la página cuando un admin pulsa «✅ Publicar» en el borrador de Telegram. Descartar no añade nada. El resumen semanal lleva las versiones detalladas de todas las actualizaciones pequeñas que junta.
+
+**Historial.** Se envía como un fichero JSON (`{ "history": [ { "date": "AAAA-MM-DD", "tag", "title": {en, es}, "body": {en, es} } ] }`) con `npm run changelog -- historial.json`. Al bot llega un resumen (día · etiqueta · título) con «✅ Publicar historial»; hasta que un admin lo pulsa no hay nada en la página.
+
+**Reglas** (`src/lib/updates/format.ts`): las mismas del changelog, en los dos idiomas.

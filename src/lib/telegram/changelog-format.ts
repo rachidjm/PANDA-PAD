@@ -138,7 +138,10 @@ export type DraftInput = {
   imageUrl?: string;
   versions?: VersionInput[];
   x?: XVersionInput[];
+  /** The detailed version for the public Updates page (src/lib/updates/format.ts): what is added there when the Telegram draft is published. */
+  web?: WebEntryInput[];
 };
+export type WebEntryInput = { tag?: string; title?: { en?: string; es?: string }; body?: { en?: string; es?: string }; imageUrl?: string };
 export type CheckedSummary = { summary: string; tone: string | null };
 export type CheckedVersion = { sections: { title: string; items: string[] }[] } & CheckedSummary;
 
@@ -209,11 +212,20 @@ export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion
  *   ### ES
  *   Cuenta que …
  *   # X 2 …   # X 3 …
+ *
+ *   # Web 1                     ← the detailed version for /updates (one or a few entries)
+ *   Tag: new
+ *   Title: Sell and stop orders on the chart
+ *   Two to five sentences: what changes for the user and how to use it.
+ *   ### ES
+ *   Título: Ventas y stops en el gráfico
+ *   De dos a cinco frases…
  */
 export function parseDraftMarkdown(md: string): DraftInput {
   const out: DraftInput = { versions: [] };
   const x: XVersionInput[] = [];
-  let chunk: { kind: "tg" | "x"; body: string[]; es: string[] } | null = null;
+  const web: WebEntryInput[] = [];
+  let chunk: { kind: "tg" | "x" | "web"; body: string[]; es: string[] } | null = null;
   let inEs = false;
   const summaryOf = (lines: string[]): SummaryInput => {
     const tone = lines.map((l) => /^\s*(?:[-•*]\s*)?tono\s*:\s*(.+)$/i.exec(l)?.[1]?.trim()).find(Boolean);
@@ -227,7 +239,13 @@ export function parseDraftMarkdown(md: string): DraftInput {
   const flush = () => {
     if (!chunk) return;
     if (chunk.kind === "tg") out.versions!.push({ ...parseChangelogMarkdown(chunk.body.join("\n")), es: summaryOf(chunk.es) });
-    else x.push({ text: chunk.body.join("\n").trim(), es: summaryOf(chunk.es) });
+    else if (chunk.kind === "x") x.push({ text: chunk.body.join("\n").trim(), es: summaryOf(chunk.es) });
+    else {
+      const field = (lines: string[], names: string) => lines.map((l) => new RegExp(`^\\s*(?:${names})\\s*:\\s*(.+)$`, "i").exec(l)?.[1]?.trim()).find(Boolean);
+      const text = (lines: string[]) => lines.filter((l) => !/^\s*(?:tag|etiqueta|title|t[ií]tulo|image|imagen)\s*:/i.test(l)).map((l) => l.trim()).filter(Boolean).join(" ");
+      const image = field(chunk.body, "image|imagen");
+      web.push({ tag: field(chunk.body, "tag|etiqueta"), title: { en: field(chunk.body, "title"), es: field(chunk.es, "t[ií]tulo|title") }, body: { en: text(chunk.body), es: text(chunk.es) }, ...(image ? { imageUrl: image } : {}) });
+    }
   };
   for (const line of md.split(/\r?\n/)) {
     const t = line.trim();
@@ -239,6 +257,10 @@ export function parseDraftMarkdown(md: string): DraftInput {
     } else if (/^#+\s*x\s*\d+\b/i.test(t)) {
       flush();
       chunk = { kind: "x", body: [], es: [] };
+      inEs = false;
+    } else if (/^#+\s*web\s*\d+\b/i.test(t)) {
+      flush();
+      chunk = { kind: "web", body: [], es: [] };
       inEs = false;
     } else if (chunk && /^#+\s/.test(t) && /^(es|español|espanol|traducci[oó]n|spanish|en resumen)\b/.test(head)) {
       inEs = true;
@@ -256,5 +278,6 @@ export function parseDraftMarkdown(md: string): DraftInput {
   }
   flush();
   if (x.length) out.x = x;
+  if (web.length) out.web = web;
   return out;
 }

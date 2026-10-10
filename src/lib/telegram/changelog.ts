@@ -20,6 +20,8 @@ import { esc, tt } from "./text";
 import { buildChangelogText, buildExplanationText, checkChangelog, checkDraft, checkSummary, ES_LABEL, MAX_ITEMS, parseChangelogMarkdown, SECTIONS, VERSIONS, type DraftInput, type Level } from "./changelog-format";
 import { digestProblem, weeklyXVersions, xCostUsd, xFinalLength, xFinalText, xFingerprint, xTextProblem, X_MAX } from "@/lib/x/text";
 import { httpsUrl, type XDeps } from "@/lib/x/client";
+import { checkHistory, checkWebEntries, TAG_LABEL, type DatedEntry, type UpdateEntry } from "@/lib/updates/format";
+import { pgAddUpdates } from "@/lib/db/updates";
 
 /**
  * Drafts that need an admin's approval before they are published (docs/TELEGRAM.md §9 and §10): the public changelog, to
@@ -53,9 +55,10 @@ export const EDIT_TTL_MS = 30 * 60_000;
 const editKey = (adminId: number) => `draft-edit:${adminId}`;
 type EditState = { id: string; chatId: number; messageId: number | null; at: number };
 
-export const LABEL = { changelog: "📢 TELEGRAM · Borrador", x: "🐦 X · Borrador" } as const;
+export const LABEL = { changelog: "📢 TELEGRAM · Borrador", x: "🐦 X · Borrador", history: "🌐 WEB · Historial · Borrador" } as const;
+export const WEB_LABEL = "🌐 WEB";
 type Kind = keyof typeof LABEL;
-const kindOf = (row: Pick<ChangelogRow, "kind">): Kind => (row.kind === "x" ? "x" : "changelog");
+const kindOf = (row: Pick<ChangelogRow, "kind">): Kind => (row.kind === "x" ? "x" : row.kind === "history" ? "history" : "changelog");
 
 /** What a draft carries besides its versions (telegram_changelogs.meta). */
 export type DraftMeta = {
@@ -65,6 +68,10 @@ export type DraftMeta = {
   pair?: string;
   weekly?: boolean;
   x?: { image: boolean; link: boolean; imageUrl: string | null; postId?: string; url?: string };
+  /** The detailed version for the public Updates page: added there when this Telegram draft is published. */
+  web?: UpdateEntry[];
+  /** A history draft: the dated entries that publishing it adds to the Updates page. */
+  entries?: DatedEntry[];
 };
 const metaOf = (row: Pick<ChangelogRow, "meta">): DraftMeta => (row.meta && typeof row.meta === "object" ? (row.meta as DraftMeta) : {});
 
@@ -98,6 +105,13 @@ export function approvalMessage(row: Pick<ChangelogRow, "id" | "versions" | "kin
   const pick = versions.map((_, n) => ({ text: n === shown ? `• ${versionName(versions, n)} •` : versionName(versions, n), callback_data: `${CB_VERSION}${row.id}_${n}` }));
   const top = [[...pick, { text: "🔄", callback_data: `${CB_VERSION}${row.id}_${(shown + 1) % versions.length}` }], [{ text: "✏️ Editar", callback_data: `${CB_EDIT}${row.id}_${shown}` }]];
   const base = { parse_mode: "HTML", link_preview_options: { is_disabled: true } };
+  if (kind === "history") {
+    return {
+      ...base,
+      text: `<b>${LABEL.history}</b>\n\n${esc(v.en)}`,
+      reply_markup: { inline_keyboard: [[{ text: "✅ Publicar historial", callback_data: `${CB_PUBLISH}${row.id}_0` }, { text: "❌ Descartar", callback_data: `${CB_DISCARD}${row.id}` }]] },
+    };
+  }
   if (kind === "changelog") {
     return {
       ...base,
@@ -125,6 +139,60 @@ export function approvalMessage(row: Pick<ChangelogRow, "id" | "versions" | "kin
       ],
     },
   };
+}
+
+const TELEGRAM_TEXT_LIMIT = 3800;
+
+/**
+ * What the admin is shown of the detailed version for the web, marked "🌐 WEB": every entry in Spanish and in English.
+ * It has no buttons of its own — it is published with the Telegram draft's "✅ Publicar". One message if it fits,
+ * otherwise several (never cut mid-entry).
+ */
+export function webMessages(entries: UpdateEntry[], siteUrl: string): Record<string, unknown>[] {
+  if (entries.length === 0) return [];
+  const head = `<b>${WEB_LABEL} · Para la página Novedades</b>\n<i>Se añade a ${esc(siteUrl.replace(/^https?:\/\//, ""))}/updates cuando pulses «✅ Publicar» en el borrador de Telegram. No tiene botones propios.</i>`;
+  const blocks = entries.map((e) => `<b>🇪🇸 [${TAG_LABEL[e.tag].es}] ${esc(e.title.es)}</b>\n${esc(e.body.es)}\n\n<b>🇬🇧 [${TAG_LABEL[e.tag].en}] ${esc(e.title.en)}</b>\n${esc(e.body.en)}${e.imageUrl ? `\n<i>Imagen: ${esc(e.imageUrl)}</i>` : ""}`);
+  const texts: string[] = [];
+  let current = head;
+  for (const b of blocks) {
+    if (current.length + b.length + 2 > TELEGRAM_TEXT_LIMIT && current !== head) {
+      texts.push(current);
+      current = `<b>${WEB_LABEL}</b> (sigue)`;
+    }
+    current += `\n\n${b}`;
+  }
+  texts.push(current);
+  return texts.map((text) => ({ parse_mode: "HTML", link_preview_options: { is_disabled: true }, text }));
+}
+
+async function sendWeb(d: DraftDeps, id: string, entries: UpdateEntry[], now: number): Promise<void> {
+  const messages = webMessages(entries, d.cfg.siteUrl);
+  for (const admin of d.cfg.adminIds) {
+    for (let k = 0; k < messages.length; k++) await tgEnqueue(d.db, { chatId: String(admin), method: "sendMessage", payload: messages[k], dedupeKey: `changelog-web:${id}:${admin}:${k}` }, now);
+  }
+}
+
+export type HistoryResult = { ok: true; id: string; entries: number; sentTo: number } | { ok: false; status: number; error: string; problems?: string[] };
+
+/**
+ * The project's history for the Updates page: checked like any entry, stored as ONE draft and sent to the admins as a
+ * summary (day · tag · title) with "✅ Publicar historial". Nothing reaches the page until an admin presses it.
+ */
+export async function receiveHistory(d: DraftDeps, input: unknown): Promise<HistoryResult> {
+  if (!d.cfg.changelogEnabled) return { ok: false, status: 404, error: "Not found." };
+  if (!d.cfg.enabled || !d.cfg.hasToken) return { ok: false, status: 503, error: "The Telegram bot isn't switched on." };
+  if (d.cfg.adminIds.size === 0) return { ok: false, status: 503, error: "No Telegram admin is configured to approve it." };
+  const now = d.now();
+  const checked = checkHistory((input as { history?: unknown })?.history, now);
+  if (!checked.ok) return { ok: false, status: 422, error: "This history can't be published as written.", problems: checked.problems };
+  const lines = checked.entries.map((e) => `${e.date} · ${TAG_LABEL[e.tag].es} · ${e.title.es}`);
+  const summary = `${checked.entries.length} entradas para la página Novedades (/updates), de la más antigua a la más nueva. Al publicarlas aparecen todas, cada una con su texto en español e inglés.\n\n${lines.join("\n")}`;
+  if (summary.length > 3400) return { ok: false, status: 422, error: "The summary of this history is too long for one message: send it in two parts.", problems: [] };
+  const id = newId();
+  const row = { id, kind: "history", versions: [{ en: summary, es: null }], meta: { entries: checked.entries } satisfies DraftMeta };
+  await tgInsertChangelog(d.db, { ...row, now });
+  await sendDraft(d, row, now);
+  return { ok: true, id, entries: checked.entries.length, sentTo: d.cfg.adminIds.size };
 }
 
 export type DraftResult =
@@ -176,9 +244,11 @@ export async function receiveDraft(d: DraftDeps, input: unknown): Promise<DraftR
   // X: an important update brings its three posts. A small one is told on X only through its one-line summary.
   const x = level === "important" || o.x !== undefined ? checkXVersions(o.x) : null;
   if (x && !x.ok) problems.push(...x.problems);
+  const web = checkWebEntries(o.web);
+  if (!web.ok) problems.push(...web.problems);
   const imageUrl = o.imageUrl === undefined || o.imageUrl === null || o.imageUrl === "" ? null : httpsUrl(o.imageUrl);
   if (o.imageUrl && !imageUrl) problems.push("Image: it must be an https link.");
-  if (problems.length || !checked.ok) return { ok: false, status: 422, error: "This draft can't be published as written.", problems };
+  if (problems.length || !checked.ok || !web.ok) return { ok: false, status: 422, error: "This draft can't be published as written.", problems };
 
   const now = d.now();
   const versions: DraftVersion[] = checked.versions.map((v) => ({ en: buildChangelogText(v.sections, now), es: buildExplanationText(v.summary, v.tone) }));
@@ -187,7 +257,7 @@ export async function receiveDraft(d: DraftDeps, input: unknown): Promise<DraftR
   const xId = xVersions.length ? newId() : null;
   const digest = o.digest!.trim();
   const status = level === "small" ? "deferred" : "pending";
-  const tgRow = { id, kind: "changelog", versions, meta: { level, digest, ...(xId ? { pair: xId } : {}) } satisfies DraftMeta };
+  const tgRow = { id, kind: "changelog", versions, meta: { level, digest, web: web.entries, ...(xId ? { pair: xId } : {}) } satisfies DraftMeta };
   await tgInsertChangelog(d.db, { ...tgRow, now, status });
   // The image is on by default only when the update brings its own.
   const xRow = xId ? { id: xId, kind: "x", versions: xVersions, meta: { level, digest, pair: id, x: { image: !!imageUrl, link: false, imageUrl } } satisfies DraftMeta } : null;
@@ -200,6 +270,7 @@ export async function receiveDraft(d: DraftDeps, input: unknown): Promise<DraftR
     }
   } else {
     await sendDraft(d, tgRow, now);
+    await sendWeb(d, id, web.entries, now);
     if (xRow) await sendDraft(d, xRow, now);
   }
   return { ok: true, id, xId, deferred: level === "small", versions, xVersions, sentTo: d.cfg.adminIds.size };
@@ -248,9 +319,12 @@ export async function buildWeeklyDrafts(d: DraftDeps): Promise<{ telegram: strin
   const tgVersions = tgRows.length ? weeklyTelegramVersions(tgRows, now) : [];
   if (tgVersions.length) {
     telegram = newId();
-    const row = { id: telegram, kind: "changelog", versions: tgVersions, meta: { weekly: true, level: "small" } satisfies DraftMeta };
+    // Every small update's detailed version goes to the Updates page with the summary.
+    const webEntries = tgRows.flatMap((r) => metaOf(r).web ?? []);
+    const row = { id: telegram, kind: "changelog", versions: tgVersions, meta: { weekly: true, level: "small", web: webEntries } satisfies DraftMeta };
     await tgInsertChangelog(d.db, { ...row, now });
     await sendDraft(d, row, now);
+    await sendWeb(d, telegram, webEntries, now);
   }
   const posts = weeklyXVersions(digests).filter((t) => !xTextProblem(t));
   if (posts.length) {
@@ -322,7 +396,8 @@ export async function handleChangelogCallback(d: ApprovalDeps, p: { data: string
   const meta = metaOf(row);
   const view = viewOf(d);
   const k = m[2] === undefined ? 0 : Number(m[2]);
-  const label = kind === "x" ? "X" : "TELEGRAM";
+  const label = kind === "x" ? "X" : kind === "history" ? "WEB · Historial" : "TELEGRAM";
+  if (kind === "history" && prefix !== CB_PUBLISH && prefix !== CB_DISCARD) return { outcome: "unknown", toast: "El historial solo se puede publicar o descartar." };
 
   if (prefix === CB_VERSION) {
     if (!row.versions[k]) return { outcome: "unknown", toast: "Esa versión no existe." };
@@ -345,7 +420,7 @@ export async function handleChangelogCallback(d: ApprovalDeps, p: { data: string
     if (!(await tgMoveChangelog(d.db, id, ["pending"], "discarded", { by: p.fromId, now }))) return decided((await tgGetChangelog(d.db, id))?.status ?? "discarded");
     await closed(`❌ ${label} · Descartado — no se ha publicado nada`, row.versions[0]?.en ?? row.text);
     await reply(`❌ ${label}: descartado. No se ha publicado nada.`);
-    await d.audit(kind === "x" ? "x.post.discard" : "telegram.changelog.discard", id, { by: p.fromId });
+    await d.audit(kind === "x" ? "x.post.discard" : kind === "history" ? "updates.history.discard" : "telegram.changelog.discard", id, { by: p.fromId });
     return { outcome: "discarded", toast: "Descartado" };
   }
 
@@ -378,6 +453,17 @@ export async function handleChangelogCallback(d: ApprovalDeps, p: { data: string
 
   if (kind === "x") return publishOnX(d, { row, meta, version, k, by: p.fromId, now, reply, closed, edit, view, decided });
 
+  const page = `${d.cfg.siteUrl}/updates`;
+  if (kind === "history") {
+    const entries = meta.entries ?? [];
+    if (!(await tgMoveChangelog(d.db, id, ["pending"], "published", { by: p.fromId, now, version: 0 }))) return decided((await tgGetChangelog(d.db, id))?.status ?? "published");
+    const added = await pgAddUpdates(d.db, entries.map((e) => ({ ...e, ts: Date.parse(`${e.date}T12:00:00Z`) })), `history:${id}`, now);
+    await closed(`✅ WEB · Historial publicado · ${added.length} entradas`, version.en);
+    await reply(`✅ WEB: historial publicado en la página Novedades (${added.length} entradas).\n${page}`);
+    await d.audit("updates.history.publish", id, { by: p.fromId, entries: added.length });
+    return { outcome: "published", toast: "Historial publicado ✅" };
+  }
+
   const out = channelMessage(d.cfg, version.en, id);
   if (!out) {
     await reply("No hay dónde publicarlo (el canal no está configurado), así que no se ha publicado nada.");
@@ -386,8 +472,17 @@ export async function handleChangelogCallback(d: ApprovalDeps, p: { data: string
   if (!(await tgMoveChangelog(d.db, id, ["pending"], "published", { by: p.fromId, now, version: k, text: version.en }))) return decided((await tgGetChangelog(d.db, id))?.status ?? "published");
   await tgEnqueue(d.db, out, now);
   await closed(`✅ TELEGRAM · Publicado · versión ${versionName(row.versions, k)}`, version.en);
-  await reply(`✅ TELEGRAM: publicada la versión ${versionName(row.versions, k)} en el canal.`);
-  await d.audit("telegram.changelog.publish", id, { by: p.fromId, version: k + 1 });
+  // …and its detailed version goes to the public Updates page. A failure there never undoes what was published.
+  let added: string[] = [];
+  let webFailed = false;
+  try {
+    added = await pgAddUpdates(d.db, (meta.web ?? []).map((e) => ({ ...e, ts: now })), `changelog:${id}`, now);
+  } catch {
+    webFailed = true;
+  }
+  const webNote = webFailed ? "\n⚠️ WEB: no se ha podido añadir a la página Novedades. Avisa para añadirlo a mano." : added.length ? `\n🌐 WEB: añadido a la página Novedades (${added.length === 1 ? "1 entrada" : `${added.length} entradas`}).\n${page}/${added[0]}` : "";
+  await reply(`✅ TELEGRAM: publicada la versión ${versionName(row.versions, k)} en el canal.${webNote}`);
+  await d.audit("telegram.changelog.publish", id, { by: p.fromId, version: k + 1, web: added.length });
   return { outcome: "published", toast: "Publicado ✅" };
 }
 

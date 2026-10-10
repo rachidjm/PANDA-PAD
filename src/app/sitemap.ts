@@ -15,6 +15,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/`, lastModified: now, changeFrequency: "hourly", priority: 1 },
     { url: `${base}/discover`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
     { url: `${base}/create`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/updates`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
   ];
   if (isEnabled("REFERRALS")) {
     entries.push({ url: `${base}/recruiters`, lastModified: now, changeFrequency: "weekly", priority: 0.6 });

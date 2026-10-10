@@ -3,13 +3,13 @@ import { getDb } from "@/lib/db/client";
 import { recordAudit } from "@/lib/audit/log";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { telegramConfig } from "@/lib/telegram/config";
-import { changelogSecretMatches, receiveDraft } from "@/lib/telegram/changelog";
+import { changelogSecretMatches, receiveDraft, receiveHistory } from "@/lib/telegram/changelog";
 import { realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
 import { xConfig } from "@/lib/x/client";
 
 export const maxDuration = 30;
-const MAX_BODY = 16_000;
+const MAX_BODY = 120_000; // a history of the whole project, with its two languages, is one request
 
 /**
  * Receives a changelog DRAFT (docs/TELEGRAM.md §9). Auth: `Authorization: Bearer <CHANGELOG_PUBLISH_SECRET>` — its own
@@ -29,6 +29,14 @@ export async function POST(req: Request) {
     json = JSON.parse(body);
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+  // The project's history for the Updates page comes through the same door, as its own kind of draft.
+  if (json && typeof json === "object" && "history" in json) {
+    const h = await receiveHistory({ db: getDb(), now: Date.now, cfg }, json);
+    if (!h.ok) return NextResponse.json({ error: h.error, problems: h.problems }, { status: h.status });
+    await recordAudit({ actor: "system:changelog", action: "updates.history.draft", object: h.id });
+    await processOutbox(realQueueDeps(), 4_000).catch(() => undefined);
+    return NextResponse.json({ ok: true, id: h.id, history: h.entries, sentTo: h.sentTo });
   }
   const r = await receiveDraft({ db: getDb(), now: Date.now, cfg, x: { config: xConfig() } }, json);
   if (!r.ok) return NextResponse.json({ error: r.error, problems: r.problems }, { status: r.status });

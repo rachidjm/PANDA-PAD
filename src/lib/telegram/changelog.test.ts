@@ -76,6 +76,7 @@ const NOW = Date.UTC(2026, 9, 10, 12);
 const GOOD = {
   level: "important",
   digest: "your holdings on every coin page",
+  web: [{ tag: "new", title: { en: "Your holdings on every coin page", es: "Tu saldo en la página de cada moneda" }, body: { en: "Each coin page now shows how much of that coin you hold. Its value in dollars sits right next to it.", es: "WEBES La página de cada moneda muestra ahora cuánto tienes. Al lado aparece su valor en dólares." } }],
   versions: [
     { new: ["See what you hold of each coin, right on its page."], fixed: ["Buying no longer shows an error when the purchase went through."], es: { summary: "TRAD-1 Cuenta que ahora ves cuántas monedas tienes y que comprar ya no da un error falso." } },
     { new: ["Your balance of a coin now sits above the trade box."], fixed: ["No more false errors after a buy that worked."], es: { summary: "TRAD-2 Dice lo mismo con otras palabras: tu saldo se ve arriba y se acabaron los errores falsos.", tone: "TRAD-2 cercano" } },
@@ -254,7 +255,7 @@ test("endpoint: a draft with forbidden data in ANY version → 422 with the reas
   const body = (await res.json()) as { problems: string[] };
   assert.ok(body.problems.length === 1 && /^Version 2 · .*can't be published/.test(body.problems[0]));
   assert.equal((await changelogRoute(post("{not json", `Bearer ${SECRET}`))).status, 400);
-  assert.equal((await changelogRoute(post({ new: ["x".repeat(17000)] }, `Bearer ${SECRET}`))).status, 413);
+  assert.equal((await changelogRoute(post({ new: ["x".repeat(130000)] }, `Bearer ${SECRET}`))).status, 413);
   assert.equal((await tgListChangelogs(db, 100)).length, before);
   assert.equal((await queued(db, ADMIN_TG)).length, dms);
 });

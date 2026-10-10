@@ -27,6 +27,7 @@ const tg = (n: number, mark = "") => ({
 const DRAFT = (mark = "") => ({
   level: "important",
   digest: `${mark}holdings on every coin page`,
+  web: [{ tag: "new", title: { en: "Your holdings on every coin page", es: "Tu saldo en la página de cada moneda" }, body: { en: "Each coin page now shows how much of that coin you hold. Its value in dollars sits right next to it.", es: "WEBES La página de cada moneda muestra ahora cuánto tienes. Al lado aparece su valor en dólares." } }],
   versions: [tg(1, mark), tg(2, mark), tg(3, mark)],
   x: [
     { text: `${mark}You can now see how much of a coin you hold right on its page.`, es: { summary: "XES-1 Cuenta que ahora ves tu saldo de cada moneda.", tone: "directo" } },
@@ -89,8 +90,10 @@ const lastDm = async (s: { dms: () => Promise<string[]> }) => (await s.dms()).at
 
 test("an important update → TWO separate private messages: '📢 TELEGRAM · Borrador' and '🐦 X · Borrador', each with its 3 versions and buttons; nothing published", async () => {
   const s = await setup();
-  const messages = await queued(s.db, ADMIN_TG);
-  assert.equal(messages.length, 2);
+  const all = await queued(s.db, ADMIN_TG);
+  assert.equal(all.length, 3, "Telegram, its detailed version for the web, and X");
+  assert.ok(all[1].text.startsWith("<b>🌐 WEB · Para la página Novedades</b>") && all[1].payload.reply_markup === undefined);
+  const messages = [all[0], all[2]];
   assert.ok(messages[0].text.startsWith("<b>📢 TELEGRAM · Borrador</b> · Versión 1/3\n\n🛠 PANDA Update"));
   assert.ok(messages[1].text.startsWith("<b>🐦 X · Borrador</b> · Versión 1/3\n\nYou can now see how much of a coin you hold right on its page."));
   // X: the post as it would go out, the summary apart, then the facts (length, image, link, approximate cost).
@@ -301,7 +304,7 @@ test("🖼 Imagen and 🔗 Enlace: off by default, each press rewrites the previ
 
 test("the announcement's own image is on from the start; with no image anywhere the button says so; a link that wouldn't fit is refused", async () => {
   const own = await setup(fakeX(), { ...DRAFT(), imageUrl: "https://launchonpanda.app/coin.png" });
-  assert.ok((await own.dms())[1].includes("imagen: sí"));
+  assert.ok((await own.dms()).find((m) => m.startsWith("<b>🐦 X"))!.includes("imagen: sí"));
   await handleUpdate(own.d, press(`${CB_PUBLISH}${own.xId}_0`));
   assert.deepEqual(own.x.images, ["https://launchonpanda.app/coin.png"]);
   const none = await setup();
@@ -346,7 +349,7 @@ test("✏️ Editar on the X draft: my text follows the same rules (no list, no 
 
 // ── small updates and the weekly summary ────────────────────────────────────────────────────────────────────────────
 
-const SMALL = (n: number) => ({ level: "small", digest: `small thing ${n} works better`, versions: [tg(n * 10 + 1), tg(n * 10 + 2), tg(n * 10 + 3)] });
+const SMALL = (n: number) => ({ level: "small", digest: `small thing ${n} works better`, web: [{ tag: "new", title: { en: `Small thing ${n}`, es: "Tu saldo en la página de cada moneda" }, body: { en: "Each coin page now shows how much of that coin you hold. Its value in dollars sits right next to it.", es: "WEBES La página de cada moneda muestra ahora cuánto tienes. Al lado aparece su valor en dólares." } }], versions: [tg(n * 10 + 1), tg(n * 10 + 2), tg(n * 10 + 3)] });
 
 test("a SMALL update gets no draft: it is kept for Monday, and the admin only gets a note", async () => {
   const s = await setup(fakeX(), SMALL(1));
