@@ -28,7 +28,7 @@ function Picture({ step }: { step: number }) {
   const src = TUTORIAL_IMAGES[step];
   if (src) {
     // eslint-disable-next-line @next/next/no-img-element -- a small, fixed illustration from /public
-    return <img src={src} alt="" className="h-28 w-28 shrink-0 object-contain sm:h-24 sm:w-24" />;
+    return <img src={src} alt="" width={320} height={320} className="h-32 w-32 shrink-0 rounded-2xl bg-black object-contain sm:h-28 sm:w-28" />;
   }
   return (
     <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-2xl border border-dashed border-paper/20 bg-paper/5 sm:h-24 sm:w-24" aria-hidden>

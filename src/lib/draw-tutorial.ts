@@ -11,7 +11,7 @@ export const TUTORIAL_SEEN_KEY = "panda.draw.tutorial.seen";
  * The picture of each step (public/tutorial/tutorial-1.png … tutorial-4.png). `null` = not delivered yet: a neutral
  * placeholder is shown instead — never an invented illustration, and never a request for a file that isn't there.
  */
-export const TUTORIAL_IMAGES: (string | null)[] = [null, null, null, null];
+export const TUTORIAL_IMAGES: (string | null)[] = ["/tutorial/tutorial-1.png", "/tutorial/tutorial-2.png", "/tutorial/tutorial-3.png", "/tutorial/tutorial-4.png"];
 
 export const TUTORIAL_STEPS: DictKey[] = ["tutorial.step1", "tutorial.step2", "tutorial.step3", "tutorial.step4"];
 

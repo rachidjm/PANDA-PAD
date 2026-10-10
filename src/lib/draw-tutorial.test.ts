@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { moveStep, shouldAutoShow, TUTORIAL_IMAGES, TUTORIAL_STEPS } from "./draw-tutorial";
 import { hasUnseen } from "./updates/seen";
 import { dict } from "./i18n/translations";
@@ -11,7 +12,8 @@ test("the tutorial has four steps, each with its text in English and Spanish and
     const entry = (dict as Record<string, { en: string; es: string }>)[key];
     assert.ok(entry.en.length > 10 && entry.es.length > 10 && entry.en !== entry.es, key);
   }
-  for (const src of TUTORIAL_IMAGES) assert.ok(src === null || /^\/tutorial\/tutorial-[1-4]\.(png|webp)$/.test(src), String(src));
+  // Every picture that is named must really be in /public (a missing file would be a broken image).
+  for (const src of TUTORIAL_IMAGES) assert.ok(src === null || (/^\/tutorial\/tutorial-[1-4]\.(png|webp)$/.test(src) && existsSync(`public${src}`)), String(src));
 });
 
 test("it opens by itself only the first time the panel is open; never while the panel is folded, never once seen", () => {
