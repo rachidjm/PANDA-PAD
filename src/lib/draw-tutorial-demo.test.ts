@@ -57,7 +57,7 @@ test("closing restores the panel exactly: the real controls are only hidden whil
 
 test("on a desktop the card sits beside the lit zone — never on top of it, always inside the window", () => {
   const win = { width: 1280, height: 800 };
-  const card = { width: 340, height: 230 };
+  const card = { width: 540, height: 96 };
   const zones: Box[] = [
     { top: 500, left: 60, width: 220, height: 40 }, // the tabs
     { top: 560, left: 60, width: 600, height: 44 }, // the % row
@@ -73,10 +73,10 @@ test("on a desktop the card sits beside the lit zone — never on top of it, alw
     assert.ok(!overlaps(box, zone), `covers the zone: ${JSON.stringify({ zone, at })}`);
     assert.ok(at.left >= 0 && at.top >= 0 && at.left + card.width <= win.width && at.top + card.height <= win.height, `outside the window: ${JSON.stringify({ zone, at })}`);
   }
-  assert.deepEqual(cardPlacement(zones[0], card, win), { top: 405, left: 294 }, "to the right when there is room");
-  assert.equal(cardPlacement(zones[4], card, win).left, 900 - 14 - 340, "to the left at the right edge");
+  assert.deepEqual(cardPlacement(zones[0], card, win), { top: 472, left: 294 }, "to the right when there is room");
+  assert.equal(cardPlacement(zones[4], card, win).left, 900 - 14 - 540, "to the left at the right edge");
   // A zone as big as the window leaves no free side: the card goes to the bottom corner.
-  assert.deepEqual(cardPlacement({ top: 0, left: 0, width: 1280, height: 800 }, card, win), { top: 800 - 230 - 14, left: 1280 - 340 - 14 });
+  assert.deepEqual(cardPlacement({ top: 0, left: 0, width: 1280, height: 800 }, card, win), { top: 800 - 96 - 14, left: 1280 - 540 - 14 });
 });
 
 test("motion is optional: with 'reduce motion' there is no hand and no loop, and the pulse becomes a still outline", () => {

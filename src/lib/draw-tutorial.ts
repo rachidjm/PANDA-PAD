@@ -13,6 +13,8 @@ export const TUTORIAL_SEEN_KEY = "panda.draw.tutorial.seen";
  */
 export const TUTORIAL_IMAGES: (string | null)[] = ["/tutorial/tutorial-1.png", "/tutorial/tutorial-2.png", "/tutorial/tutorial-3.png", "/tutorial/tutorial-4.png"];
 
+/** Each step is a short title in bold and ONE line under it. */
+export const TUTORIAL_TITLES: DictKey[] = ["tutorial.title1", "tutorial.title2", "tutorial.title3", "tutorial.title4"];
 export const TUTORIAL_STEPS: DictKey[] = ["tutorial.step1", "tutorial.step2", "tutorial.step3", "tutorial.step4"];
 
 /** It opens by itself only the first time the panel is opened; after that, only from its own button. */

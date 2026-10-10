@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
-import { cardPlacement, demoView, moveStep, TUTORIAL_IMAGES, TUTORIAL_STEPS, TUTORIAL_TARGETS, type Box, type DemoView } from "@/lib/draw-tutorial";
+import { cardPlacement, demoView, moveStep, TUTORIAL_IMAGES, TUTORIAL_STEPS, TUTORIAL_TARGETS, TUTORIAL_TITLES, type Box, type DemoView } from "@/lib/draw-tutorial";
 import { PCT_ROW } from "@/lib/strategy/allocation";
 
 /**
@@ -19,7 +19,7 @@ import { PCT_ROW } from "@/lib/strategy/allocation";
 
 const SLOT_ID = "draw-tutorial-demo";
 const PAD = 6;
-const CARD_W = 340;
+const CARD_W = 540;
 
 function useMedia(query: string): boolean {
   return useSyncExternalStore(
@@ -52,11 +52,11 @@ function Picture({ step }: { step: number }) {
   const src = TUTORIAL_IMAGES[step];
   if (src) {
     // eslint-disable-next-line @next/next/no-img-element -- a small, fixed illustration from /public
-    return <img src={src} alt="" width={320} height={320} className="h-24 w-24 shrink-0 rounded-2xl bg-black object-contain sm:h-20 sm:w-20" />;
+    return <img src={src} alt="" width={320} height={320} className="h-14 w-14 shrink-0 rounded-xl bg-black object-contain" />;
   }
   return (
-    <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl border border-dashed border-paper/20 bg-paper/5 sm:h-20 sm:w-20" aria-hidden>
-      <span className="font-display text-3xl font-bold text-paper/30">{step + 1}</span>
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-dashed border-paper/20 bg-paper/5" aria-hidden>
+      <span className="font-display text-xl font-bold text-paper/30">{step + 1}</span>
     </div>
   );
 }
@@ -135,7 +135,7 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
   const [target, setTarget] = useState<Box | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const [cardHeight, setCardHeight] = useState(230);
+  const [cardHeight, setCardHeight] = useState(96);
 
   const tapped = still || beat === 2;
   const view = demoView(step, tapped);
@@ -224,51 +224,59 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
   const lit = target && { top: target.top - PAD, left: target.left - PAD, width: target.width + PAD * 2, height: target.height + PAD * 2 };
   const point = hitPoint(step, target);
   const hand = !still && step < 3 && point ? (beat === 0 ? { x: point.x + 46, y: point.y + 58 } : point) : null;
-  const small = "min-h-9 whitespace-nowrap rounded-full px-3.5 text-xs font-semibold transition sm:min-h-8";
+  const small = "min-h-9 whitespace-nowrap rounded-full px-3 text-xs font-semibold transition sm:min-h-8";
+  const last = step === total - 1;
 
+  // A low, wide card: the small panda, a bold title with ONE line under it, and the buttons — in the same row on a
+  // desktop, under the text on a phone. The counter and the ✕ are small, in the top right corner.
   const card = (
-    <div ref={cardRef} role="dialog" aria-modal="true" aria-labelledby="draw-tutorial-title" className="text-paper">
-      <div className="flex items-center justify-between gap-3">
-        <p id="draw-tutorial-title" className="text-xs font-semibold uppercase tracking-wide text-panda-grey">
-          {t("tutorial.title")} · {step + 1}/{total}
-        </p>
-        <button type="button" onClick={onClose} aria-label={t("tutorial.skip")} className="flex h-9 w-9 items-center justify-center rounded-full text-panda-grey transition-colors hover:bg-paper/10 hover:text-paper">
-          <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+    <div ref={cardRef} role="dialog" aria-modal="true" aria-labelledby="draw-tutorial-title" className="relative text-paper">
+      <div className="absolute -right-1.5 -top-1.5 flex items-center gap-0.5">
+        <span className="text-[10px] font-semibold tabular-nums text-panda-grey" aria-label={`${t("tutorial.title")} ${step + 1}/${total}`}>
+          {step + 1}/{total}
+        </span>
+        <button type="button" onClick={onClose} aria-label={t("tutorial.skip")} className="flex h-7 w-7 items-center justify-center rounded-full text-panda-grey transition-colors hover:bg-paper/10 hover:text-paper">
+          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
             <path d="M2 2l8 8M10 2l-8 8" />
           </svg>
         </button>
       </div>
-      <div className="mt-1 flex items-center gap-3.5">
-        <Picture step={step} />
-        <p className="text-sm leading-relaxed text-paper/90" aria-live="polite">
-          {t(TUTORIAL_STEPS[step])}
-        </p>
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-3">
-        {/* On the last step "Entendido" is the way out, so "Saltar" would only crowd the row. */}
-        <button type="button" onClick={onClose} className={`min-h-9 text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper sm:min-h-8 ${step === total - 1 ? "invisible" : ""}`} tabIndex={step === total - 1 ? -1 : 0}>
-          {t("tutorial.skip")}
-        </button>
-        <div className="flex items-center gap-2">
-          {step > 0 && (
-            <button type="button" onClick={() => go("back")} className={`${small} border border-paper/15 text-paper/80 hover:text-paper`}>
-              {t("tutorial.back")}
-            </button>
-          )}
-          {step === total - 1 ? (
-            <>
-              <button type="button" onClick={onClose} className={`${small} border border-paper/15 text-paper/80 hover:text-paper`}>
-                {t("tutorial.done")}
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 pr-12 sm:pr-0">
+          <Picture step={step} />
+          <div className="min-w-0" aria-live="polite">
+            <p id="draw-tutorial-title" className="text-sm font-bold leading-snug">
+              {t(TUTORIAL_TITLES[step])}
+            </p>
+            <p className="mt-0.5 text-xs leading-snug text-paper/70">{t(TUTORIAL_STEPS[step])}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-1.5 sm:justify-end sm:pr-11">
+          {/* On the last step "Entendido" is the way out, so "Saltar" would only crowd the row. */}
+          <button type="button" onClick={onClose} className={`min-h-9 px-1.5 text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper sm:min-h-8 ${last ? "invisible sm:hidden" : ""}`} tabIndex={last ? -1 : 0}>
+            {t("tutorial.skip")}
+          </button>
+          <div className="flex items-center gap-1.5">
+            {step > 0 && (
+              <button type="button" onClick={() => go("back")} className={`${small} border border-paper/15 text-paper/80 hover:text-paper`}>
+                {t("tutorial.back")}
               </button>
-              <button type="button" onClick={onTry} className={`${small} bg-bamboo text-ink hover:brightness-95`}>
-                {t("tutorial.try")}
+            )}
+            {last ? (
+              <>
+                <button type="button" onClick={onClose} className={`${small} border border-paper/15 text-paper/80 hover:text-paper`}>
+                  {t("tutorial.done")}
+                </button>
+                <button type="button" onClick={onTry} className={`${small} bg-bamboo text-ink hover:brightness-95`}>
+                  {t("tutorial.try")}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => go("next")} className={`${small} bg-paper text-ink hover:brightness-90`}>
+                {t("tutorial.next")}
               </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => go("next")} className={`${small} bg-paper text-ink hover:brightness-90`}>
-              {t("tutorial.next")}
-            </button>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -309,10 +317,10 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
           )}
           {hand && <Hand at={hand} pressed={beat === 2} />}
           {phone ? (
-            <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-paper/15 bg-ink-raised px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-2xl">{card}</div>
+            <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-paper/15 bg-ink-raised px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3.5 shadow-2xl">{card}</div>
           ) : (
             <div
-              className={`fixed rounded-2xl border border-paper/15 bg-ink-raised p-4 shadow-2xl ${still ? "" : "transition-[top,left] duration-300 ease-out"}`}
+              className={`fixed rounded-2xl border border-paper/15 bg-ink-raised p-3 shadow-2xl ${still ? "" : "transition-[top,left] duration-300 ease-out"}`}
               style={{ width: CARD_W, ...(place ?? { top: window.innerHeight - cardHeight - 16, left: window.innerWidth - CARD_W - 16 }) }}
             >
               {card}

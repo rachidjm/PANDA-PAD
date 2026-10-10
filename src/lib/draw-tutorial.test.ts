@@ -1,16 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { moveStep, shouldAutoShow, TUTORIAL_IMAGES, TUTORIAL_STEPS } from "./draw-tutorial";
+import { moveStep, shouldAutoShow, TUTORIAL_IMAGES, TUTORIAL_STEPS, TUTORIAL_TITLES } from "./draw-tutorial";
 import { hasUnseen } from "./updates/seen";
 import { dict } from "./i18n/translations";
 
 test("the tutorial has four steps, each with its text in English and Spanish and a picture slot", () => {
   assert.equal(TUTORIAL_STEPS.length, 4);
   assert.equal(TUTORIAL_IMAGES.length, 4);
-  for (const key of TUTORIAL_STEPS) {
+  assert.equal(TUTORIAL_TITLES.length, 4);
+  for (const key of [...TUTORIAL_TITLES, ...TUTORIAL_STEPS]) {
     const entry = (dict as Record<string, { en: string; es: string }>)[key];
-    assert.ok(entry.en.length > 10 && entry.es.length > 10 && entry.en !== entry.es, key);
+    assert.ok(entry.en.length > 5 && entry.es.length > 5 && entry.en !== entry.es, key);
   }
   // Every picture that is named must really be in /public (a missing file would be a broken image).
   for (const src of TUTORIAL_IMAGES) assert.ok(src === null || (/^\/tutorial\/tutorial-[1-4]\.(png|webp)$/.test(src) && existsSync(`public${src}`)), String(src));
