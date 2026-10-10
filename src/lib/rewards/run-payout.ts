@@ -3,8 +3,7 @@ import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@sol
 import { getLedger, unclaimedLamports, reserveClaim, markClaimSent, confirmClaim, releaseClaim, type Reservation } from "./ledger";
 import { batchPayouts, computeEligiblePayouts, shouldRunPayout, type HolderBalance } from "./payout";
 import { reserveDailyPayout, releaseDailyPayout, MAX_CLAIM_LAMPORTS, HOLDER_PAYOUT_MIN_LAMPORTS } from "./limits";
-import { getRawSharingConfig } from "@/lib/pump/fee-sharing";
-import { PANDA_TREASURY, PANDA_REWARDS_POOL } from "@/lib/pump/constants";
+import { ineligibleHolders } from "./eligible";
 import { alertOps } from "@/lib/alerts";
 import { getDb, DbNotConfiguredError } from "@/lib/db/client";
 import { pgOpenClaims, pgRecordPayoutRun } from "@/lib/db/rewards";
@@ -20,7 +19,6 @@ import { pgOpenClaims, pgRecordPayoutRun } from "@/lib/db/rewards";
  */
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
-const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111111111112";
 /** Transfers per transaction — well inside Solana's ~1232-byte transaction size limit for plain SystemProgram
  *  transfers (each is ~64 bytes of instruction data plus 2 account keys), with headroom for the fee payer. */
 const BATCH_SIZE = 10;
@@ -99,27 +97,10 @@ export async function runHolderPayout(connection: Connection, signer: Keypair, m
       return { ran: false, reason: "below_threshold", holdersPaid: 0, lamportsPaid: 0, signatures: [] };
     }
 
-    // Exclude: this coin's own fee-split shareholders (the creator, PANDA's treasury, the Rewards Pool itself —
-    // they're paid their own share directly by distributeCreatorFees already, never again from the Holders
-    // pool), and anything that isn't a plain, ordinary wallet (the bonding curve, the AMM pool, any other
-    // program-derived account) — checked for real against what each address's account is actually owned by,
-    // never guessed from a PDA derivation that could silently go stale with an SDK update.
-    const mintKey = new PublicKey(mint);
-    const raw = await getRawSharingConfig(connection, mintKey).catch(() => null);
-    const exclude = new Set<string>([
-      ...(raw ? raw.config.shareholders.map((s) => s.address.toBase58()) : []),
-      PANDA_TREASURY.toBase58(),
-      ...(PANDA_REWARDS_POOL ? [PANDA_REWARDS_POOL.toBase58()] : []),
-    ]);
-
-    const candidates = wallets.filter((w) => !exclude.has(w) && unclaimedLamports(ledger, w) > 0);
-    if (candidates.length > 0) {
-      const infos = await connection.getMultipleAccountsInfo(candidates.map((w) => new PublicKey(w)));
-      candidates.forEach((w, i) => {
-        const owner = infos[i]?.owner?.toBase58();
-        if (owner && owner !== SYSTEM_PROGRAM_ID) exclude.add(w);
-      });
-    }
+    // Never paid from the Holders pool: the coin's own fee-split shareholders and anything that isn't an ordinary wallet
+    // (the bonding curve, the AMM pool...) — the same rule a distribution is split with (eligible.ts). Checked again
+    // here so a wallet credited under an older rule still can't be paid.
+    const exclude = await ineligibleHolders(connection, mint, wallets.filter((w) => unclaimedLamports(ledger, w) > 0));
 
     const balances: HolderBalance[] = wallets.map((w) => ({ wallet: w, unclaimedLamports: unclaimedLamports(ledger, w) }));
     const eligible = computeEligiblePayouts(balances, { exclude, minPerWalletLamports: MIN_PAYOUT_LAMPORTS_PER_WALLET, maxPerWalletLamports: MAX_CLAIM_LAMPORTS });

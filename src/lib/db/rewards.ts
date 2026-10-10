@@ -217,3 +217,13 @@ export async function pgHolderRewardsReceivedByWallet(db: Db, wallet: string): P
     .where(and(eq(rewardBalances.wallet, wallet), sql`${rewardBalances.claimedLamports} > 0`));
   return rows;
 }
+
+/** Of these transaction signatures, the ones the ledger already knows: a distribution that was credited, or a payout it sent. */
+export async function pgKnownRewardSignatures(db: Db, signatures: string[]): Promise<Set<string>> {
+  if (signatures.length === 0) return new Set();
+  const [credited, paid] = await Promise.all([
+    db.select({ sig: rewardDistributions.sourceSig }).from(rewardDistributions).where(inArray(rewardDistributions.sourceSig, signatures)),
+    db.select({ sig: rewardClaims.signature }).from(rewardClaims).where(inArray(rewardClaims.signature, signatures)),
+  ]);
+  return new Set([...credited, ...paid].map((r) => r.sig).filter((s): s is string => !!s));
+}

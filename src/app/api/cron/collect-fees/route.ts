@@ -3,7 +3,8 @@ import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { Connection, Keypair } from "@solana/web3.js";
 import { getRegisteredMints } from "@/lib/rewards/registry";
-import { creditHolders, getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
+import { getLedger, unclaimedLamports } from "@/lib/rewards/ledger";
+import { catchUpDistributions, creditDistribution } from "@/lib/rewards/credit";
 import { resolveOpenClaims, runHolderPayout } from "@/lib/rewards/run-payout";
 import { getRewardsPoolSigner } from "@/lib/pump/rewards-pool-signer";
 import { alertOps } from "@/lib/alerts";
@@ -11,8 +12,6 @@ import { pausedResponse } from "@/lib/protocol/guard";
 import { checkActive } from "@/lib/protocol/pause-store";
 import { recordAudit } from "@/lib/audit/log";
 import { collectFeesForMint, CREATOR_FEE_DISTRIBUTE_MIN_LAMPORTS } from "@/lib/pump/distribute";
-import { getTokenHolders } from "@/lib/solana/holders";
-import { computeHolderCredits } from "@/lib/rewards/split";
 import { recordActivity } from "@/lib/activity/record";
 import { breakdown } from "@/lib/economy/shares";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
@@ -76,6 +75,24 @@ export async function GET(req: Request) {
       return { ran: outcome.ran, reason: outcome.reason, holdersPaid: outcome.holdersPaid, lamportsPaid: outcome.lamportsPaid };
     }
 
+    // Distributions that paid the pool and never reached the ledger (holders unreadable at the time, or triggered by
+    // the coin's creator by hand): booked now, from the chain. Before the loop, so this run's own distributions go
+    // through the normal path below. A failure here never stops the collection.
+    let caughtUp = 0;
+    if (payoutSigner) {
+      try {
+        const late = await catchUpDistributions(connection, payoutSigner.publicKey, mints);
+        caughtUp = late.credited.length;
+        for (const d of late.credited) {
+          console.log(`[PANDA rewards] credited a pending distribution: ${d.mint} ${d.lamports} lamports to ${d.holdersCredited} holder(s)`);
+          await recordActivity({ id: `fees:${d.signature}`, kind: "fee_distribution", ts: d.blockTimeMs ?? Date.now(), mint: d.mint, lamports: d.lamports, signature: d.signature }, { distributions: 1, creatorFeePoolLamports: d.lamports });
+        }
+        if (late.waiting > 0) console.warn(`[PANDA rewards] ${late.waiting} distribution(s) still have no holders to credit`);
+      } catch (err) {
+        console.error("[PANDA rewards] catching up pending distributions failed", err);
+      }
+    }
+
     for (const mint of mints) {
       if (Date.now() - started > TIME_BUDGET_MS) break;
       try {
@@ -108,16 +125,15 @@ export async function GET(req: Request) {
           };
         })());
 
-        const holders = await getTokenHolders(connection, mint);
-        if (holders.length === 0) {
-          results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: 0, payout: await tryPayout(mint) });
-          continue;
+        // Only the coin's real holders are credited (never the bonding curve, the pool or the fee-split wallets). With
+        // nobody to credit yet, or if this fails, the distribution stays pending and the catch-up above books it later.
+        let holdersCredited = 0;
+        try {
+          holdersCredited = (await creditDistribution(connection, mint, distributed.lamports, distributed.signature)).holdersCredited;
+        } catch (err) {
+          await alertOps("A fee distribution was collected but its holders couldn't be credited yet — it will be retried", { mint, signature: distributed.signature, error: err instanceof Error ? err.message : String(err) });
         }
-
-        // Integer-exact split by raw token balance; the rounding remainder is recorded as dust, never lost.
-        const { credits, dust } = computeHolderCredits(holders, distributed.lamports);
-        await creditHolders(mint, distributed.lamports, credits, dust, distributed.signature);
-        results.push({ mint, distributedLamports: distributed.lamports, holdersCredited: credits.length, payout: await tryPayout(mint) });
+        results.push({ mint, distributedLamports: distributed.lamports, holdersCredited, payout: await tryPayout(mint) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error.";
         results.push({ mint, distributedLamports: null, holdersCredited: 0, error });
@@ -160,9 +176,11 @@ export async function GET(req: Request) {
         distributedLamports: results.reduce((sum, r) => sum + (r.distributedLamports ?? 0), 0),
         payoutHolders,
         payoutLamports,
+        holdersCredited: results.reduce((sum, r) => sum + r.holdersCredited, 0),
+        caughtUp,
       },
     });
-    return NextResponse.json({ processed: results.length, ofRegistered: mints.length, payoutHolders, payoutLamports, results });
+    return NextResponse.json({ processed: results.length, ofRegistered: mints.length, payoutHolders, payoutLamports, caughtUp, results });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Cron run failed.";
     await alertOps("collect-fees cron run failed", { error: message });
