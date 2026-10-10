@@ -30,7 +30,7 @@ export function parseUpdate(raw: unknown): ParsedUpdate {
     const from = cb.from as Record<string, unknown> | undefined;
     const chat = (cb.message as Record<string, unknown> | undefined)?.chat as Record<string, unknown> | undefined;
     const cmsg = cb.message as Record<string, unknown> | undefined;
-    if (typeof cb.id !== "string" || cb.id.length > 64 || typeof cb.data !== "string" || !/^[a-z_]{1,32}$/.test(cb.data)) return { kind: "ignored", updateId };
+    if (typeof cb.id !== "string" || cb.id.length > 64 || typeof cb.data !== "string" || !/^[a-z0-9_]{1,40}$/.test(cb.data)) return { kind: "ignored", updateId };
     if (!from || !int(from.id) || from.id <= 0 || from.is_bot === true) return { kind: "ignored", updateId };
     if (!chat || !int(chat.id) || typeof chat.type !== "string" || !CHAT_TYPES.has(chat.type)) return { kind: "ignored", updateId };
     const threadId = cmsg && int(cmsg.message_thread_id) && cmsg.message_thread_id > 0 && cmsg.is_topic_message === true ? cmsg.message_thread_id : undefined;

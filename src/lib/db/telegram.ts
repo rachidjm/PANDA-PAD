@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, max, ne, sql } from "drizzle-orm";
 import type { Db } from "./client";
-import { holderPayoutRuns, pandaLaunches, telegramAlerts, telegramLinkCodes, telegramOutbox, telegramState, telegramSuggestions, telegramUpdates, telegramUsers, telegramWatchlist } from "./schema";
+import { holderPayoutRuns, pandaLaunches, telegramAlerts, telegramChangelogs, telegramLinkCodes, telegramOutbox, telegramState, telegramSuggestions, telegramUpdates, telegramUsers, telegramWatchlist } from "./schema";
 
 /** The Telegram bot's tables (src/lib/telegram). Every "only once" rule is a conditional statement, never read-then-write. */
 
@@ -250,4 +250,31 @@ export async function tgPayoutRunsSince(db: Db, since: number): Promise<{ mint: 
     .select({ mint: holderPayoutRuns.mint, holdersPaid: holderPayoutRuns.holdersPaid, lamportsPaid: holderPayoutRuns.lamportsPaid })
     .from(holderPayoutRuns)
     .where(and(eq(holderPayoutRuns.status, "done"), gt(holderPayoutRuns.holdersPaid, 0), gte(holderPayoutRuns.finishedAt, new Date(since))));
+}
+
+// ── changelog drafts ────────────────────────────────────────────────────────────────────────────────────────────────
+
+export type ChangelogRow = typeof telegramChangelogs.$inferSelect;
+
+export async function tgInsertChangelog(db: Db, c: { id: string; text: string; now: number }): Promise<void> {
+  await db.insert(telegramChangelogs).values({ id: c.id, text: c.text, status: "pending", createdAt: c.now });
+}
+
+export async function tgGetChangelog(db: Db, id: string): Promise<ChangelogRow | null> {
+  const [row] = await db.select().from(telegramChangelogs).where(eq(telegramChangelogs.id, id)).limit(1);
+  return row ?? null;
+}
+
+/** pending → published / discarded, ONCE: a draft already decided returns null (so it can never be published twice). */
+export async function tgDecideChangelog(db: Db, id: string, status: "published" | "discarded", by: number, now: number): Promise<ChangelogRow | null> {
+  const [row] = await db
+    .update(telegramChangelogs)
+    .set({ status, decidedBy: by, decidedAt: now })
+    .where(and(eq(telegramChangelogs.id, id), eq(telegramChangelogs.status, "pending")))
+    .returning();
+  return row ?? null;
+}
+
+export async function tgListChangelogs(db: Db, limit = 20): Promise<ChangelogRow[]> {
+  return db.select().from(telegramChangelogs).orderBy(desc(telegramChangelogs.createdAt)).limit(limit);
 }

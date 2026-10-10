@@ -1,7 +1,7 @@
 "use client";
 
 import { sanitizeDecimalInput } from "@/lib/trading/input";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { confirmSignature } from "@/lib/solana/confirm";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
@@ -21,6 +21,7 @@ import { useRates } from "@/components/coin/useRates";
 import { usePriceImpact } from "@/components/coin/usePriceImpact";
 import { PRICE_IMPACT_HIGH_PCT, PRICE_IMPACT_WARN_PCT } from "@/lib/strategy/plan";
 import PayWithSelect, { type PayOption } from "@/components/coin/PayWithSelect";
+import { compactAmount, holdingValue, isRejection, settleByBalance } from "@/lib/trading/outcome";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const VIEW_SYMBOL: Record<Exclude<ViewUnit, "ASSET">, string> = { USD: "$", EUR: "€" };
@@ -29,14 +30,19 @@ const SOL_PRESETS = [0.1, 0.5, 1];
 const TOKEN_PCT_PRESETS = [25, 50, 75];
 const sellPresets = [25, 50, 75, 100];
 
-type Status = "idle" | "building" | "signing" | "sending" | "confirming" | "done" | "error";
+/** "checking": the wallet or the confirmation didn't give a straight answer, so the chain is being asked what happened.
+ *  "pending": sent, still neither confirmed nor failed — neither a success nor an error is claimed. */
+type Status = "idle" | "building" | "signing" | "sending" | "confirming" | "checking" | "pending" | "done" | "error";
+
+/** Other parts of the page (Draw Your Trade) re-read the wallet's balance of the coin when a trade lands. */
+export const BALANCE_EVENT = "panda:balance-changed";
 
 export default function TradingPanel({ coin }: { coin: Coin }) {
   const { connection } = useConnection();
   const readConnection = useReadConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const feeBps = useFeeBps(connected ? publicKey?.toBase58() : null);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   // The "· priced with a code" suffix only ever appears for a wallet that is ACTUALLY paying less — never as a
   // pitch to someone who isn't, see src/lib/referrals/client.ts's ReferralWelcomeBanner for where that pitch belongs instead.
   const feeLabel = (key: "trading.pandaFee" | "trading.pandaFeeSol") => `${t(key, { pct: feeBps / 100 })}${feeBps < PANDA_FEE_BPS ? t("trading.pricedWithCode") : ""}`;
@@ -70,6 +76,22 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
   const [error, setError] = useState("");
   const [signature, setSignature] = useState("");
   const [impactAck, setImpactAck] = useState(false);
+  // Bumped a few times after a trade lands: the RPC can take a moment to show the new balances.
+  const [refresh, setRefresh] = useState(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  /** The wallet's balance of this coin in raw units, read fresh (every token account of the mint). null = unknown. */
+  const readTokenRaw = useCallback(async (): Promise<bigint | null> => {
+    if (!publicKey) return null;
+    const res = await readConnection.getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(coin.mint) });
+    return res.value.reduce((sum, a) => sum + BigInt(a.account.data.parsed?.info?.tokenAmount?.amount ?? "0"), BigInt(0));
+  }, [publicKey, readConnection, coin.mint]);
 
   const graduated = coin.source === "pumpswap";
   const externalDex = coin.source === "other";
@@ -89,7 +111,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, status]);
+  }, [connected, publicKey, status, refresh]);
 
   useEffect(() => {
     if (!connected || !publicKey) return;
@@ -105,7 +127,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, readConnection, status]);
+  }, [connected, publicKey, readConnection, status, refresh]);
 
   // Real on-chain balance of this specific token, used for the Sell % presets.
   useEffect(() => {
@@ -116,7 +138,7 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       .then((res) => {
         if (cancelled) return;
         const info = res.value[0]?.account.data.parsed?.info?.tokenAmount;
-        setTokenBalance(info?.uiAmount ?? 0);
+        setTokenBalance(res.value.reduce((sum, a) => sum + (a.account.data.parsed?.info?.tokenAmount?.uiAmount ?? 0), 0));
         if (info?.decimals !== undefined) setTokenDecimals(info.decimals);
       })
       .catch(() => {
@@ -125,7 +147,14 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, readConnection, coin.mint, status]);
+  }, [connected, publicKey, readConnection, coin.mint, status, refresh]);
+  // …and every 30 s while the page is visible, so the "you hold" line also follows what happens outside this box
+  // (an order that executed, a transfer).
+  useEffect(() => {
+    if (!connected) return;
+    const tick = setInterval(() => document.visibilityState !== "hidden" && setRefresh((n) => n + 1), 30_000);
+    return () => clearInterval(tick);
+  }, [connected]);
 
   const displaySol = connected ? solBalance : null;
   const displayTokens = connected ? tokenBalance : null;
@@ -241,6 +270,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
     if (side === "sell" && !(amt > 0)) return;
     setError("");
     setSignature("");
+    let sig: string | undefined;
+    let beforeRaw: bigint | null | undefined; // undefined until the wallet is about to be asked
     try {
       setStatus("building");
       // Graduated coins trade on PumpSwap — the real pool address is
@@ -275,42 +306,86 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
         ? base64ToVersionedTransaction(data.transaction)
         : base64ToTransaction(data.transaction);
 
+      // The balance BEFORE, so that whatever the wallet or the RPC say afterwards, the chain can be asked what happened.
+      beforeRaw = await readTokenRaw().catch(() => null);
       setStatus("signing");
-      const sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+      sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
+      setSignature(sig);
 
       setStatus("confirming");
       await confirmSignature(connection, sig);
-
-      setSignature(sig);
-      setStatus("done");
-
-      // Best-effort — the trade itself already succeeded either way; this
-      // just adds it to the wallet's real trade history for Portfolio's
-      // open/closed positions view.
-      // Not for a buy paid with a token: the trade log prices a buy by the SOL that left the wallet, which here is only the fee.
-      if (publicKey && (side === "sell" || paidInSol)) {
-        fetch("/api/portfolio/record-trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ wallet: publicKey.toBase58(), mint: coin.mint, ticker: coin.ticker, side, signature: sig }),
-        }).catch(() => {});
-      }
-
-      setTimeout(() => {
-        setStatus("idle");
-        setAmount("");
-      }, 4000);
+      landed(sig);
     } catch (err) {
+      // Said no in the wallet, or the transaction landed and FAILED: both are certain, and both are shown as they are.
+      if (isRejection(err) || err instanceof TxFailedError || !sent()) return fail(err);
+      // Anything else (a wallet that errors after broadcasting, a confirmation that timed out, a flaky RPC) proves
+      // nothing either way: the coin's balance in the wallet does.
+      setStatus("checking");
+      if ((await settleByBalance({ side, beforeRaw: beforeRaw ?? null, read: readTokenRaw })) === "landed") return landed(sig);
+      if (!sig) return fail(err);
+      // Sent, and still neither confirmed nor failed: say exactly that, and keep asking in the background.
+      setStatus("pending");
+      const pendingSig = sig;
+      confirmSignature(connection, pendingSig, 180_000).then(
+        () => alive.current && landed(pendingSig),
+        (late) => alive.current && (late instanceof TxFailedError ? fail(late) : undefined)
+      );
+    }
+
+    /** Past the point where the wallet may have broadcast it (it was asked to sign and send). */
+    function sent() {
+      return beforeRaw !== undefined;
+    }
+    function fail(err: unknown) {
       setStatus("error");
       const e = explainError(err);
       setError(typeof e === "string" ? e : t(e.key));
     }
+    function landed(landedSig: string | undefined) {
+      if (landedSig) setSignature(landedSig);
+      setStatus("done");
+      // The new balances, now and again in a moment (the RPC can lag a few seconds) — here and in Draw Your Trade.
+      for (const ms of [0, 2500, 7000]) {
+        setTimeout(() => {
+          if (!alive.current) return;
+          setRefresh((n) => n + 1);
+          window.dispatchEvent(new Event(BALANCE_EVENT));
+        }, ms);
+      }
+      // Best-effort — the trade itself already succeeded either way; this
+      // just adds it to the wallet's real trade history for Portfolio's
+      // open/closed positions view.
+      // Not for a buy paid with a token: the trade log prices a buy by the SOL that left the wallet, which here is only the fee.
+      if (publicKey && landedSig && (side === "sell" || paidInSol)) {
+        fetch("/api/portfolio/record-trade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ wallet: publicKey.toBase58(), mint: coin.mint, ticker: coin.ticker, side, signature: landedSig }),
+        }).catch(() => {});
+      }
+      setTimeout(() => {
+        if (!alive.current) return;
+        setStatus("idle");
+        setAmount("");
+      }, 4000);
+    }
   }
 
-  const busy = status !== "idle" && status !== "error" && status !== "done";
+  const busy = status !== "idle" && status !== "error" && status !== "done" && status !== "pending";
+  const holdValue = displayTokens !== null && displayTokens > 0 ? holdingValue(displayTokens, coin.livePriceUsd, lang) : null;
 
   return (
     <div className="rounded-[22px] border border-paper/10 bg-ink-raised p-4">
+      {/* What this wallet holds of this coin — only when it holds some. */}
+      {displayTokens !== null && displayTokens > 0 && (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-1.5 rounded-xl bg-bamboo/10 px-3 py-2 text-xs text-paper/90" data-testid="holding">
+          <span className="text-panda-grey">{t("trading.youHold")}</span>
+          <span className="font-semibold tabular-nums text-paper">
+            {compactAmount(displayTokens, lang)} {coin.ticker}
+          </span>
+          {holdValue && <span className="tabular-nums text-panda-grey">· ≈ {holdValue}</span>}
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-1.5">
         <button
           onClick={() => setSide("buy")}
@@ -584,6 +659,10 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           ? t("trading.sending")
           : status === "confirming"
           ? t("trading.confirmingOnChain")
+          : status === "checking"
+          ? t("trading.checkingChain")
+          : status === "pending"
+          ? t("trading.pendingShort")
           : status === "done"
           ? t(side === "buy" ? "trading.bought" : "trading.sold")
           : t(side === "buy" ? "trading.buyLabel" : "trading.sellLabel", { ticker: coin.ticker })}
@@ -594,7 +673,12 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
           {error}
         </p>
       )}
-      {status === "done" && signature && (
+      {status === "pending" && (
+        <p className="mt-3 text-center text-xs text-sun" role="status">
+          {t("trading.pendingNote")}
+        </p>
+      )}
+      {(status === "done" || status === "pending") && signature && (
         <a
           href={`https://solscan.io/tx/${signature}`}
           target="_blank"

@@ -28,7 +28,7 @@ export async function guardOrders(req: Request, name: string, limit: number, opt
   return { wallet };
 }
 
-export const failure = (f: Failure) => NextResponse.json({ error: f.message, code: f.code, issues: f.issues }, { status: f.status });
+export const failure = (f: Failure) => NextResponse.json({ error: f.message, code: f.code, issues: f.issues, detail: f.detail }, { status: f.status });
 
 export async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   try {

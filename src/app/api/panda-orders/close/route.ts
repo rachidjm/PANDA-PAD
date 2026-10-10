@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (g instanceof NextResponse) return g;
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  const r = await closeNonces(realDeps(), { wallet: g.wallet, groupId: b.groupId, trancheId: b.trancheId, recover: b.recover });
+  const r = await closeNonces(realDeps(), { wallet: g.wallet, groupId: b.groupId, trancheId: b.trancheId, recover: b.recover, allOf: b.allOf });
   if (!r.ok) return failure(r);
   return NextResponse.json(r);
 }

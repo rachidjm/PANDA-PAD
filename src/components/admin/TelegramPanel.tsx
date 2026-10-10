@@ -21,6 +21,9 @@ type Status = {
   stats?: Record<string, number>;
   outbox?: Record<string, number>;
   suggestions?: { id: string; telegramId: number; text: string; createdAt: number }[];
+  changelogEnabled?: boolean;
+  hasChangelogSecret?: boolean;
+  changelogs?: { id: string; text: string; status: "pending" | "published" | "discarded"; decidedBy: number | null; decidedAt: number | null; createdAt: number }[];
   error?: string;
 };
 
@@ -169,6 +172,36 @@ export default function TelegramPanel() {
       )}
 
       {msg && <p className={`mt-3 text-xs ${msg.error ? "text-clay-red" : "text-bamboo"}`}>{msg.text}</p>}
+
+      {status?.changelogs && (
+        <>
+          <h3 className="mt-6 text-xs font-medium text-paper/80">
+            {t("admin.tg.changelog")} · {t(status.changelogEnabled && status.hasChangelogSecret ? "admin.tg.changelogOn" : "admin.tg.changelogOff")}
+          </h3>
+          {status.changelogs.length === 0 ? (
+            <p className="mt-1 text-xs text-panda-grey">{t("admin.tg.noChangelogs")}</p>
+          ) : (
+            <ul className="mt-2 max-h-80 space-y-1.5 overflow-y-auto text-xs">
+              {status.changelogs.map((c) => (
+                <li key={c.id} className="rounded-xl bg-ink px-3 py-2">
+                  <p className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-panda-grey">
+                    <span>{new Date(c.createdAt).toLocaleString()}</span>
+                    <span className={`rounded-full px-2 py-0.5 font-bold uppercase tracking-wide ${c.status === "published" ? "bg-bamboo/20 text-bamboo" : c.status === "discarded" ? "bg-paper/10 text-panda-grey" : "bg-sun/20 text-sun"}`}>
+                      {t(`admin.tg.changelog.${c.status}`)}
+                    </span>
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">{c.text}</p>
+                  {c.decidedAt && (
+                    <p className="mt-1 text-[10px] text-panda-grey">
+                      {new Date(c.decidedAt).toLocaleString()} · tg {c.decidedBy}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
 
       {status?.suggestions && (
         <>

@@ -38,12 +38,15 @@ export type Chain = {
   accounts: Map<string, AccountInfo<Buffer> | null>;
   balances: Map<string, bigint>; // wallet → raw balance of the coin
   landed: Map<string, boolean>; // signature → ok
+  sol: Map<string, number>; // wallet → lamports (missing = plenty)
+  sim: (bytes: Uint8Array, opts: { replaceBlockhash: boolean }) => { err: unknown; logs: string[] | null };
+  simulated: number;
   venue: FakeVenue | "unsupported";
   tokenUsd: number;
 };
 
 export function newChain(venue: FakeVenue | "unsupported" = fakeVenue()): Chain {
-  return { accounts: new Map(), balances: new Map(), landed: new Map(), venue, tokenUsd: 1 };
+  return { accounts: new Map(), balances: new Map(), landed: new Map(), sol: new Map(), sim: () => ({ err: null, logs: [] }), simulated: 0, venue, tokenUsd: 1 };
 }
 
 export function serviceDeps(db: Db, chain: Chain, over: Partial<Deps> = {}): Deps & { clock: { t: number }; audits: string[] } {
@@ -67,8 +70,14 @@ export function serviceDeps(db: Db, chain: Chain, over: Partial<Deps> = {}): Dep
     feeBps: async () => 100,
     feeInstructions: async (wallet, fee) => (fee > BigInt(0) ? [SystemProgram.transfer({ fromPubkey: wallet, toPubkey: TREASURY, lamports: fee })] : []),
     signatureStatuses: async (sigs) => sigs.map((s) => (chain.landed.has(s) ? { ok: chain.landed.get(s)! } : null)),
+    solBalance: async (wallet) => chain.sol.get(wallet.toBase58()) ?? 1_000_000_000,
+    simulate: async (bytes, opts) => {
+      chain.simulated++;
+      return chain.sim(bytes, opts);
+    },
     hasKey: () => true,
     seal: (id, bytes) => sealTx(id, bytes, TEST_ENV),
+    open: (id, sealed) => openTx(id, sealed, TEST_ENV),
     audit: async (e) => {
       audits.push(e.action);
     },

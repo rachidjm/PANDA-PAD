@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PublicKey, Transaction, type AccountInfo, type AddressLookupTableAccount, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, Transaction, VersionedTransaction, type AccountInfo, type AddressLookupTableAccount, type TransactionInstruction } from "@solana/web3.js";
 import type { Db } from "@/lib/db/client";
 import {
   pgActivate,
@@ -18,7 +18,9 @@ import {
 } from "@/lib/db/panda-orders";
 import {
   amountForPct,
+  classifyFailure,
   committedRaw,
+  EXECUTION_FEE_LAMPORTS,
   feeFor,
   MAX_TRANCHES,
   minOutFor,
@@ -57,16 +59,22 @@ export type Deps = {
   feeBps: (wallet: string) => Promise<number>;
   feeInstructions: (wallet: PublicKey, feeLamports: bigint) => Promise<TransactionInstruction[]>;
   signatureStatuses: (signatures: string[]) => Promise<({ ok: boolean } | null)[]>;
+  /** The wallet's SOL, in lamports. */
+  solBalance: (wallet: PublicKey) => Promise<number>;
+  /** Simulates an UNSIGNED transaction (sigVerify off). `replaceBlockhash` for a normal one; never for an order, whose
+   *  "blockhash" is its nonce. */
+  simulate: (bytes: Uint8Array, opts: { replaceBlockhash: boolean }) => Promise<{ err: unknown; logs: string[] | null }>;
   hasKey: () => boolean;
   seal: (orderId: string, bytes: Uint8Array) => SealedTx | null;
+  open: (orderId: string, sealed: SealedTx) => Uint8Array | null;
   audit: (e: { actor: string; action: string; object: string; newState?: unknown; reason?: string }) => Promise<void>;
 };
 
-export type Failure = { ok: false; status: number; code: string; message: string; issues?: Record<string, TrancheIssue[]> };
-const fail = (status: number, code: string, message: string, issues?: Record<string, TrancheIssue[]>): Failure => ({ ok: false, status, code, message, issues });
+export type Failure = { ok: false; status: number; code: string; message: string; issues?: Record<string, TrancheIssue[]>; detail?: { needLamports: number; haveLamports: number } };
+export const fail = (status: number, code: string, message: string, issues?: Record<string, TrancheIssue[]>): Failure => ({ ok: false, status, code, message, issues });
 
-const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
-const key = (s: unknown): PublicKey | null => {
+export const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
+export const key = (s: unknown): PublicKey | null => {
   if (typeof s !== "string") return null;
   try {
     return new PublicKey(s);
@@ -80,8 +88,55 @@ const PENDING_GRACE_MS = 20_000;
 /** Nonce accounts created per setup transaction: 5 fit comfortably in 1,232 bytes (tx.test.ts measures it). */
 export const SETUP_PER_TX = 5;
 const CLOSE_PER_TX = 10;
+/** Kept aside for the network fee of the setup transaction: wallets add their own priority fee to it (Phantom: 80,000
+ *  lamports measured), on top of Solana's 5,000. */
+export const SETUP_FEE_RESERVE_LAMPORTS = 100_000;
+/** What must be left over after everything else, so the wallet isn't emptied to the last lamport. */
+export const SOL_MARGIN_LAMPORTS = 500_000;
 
-export type PrepareInput = { wallet: string; mint: unknown; ticker: unknown; groupId: unknown; n: unknown; pool?: unknown; tranches: unknown; riskAccepted: unknown };
+/** SOL the wallet needs before anything is signed: the deposits of the accounts to create, the setup's network fee,
+ *  one execution fee per tranche (only one leg of a tranche can ever land) and a small margin. */
+export function requiredLamports(newAccounts: number, tranches: number, rent: number): number {
+  return newAccounts * rent + (newAccounts > 0 ? SETUP_FEE_RESERVE_LAMPORTS : 0) + tranches * EXECUTION_FEE_LAMPORTS + SOL_MARGIN_LAMPORTS;
+}
+
+export async function solCheck(deps: Deps, wallet: PublicKey, need: number): Promise<Failure | null> {
+  const have = await deps.solBalance(wallet);
+  if (have >= need) return null;
+  return { ...fail(422, "insufficient_sol", "Not enough SOL in the wallet for the deposit and network fees."), detail: { needLamports: need, haveLamports: have } };
+}
+
+/**
+ * Nothing reaches the wallet without being simulated here first. A SELL above the market "fails" on its signed minimum
+ * until the price gets there — that is what makes it an order, so it passes; anything else that fails is refused with
+ * the reason, and the wallet is never opened.
+ */
+export async function simulateOrFail(deps: Deps, bytes: Uint8Array, kind: "setup" | Leg): Promise<Failure | null> {
+  let sim: { err: unknown; logs: string[] | null };
+  try {
+    sim = await deps.simulate(bytes, { replaceBlockhash: kind === "setup" });
+  } catch {
+    return fail(503, "simulation_unavailable", "The transaction couldn't be checked right now — try again in a moment.");
+  }
+  if (!sim.err) return null;
+  const logs = (sim.logs ?? []).join("\n");
+  if (kind === "setup") {
+    // System program: custom error 0 = the account already exists, 1 = not enough lamports.
+    const e = JSON.stringify(sim.err);
+    if (/"Custom":0\b/.test(e) || /already in use/.test(logs)) return fail(409, "nonce_pending", "Your order accounts are still being created — try again in a few seconds.");
+    if (/"Custom":1\b/.test(e) || /InsufficientFunds|AccountNotFound/.test(e) || /insufficient lamports/.test(logs)) return fail(422, "insufficient_sol", "Not enough SOL in the wallet for the deposit and network fees.");
+    return fail(422, "simulation_failed", "This transaction would fail, so it wasn't sent to your wallet.");
+  }
+  const why = classifyFailure(sim.err, sim.logs);
+  if (why === "slippage") return null;
+  if (why === "no_sol") return fail(422, "insufficient_sol", "Not enough SOL in the wallet for the network fees.");
+  if (why === "no_balance") return fail(422, "no_balance", "You don't have enough of this coin for this order.");
+  if (why === "nonce_used") return fail(409, "nonce_pending", "Your order accounts are still being created — try again in a few seconds.");
+  if (why === "migrated" || why === "program_changed") return fail(422, "unsupported_coin", "This coin can't take PANDA orders right now.");
+  return fail(422, "simulation_failed", "This order would fail, so it wasn't sent to your wallet.");
+}
+
+export type PrepareInput = { wallet: string; mint: unknown; ticker: unknown; groupId: unknown; n: unknown; pool?: unknown; tranches: unknown; riskAccepted: unknown; setupSignature?: unknown };
 
 export type PreparedOrder = { id: string; trancheId: string; leg: Leg; transaction: string; tokenAmountRaw: string; minOutLamports: number; feeLamports: number };
 export type PrepareResult =
@@ -152,6 +207,9 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
   const candidates = rows.filter((r) => r.state !== "closed" && !inUse.has(r.address));
   const infos = candidates.length ? await deps.accounts(candidates.map((r) => new PublicKey(r.address))) : [];
   const usable: ParsedNonce[] = [];
+  // The browser says its setup transaction confirmed: if the chain agrees, its accounts EXIST — they just aren't visible
+  // to this read yet. They are never offered again (creating an account twice fails, and wallets flag it in red).
+  const setupLanded = typeof i.setupSignature === "string" && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(i.setupSignature) ? (await deps.signatureStatuses([i.setupSignature]))[0]?.ok === true : false;
   let pendingRecent = 0;
   // Handed out in a setup transaction that never landed (the user closed the popup…): offered again, same address.
   const stale: { address: PublicKey; seed: string }[] = [];
@@ -162,7 +220,7 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
       usable.push(parsed);
       if (r.state !== "ready") await pgSetNonceState(db, r.wallet, r.address, "ready", now);
     } else if (!infos[k] && r.state === "pending") {
-      if (now - r.updatedAt < PENDING_GRACE_MS) pendingRecent++;
+      if (setupLanded || now - r.updatedAt < PENDING_GRACE_MS) pendingRecent++;
       else stale.push({ address: new PublicKey(r.address), seed: r.seed });
     } else if (!infos[k]) {
       await pgSetNonceState(db, r.wallet, r.address, "closed", now);
@@ -182,7 +240,11 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
     }
     if (fresh.length < need) return fail(422, "too_many", "Too many order accounts — cancel or recover some first.");
     const rent = await deps.rentLamports();
+    const short = await solCheck(deps, wallet, requiredLamports(fresh.length, plans.length, rent));
+    if (short) return short;
     const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...setupInstructions(wallet, fresh, rent));
+    const bad = await simulateOrFail(deps, new VersionedTransaction(tx.compileMessage()).serialize(), "setup");
+    if (bad) return bad;
     for (const f of fresh) await pgUpsertNonce(db, { address: f.address.toBase58(), wallet: wallet.toBase58(), seed: f.seed, state: "pending" }, now);
     return {
       ok: true,
@@ -194,6 +256,8 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
   }
 
   // ── the orders themselves: one transaction per leg, both legs of a tranche on the SAME nonce ────────────────────
+  const short = await solCheck(deps, wallet, requiredLamports(0, plans.length, 0));
+  if (short) return short;
   const lookupTable = await deps.lookupTable();
   const out: PreparedOrder[] = [];
   const inserts: PandaOrderInsert[] = [];
@@ -207,6 +271,8 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
       const tx = orderTransaction({ wallet, nonceAccount: new PublicKey(nonce.address), nonceValue: nonce.nonce, sale, fee, lookupTable });
       const bytes = tx.serialize();
       if (bytes.length > PACKET_LIMIT) return fail(422, "too_large", "This order doesn't fit in one Solana transaction.");
+      const bad = await simulateOrFail(deps, bytes, l.leg);
+      if (bad) return bad;
       out.push({ id, trancheId: p.t.trancheId, leg: l.leg, transaction: Buffer.from(bytes).toString("base64"), tokenAmountRaw: p.amount.toString(), minOutLamports: Number(l.minOut), feeLamports: Number(l.fee) });
       inserts.push({
         id,
@@ -273,7 +339,7 @@ export async function submitOrders(deps: Deps, i: SubmitInput): Promise<{ ok: tr
   return { ok: true, orders: orders.map(publicOrder) };
 }
 
-export type CloseInput = { wallet: string; groupId?: unknown; trancheId?: unknown; recover?: unknown };
+export type CloseInput = { wallet: string; groupId?: unknown; trancheId?: unknown; recover?: unknown; allOf?: unknown };
 
 /** The transaction that closes nonce accounts (deposit back to the wallet): those of a group / one tranche (= cancel
  *  those orders), or every FREE one (`recover`: deposits of orders already executed or cancelled). The user signs it. */
@@ -286,6 +352,10 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
   if (i.recover === true) {
     const inUse = new Set(live.map((o) => o.nonceAccount));
     targets = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state !== "closed" && !inUse.has(r.address)).map((r) => r.address);
+  } else if (i.allOf !== undefined) {
+    // "Cancelar todo": every live order on one coin (up to CLOSE_PER_TX accounts per approval).
+    if (!key(i.allOf)) return fail(400, "invalid", "Invalid coin.");
+    targets = [...new Set(live.filter((o) => o.mint === i.allOf).map((o) => o.nonceAccount))];
   } else {
     if (typeof i.groupId !== "string" || !ID_RE.test(i.groupId)) return fail(400, "invalid", "Invalid strategy.");
     targets = [...new Set(live.filter((o) => o.groupId === i.groupId && (i.trancheId === undefined || o.trancheId === i.trancheId)).map((o) => o.nonceAccount))];
@@ -361,7 +431,8 @@ export async function listOrders(
   const freeNonces = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state === "ready" && !inUse.has(r.address)).map((r) => r.address);
   const committed = i.mint ? committedRaw(live.filter((o) => o.mint === i.mint && o.state !== "prepared").map((o) => ({ nonceAccount: o.nonceAccount, tokenAmountRaw: o.tokenAmountRaw, state: o.state as OrderState }))) : null;
   return {
-    orders: orders.filter((o) => o.state !== "prepared").map(publicOrder),
+    // An order the user CHANGED lives on as its replacement: the old row is history, not a cancelled order to show.
+    orders: orders.filter((o) => o.state !== "prepared" && !(o.state === "cancelled" && o.reason === "replaced")).map(publicOrder),
     committedRaw: committed === null ? null : committed.toString(),
     freeNonces,
     rentLamports: freeNonces.length ? await deps.rentLamports() : 0,

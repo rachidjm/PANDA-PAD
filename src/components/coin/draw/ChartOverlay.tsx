@@ -83,7 +83,7 @@ export function StrategyLines({ overlay, domain }: { overlay: ChartOverlayData; 
             stroke={heldLineColor(l.kind, l.held)}
             strokeWidth={l.active || l.live ? 2 : 1.5}
             strokeDasharray={l.kind === "stop" ? "2 4" : "8 4"}
-            strokeOpacity={l.live || l.active ? 0.95 : 0.7}
+            strokeOpacity={l.edited ? 0.6 : l.live || l.active ? 0.95 : 0.7}
             vectorEffect="non-scaling-stroke"
           />
           </g>
@@ -155,7 +155,9 @@ export function PriceTags({
     if (l.pct !== undefined) parts.push(`${l.pct}%`);
     // Only a DRAFT tranche's own leg can be grabbed and dragged — never a live/saved line, and never the plain
     // (non-tranche) buy/sell/stop lines, which are repriced by typing instead (see DrawTradePanel.tsx).
-    const draggable = !!overlay.grabLine && !l.live && !!l.lineId;
+    // …and a live PANDA order (`order`): moving it leaves a change to sign ("Guardar cambio"), shown with a pencil.
+    const draggable = !!overlay.grabLine && !!l.lineId && (!l.live || !!l.order);
+    if (l.edited) parts.push("✎");
     return { key: l.key, kind: l.kind, held: l.held, text: parts.join(" · "), y: px(y), strong: l.live || l.active, line: l, draggable };
   });
   const previewY = overlay.drawing && overlay.preview !== null ? px(clampedY(overlay.toDisplay(overlay.preview), domain).y) : null;

@@ -31,7 +31,7 @@ import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { LIVE, NONCE_DEPOSIT_LAMPORTS_ESTIMATE, type ClientOrder, type OrderGroup } from "@/lib/panda-orders/client-types";
 import { ACCESS_MESSAGE, confirmRoute, needsSignIn } from "@/lib/panda-orders/access-state";
-import { rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
+import { orderEditKey, rememberUnit, type BuyUnit, type DrawApi, type DraftView } from "./useDrawTrade";
 
 const STEP_KEYS: Record<string, DictKey> = {
   session: "draw.step.session",
@@ -39,6 +39,8 @@ const STEP_KEYS: Record<string, DictKey> = {
   prepare: "draw.step.prepare",
   setup: "draw.step.setup",
   sign: "draw.step.sign",
+  signOrders: "draw.step.signOrders",
+  doneOrders: "draw.step.doneOrders",
   create: "draw.step.create",
   cancel: "draw.step.cancel",
   done: "draw.step.done",
@@ -60,7 +62,31 @@ const STATUS_TONE: Record<StrategyStatus, string> = {
 };
 
 /** Server error codes of /api/panda-orders/* that have their own sentence (orders.err.<code>). */
-const PANDA_ERR = ["wallet_modified", "invalid_signature", "unsupported_coin", "risk_not_accepted", "no_balance", "too_large", "nonce_pending", "not_configured", "expired", "issues", "price_unavailable", "too_many", "over_100", "FEATURE_DISABLED", "PAUSED"];
+const PANDA_ERR = [
+  "wallet_modified",
+  "invalid_signature",
+  "unsupported_coin",
+  "risk_not_accepted",
+  "no_balance",
+  "too_large",
+  "nonce_pending",
+  "not_configured",
+  "expired",
+  "issues",
+  "price_unavailable",
+  "too_many",
+  "over_100",
+  "FEATURE_DISABLED",
+  "PAUSED",
+  "insufficient_sol",
+  "simulation_failed",
+  "simulation_unavailable",
+  "nonce_used",
+  "nothing",
+  "busy",
+  "no_change",
+  "no_sign_message",
+];
 
 const money = (n: number) => `${n < 0 ? "-" : ""}${formatUsd(Math.abs(n))}`;
 const signedMoney = (n: number) => (n > 0 ? `+${money(n)}` : money(n));
@@ -100,7 +126,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       : draw.heldStatus === "unknown"
         ? "draw.balanceLoading"
         : "draw.sellNeedsCoin";
-  const busy = draw.step !== "idle" && draw.step !== "done";
+  const busy = draw.step !== "idle" && draw.step !== "done" && draw.step !== "doneOrders";
 
   // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
   const isDesktop = useIsDesktop();
@@ -195,7 +221,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
 
       {draw.recordGroups.length > 0 && <SavedStrategies draw={draw} formatValue={formatValue} />}
       {draw.strategiesOn && draw.connected && <OtherJupiterOrders draw={draw} />}
-      {draw.pandaMode && (draw.pandaGroups.length > 0 || draw.freeNonces.length > 0) && <PandaOrders draw={draw} formatValue={formatValue} />}
+      {draw.pandaMode && (draw.pandaGroups.length > 0 || draw.freeNonces.length > 0) && <PandaOrders draw={draw} formatValue={formatValue} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />}
 
       {draw.error && <ErrorNote error={draw.error} />}
       </>
@@ -251,8 +277,13 @@ function TargetTabs({ target, canSell, canBuy, busy, onPick, disabledTitle, buyO
   );
 }
 
+/** "0,0016" — lamports as SOL, rounded UP to 4 decimals so "you need X" is never short. */
+function solLabel(lamports: number, lang: string): string {
+  return (Math.ceil(lamports / 1e5) / 1e4).toLocaleString(lang, { maximumFractionDigits: 4 });
+}
+
 function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const issues = error.issues ?? [];
   return (
     <div className="mt-4 rounded-xl bg-clay-red/10 px-3.5 py-3 text-xs text-clay-red" role="alert">
@@ -270,7 +301,9 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
         t("draw.err.batchRolledBack")
       ) : error.code && PANDA_ERR.includes(error.code) ? (
         <>
-          {t(`orders.err.${error.code}` as DictKey)}
+          {error.code === "insufficient_sol" && error.detail
+            ? t("orders.err.insufficient_sol_detail", { need: solLabel(error.detail.needLamports, lang), have: solLabel(error.detail.haveLamports, lang) })
+            : t(`orders.err.${error.code}` as DictKey)}
           {error.pandaIssues && (
             <ul className="mt-1 space-y-0.5">
               {[...new Set(Object.values(error.pandaIssues).flat())].map((i) => (
@@ -297,7 +330,7 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
   const { publicKey } = useWallet();
   const feeBps = useFeeBps(publicKey?.toBase58() ?? null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const confirming = draw.step !== "idle" && draw.step !== "done";
+  const confirming = draw.step !== "idle" && draw.step !== "done" && draw.step !== "doneOrders";
   // A held-coin draft (no buy leg) is governed entirely by its percentage tranches now — see TrancheEditor
   // below; a buy-including draft is complete once its legs make one of the two offered shapes (kinds.ts).
   const heldMode = draft.buy === undefined;
@@ -402,8 +435,9 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
             </>
           )}
 
+          {panda && (draft.tranches ?? []).some((x) => x.sell !== undefined) && <p className="mt-3 text-[11px] text-panda-grey">{t("orders.walletNote")}</p>}
           {panda && (
-            <p className="mt-3 text-[11px] text-panda-grey">
+            <p className="mt-1.5 text-[11px] text-panda-grey">
               {t("draw.pandaFee", { fee: (feeBps / 100).toLocaleString(lang, { maximumFractionDigits: 2 }), deposit: (NONCE_DEPOSIT_LAMPORTS_ESTIMATE / 1e9).toLocaleString(lang, { maximumFractionDigits: 4 }) })}
             </p>
           )}
@@ -433,7 +467,7 @@ function DraftBlock({ view, draw, coin, unit, toDisplay, fromDisplay }: { view: 
             disabled={blocked || !view.ready || !!problem || !draw.connected || !ack || confirming || (route === "jupiter" && (!draw.engine || (impactHigh && !impactAck)))}
             className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {confirming || draw.step === "done" ? t(STEP_KEYS[draw.step]) : t(orders === 1 ? "draw.sign1" : "draw.signN", { n: orders })}
+            {confirming || draw.step === "done" || draw.step === "doneOrders" ? t(STEP_KEYS[draw.step]) : t(orders === 1 ? "draw.sign1" : "draw.signN", { n: orders })}
           </button>
         </>
       )}
@@ -778,7 +812,16 @@ function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi;
 /** Shows and edits in whatever unit the chart is currently on (price or market cap) — always converts back
  *  to real USD (`fromDisplay`) the moment a value is committed, since that's the space every draft, the
  *  validation and the server all work in. Applied on Enter or when leaving the box, same as before. */
-function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCommit, disabled }: { value?: number; label: string; onCommit: (v: string) => void; disabled?: boolean } & PriceDisplayApi) {
+function UnitAwarePriceInput({
+  value,
+  unit,
+  toDisplay,
+  fromDisplay,
+  label,
+  onCommit,
+  disabled,
+  className,
+}: { value?: number; label: string; onCommit: (v: string) => void; disabled?: boolean; className?: string } & PriceDisplayApi) {
   const { lang } = useLanguage();
   const [text, setText] = useState<string | null>(null);
   const commit = () => {
@@ -801,7 +844,7 @@ function UnitAwarePriceInput({ value, unit, toDisplay, fromDisplay, label, onCom
       placeholder="—"
       disabled={disabled}
       aria-label={unit === "mcap" ? `${label} (market cap)` : `${label} (USD)`}
-      className="w-24 bg-transparent text-right text-sm font-semibold outline-none placeholder:text-panda-grey sm:w-28"
+      className={className ?? "w-24 bg-transparent text-right text-sm font-semibold outline-none placeholder:text-panda-grey sm:w-28"}
     />
   );
 }
@@ -973,86 +1016,176 @@ const ORDER_TONE: Record<ClientOrder["state"], string> = {
   needs_resign: "bg-clay-red/20 text-clay-red",
 };
 
-/** PANDA orders on this coin: one card per drawn strategy, a row per tranche (its sell and/or stop), with Cancel for what
- *  is still waiting, "Volver a firmar" for what stopped being valid, and the free deposits to take back. */
-function PandaOrders({ draw, formatValue }: { draw: DrawApi; formatValue: (usd: number) => string }) {
+/** PANDA orders on this coin, one thin line each ("↑ Venta · 10% · $0,00000346 · ESPERANDO ×"): a sell and a stop of the
+ *  same tranche are simply two lines in a row. An active one can be changed right here (tap its price or its %) or by
+ *  dragging its line on the chart; the change waits for "Guardar cambio" — one signature, same order account. */
+function PandaOrders({ draw, formatValue, unit, toDisplay, fromDisplay }: { draw: DrawApi; formatValue: (usd: number) => string } & PriceDisplayApi) {
   const { t, lang } = useLanguage();
-  const groups = draw.pandaGroups.slice(0, 8);
+  const all = draw.pandaGroups.flatMap((g) => g.tranches.map((tr) => ({ group: g, tr, live: tr.legs.some((l) => LIVE.has(l.state)) })));
+  // What is still working first; then the last few that already ended.
+  const rows = [...all.filter((x) => x.live), ...all.filter((x) => !x.live).slice(0, 5)];
+  const mint = all.find((x) => x.live)?.tr.legs[0]?.mint;
   return (
     <div className="mt-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-paper/80">{t("orders.title")}</p>
-        {draw.freeNonces.length > 0 && (
-          <button type="button" onClick={() => draw.closePanda({ recover: true })} disabled={draw.cancelling !== null} className="text-xs font-semibold text-meme-orange hover:brightness-110 disabled:opacity-50">
-            {draw.cancelling === "recover" ? t("orders.recovering") : t("orders.recover", { sol: (draw.freeDepositLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 5 }) })}
+        {mint && (
+          <button type="button" onClick={() => draw.closePanda({ allOf: mint })} disabled={draw.cancelling !== null} className="text-[11px] font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
+            {draw.cancelling === "all" ? t("draw.cancelling") : t("orders.cancelAll")}
           </button>
         )}
       </div>
-      <div className="mt-2 space-y-2.5">
-        {groups.map((g) => (
-          <PandaGroupCard key={g.groupId} group={g} draw={draw} formatValue={formatValue} />
+      {draw.freeNonces.length > 0 && (
+        <button type="button" onClick={() => draw.closePanda({ recover: true })} disabled={draw.cancelling !== null} className="mt-1 block text-left text-[11px] font-semibold text-meme-orange hover:brightness-110 disabled:opacity-50">
+          {draw.cancelling === "recover" ? t("orders.recovering") : t("orders.recover", { sol: (draw.freeDepositLamports / 1e9).toLocaleString(lang, { maximumFractionDigits: 5 }) })}
+        </button>
+      )}
+      <div className="mt-2 space-y-1">
+        {rows.map(({ group, tr }) => (
+          <PandaTranche key={`${group.groupId}-${tr.trancheId}-${tr.legs[0]?.id}`} group={group} tr={tr} draw={draw} formatValue={formatValue} unit={unit} toDisplay={toDisplay} fromDisplay={fromDisplay} />
         ))}
       </div>
     </div>
   );
 }
 
-function PandaGroupCard({ group, draw, formatValue }: { group: OrderGroup; draw: DrawApi; formatValue: (usd: number) => string }) {
-  const { t } = useLanguage();
-  const legs = group.tranches.flatMap((x) => x.legs);
-  const anyLive = legs.some((l) => LIVE.has(l.state));
-  const needsResign = legs.some((l) => l.state === "needs_resign");
+function PandaTranche({ group, tr, draw, formatValue, unit, toDisplay, fromDisplay }: { group: OrderGroup; tr: OrderGroup["tranches"][number]; draw: DrawApi; formatValue: (usd: number) => string } & PriceDisplayApi) {
+  const { t, lang } = useLanguage();
+  const [pctOpen, setPctOpen] = useState(false);
+  const [risk, setRisk] = useState(false);
+  const k = orderEditKey(group.groupId, tr.trancheId);
+  const liveLegs = tr.legs.filter((l) => LIVE.has(l.state));
+  // Only a tranche whose every live line is simply waiting can be changed (never one that is being sent right now).
+  const editable = liveLegs.length > 0 && liveLegs.every((l) => l.state === "active");
+  const edit = editable ? draw.orderEdits[k] : undefined;
+  const saving = draw.savingEdit === k;
+  const busy = draw.savingEdit !== null || draw.cancelling !== null;
+  const pct = edit?.pct ?? tr.pct;
+  const stopChanges = !!edit && liveLegs.some((l) => l.leg === "stop") && (edit.stopUsd !== undefined || edit.pct !== undefined);
+  const sellChanges = !!edit && liveLegs.some((l) => l.leg === "sell") && (edit.sellUsd !== undefined || edit.pct !== undefined);
+  const resign = tr.legs.find((l) => l.state === "needs_resign");
+  const pctText = (n: number) => `${n.toLocaleString(lang, { maximumFractionDigits: 1 })}%`;
+  const cancelOne = (l: ClientOrder) => (liveLegs.length > 1 ? draw.cancelPandaLeg(l.id) : draw.closePanda({ groupId: group.groupId, trancheId: tr.trancheId }));
   return (
-    <div className="rounded-2xl border border-paper/10 bg-ink px-3.5 py-3 text-xs">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <div className="flex flex-wrap gap-3">
-          {needsResign && (
-            <button type="button" onClick={() => draw.resignPanda(group.groupId)} className="font-semibold text-meme-orange hover:brightness-110">
-              {t("orders.resign")}
-            </button>
-          )}
-          {anyLive && (
-            <button type="button" onClick={() => draw.closePanda({ groupId: group.groupId })} disabled={draw.cancelling !== null} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
-              {draw.cancelling === group.groupId ? t("draw.cancelling") : t("orders.cancelAll")}
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="mt-2 space-y-2">
-        {group.tranches.map((tr) => (
-          <div key={`${tr.trancheId}-${tr.legs[0]?.id}`} className="border-t border-paper/10 pt-2 first:border-t-0 first:pt-0">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-panda-grey">{tr.pct}%</span>
-              {tr.legs.some((l) => LIVE.has(l.state)) && group.tranches.length > 1 && (
-                <button type="button" onClick={() => draw.closePanda({ groupId: group.groupId, trancheId: tr.trancheId })} disabled={draw.cancelling !== null} className="font-semibold text-clay-red hover:brightness-110 disabled:opacity-50">
-                  {draw.cancelling === tr.trancheId ? t("draw.cancelling") : t("orders.cancel")}
+    <>
+      {tr.legs.map((l) => {
+        const live = LIVE.has(l.state);
+        const color = heldLineColor(l.leg === "sell" ? "sell1" : "stop", true);
+        const price = (l.leg === "sell" ? edit?.sellUsd : edit?.stopUsd) ?? l.targetUsd;
+        const moved = editable && live && price !== l.targetUsd;
+        const label = t(l.leg === "sell" ? "draw.line.sell" : "draw.line.stop");
+        const cancelling = draw.cancelling === l.id || (liveLegs.length === 1 && draw.cancelling === tr.trancheId);
+        return (
+          <div key={l.id} className={`flex items-stretch overflow-hidden rounded-lg border bg-ink-raised ${moved || (live && edit?.pct !== undefined) ? "border-sun/60" : "border-paper/10"} ${live ? "" : "opacity-60"}`}>
+            <span className="w-[3px] shrink-0" style={{ background: color }} aria-hidden />
+            <div className="flex min-h-7 min-w-0 flex-1 items-center gap-1 pl-2 pr-0.5 text-xs">
+              <span className="flex shrink-0 items-center gap-1 font-semibold" style={{ color }}>
+                <span aria-hidden>{l.leg === "sell" ? "↑" : "↓"}</span>
+                {label}
+              </span>
+              <span className="text-panda-grey" aria-hidden>·</span>
+              {editable && live ? (
+                <button
+                  type="button"
+                  onClick={() => setPctOpen((v) => !v)}
+                  disabled={busy}
+                  aria-expanded={pctOpen}
+                  title={t("orders.changePct")}
+                  aria-label={`${t("orders.changePct")} · ${label} ${pctText(pct)}`}
+                  className={`shrink-0 rounded px-1 py-0.5 font-semibold tabular-nums underline decoration-dotted underline-offset-2 hover:bg-paper/5 disabled:opacity-50 ${edit?.pct !== undefined ? "text-sun" : "text-paper/90"}`}
+                >
+                  {pctText(pct)}
                 </button>
+              ) : (
+                <span className="shrink-0 tabular-nums text-paper/90">{pctText(l.pct)}</span>
+              )}
+              <span className="text-panda-grey" aria-hidden>·</span>
+              {editable && live ? (
+                <UnitAwarePriceInput
+                  value={price}
+                  unit={unit}
+                  toDisplay={toDisplay}
+                  fromDisplay={fromDisplay}
+                  label={label}
+                  disabled={busy}
+                  onCommit={(v) => {
+                    const n = Number(v);
+                    if (n > 0) draw.patchOrderEdit(group.groupId, tr.trancheId, l.leg === "sell" ? { sellUsd: n } : { stopUsd: n });
+                  }}
+                  className={`min-w-0 flex-1 rounded bg-transparent px-0.5 py-0.5 text-left text-xs font-semibold tabular-nums outline-none hover:bg-paper/5 focus:bg-paper/5 ${moved ? "text-sun" : "text-paper"}`}
+                />
+              ) : (
+                <span className="min-w-0 flex-1 truncate tabular-nums text-paper/90">{formatValue(l.targetUsd)}</span>
+              )}
+              {l.state === "executed" && l.signature && (
+                <a href={`https://solscan.io/tx/${l.signature}`} target="_blank" rel="noreferrer" title={t("orders.tx")} aria-label={t("orders.tx")} className="shrink-0 px-1 text-bamboo hover:underline">
+                  ↗
+                </a>
+              )}
+              {l.state === "needs_resign" ? (
+                <button type="button" onClick={() => draw.resignPanda(group.groupId)} className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide hover:brightness-110 ${ORDER_TONE[l.state]}`}>
+                  {t("orders.state.needs_resign")}
+                </button>
+              ) : (
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${ORDER_TONE[l.state]}`}>{cancelling ? t("draw.cancelling") : t(`orders.state.${l.state}` as DictKey)}</span>
+              )}
+              {live && l.state !== "sending" ? (
+                <button
+                  type="button"
+                  onClick={() => cancelOne(l)}
+                  disabled={busy}
+                  aria-label={`${t("orders.cancelOne")} · ${label} ${pctText(l.pct)}`}
+                  title={t("orders.cancelOne")}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm leading-none text-panda-grey transition hover:bg-paper/5 hover:text-clay-red disabled:opacity-40"
+                >
+                  <span aria-hidden>×</span>
+                </button>
+              ) : (
+                <span className="w-1.5 shrink-0" aria-hidden />
               )}
             </div>
-            {tr.legs.map((l) => (
-              <div key={l.id} className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-paper/90">
-                  <Dot kind={l.leg === "sell" ? "sell1" : "stop"} />
-                  {t(l.leg === "sell" ? "draw.line.sell" : "draw.line.stop")} · {formatValue(l.targetUsd)}
-                </span>
-                <span className="flex items-center gap-2">
-                  {l.state === "executed" && l.signature && (
-                    <a href={`https://solscan.io/tx/${l.signature}`} target="_blank" rel="noreferrer" className="text-bamboo hover:underline">
-                      {t("orders.tx")}
-                    </a>
-                  )}
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${ORDER_TONE[l.state]}`}>{t(`orders.state.${l.state}` as DictKey)}</span>
-                </span>
-              </div>
-            ))}
-            {tr.legs.some((l) => l.state === "needs_resign" && l.reason) && (
-              <p className="mt-1 text-clay-red">{t(`orders.reason.${tr.legs.find((l) => l.state === "needs_resign")!.reason}` as DictKey)}</p>
-            )}
-            {tr.legs.some((l) => l.notice === "stop_slippage" && l.state === "active") && <p className="mt-1 text-sun">{t("orders.slippageNote")}</p>}
-            {tr.legs.some((l) => l.notice === "no_sol" && l.state === "active") && <p className="mt-1 text-sun">{t("orders.noSolNote")}</p>}
           </div>
-        ))}
-      </div>
-    </div>
+        );
+      })}
+      {pctOpen && editable && (
+        <div className="flex gap-1 pb-1" role="group" aria-label={t("orders.changePct")}>
+          {PCT_ROW.map((p) => (
+            <button
+              key={p}
+              type="button"
+              disabled={busy}
+              aria-pressed={pct === p}
+              onClick={() => (draw.patchOrderEdit(group.groupId, tr.trancheId, { pct: p }), setPctOpen(false))}
+              className={`min-h-8 min-w-0 flex-1 rounded-lg text-[11px] font-semibold tabular-nums transition-colors disabled:opacity-50 ${pct === p ? "bg-bamboo text-ink" : "bg-paper/5 text-paper/80 hover:bg-paper/10"}`}
+            >
+              {p}%
+            </button>
+          ))}
+        </div>
+      )}
+      {edit && (
+        <div className="rounded-lg bg-sun/10 px-2.5 py-2 text-[11px]">
+          {stopChanges && (
+            <label className="mb-2 flex cursor-pointer items-start gap-2 leading-snug text-paper/80">
+              <input type="checkbox" checked={risk} onChange={(e) => setRisk(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--meme-orange)]" />
+              <span>{t("draw.pandaAckStop")}</span>
+            </label>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <button type="button" onClick={() => draw.saveOrderEdit(k, stopChanges && risk)} disabled={busy || (stopChanges && !risk)} className="rounded-lg bg-paper px-3 py-1.5 text-xs font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40">
+              {saving ? t("orders.saving") : t("orders.save")}
+            </button>
+            <button type="button" onClick={() => (draw.clearOrderEdit(k), setRisk(false))} disabled={busy} className="font-semibold text-panda-grey hover:text-paper disabled:opacity-50">
+              {t("orders.undo")}
+            </button>
+            <span className="text-panda-grey">{t("orders.editNote")}</span>
+          </div>
+          {sellChanges && <p className="mt-1.5 text-panda-grey">{t("orders.walletNote")}</p>}
+        </div>
+      )}
+      {resign?.reason && <p className="px-1 pb-1 text-[11px] text-clay-red">{t(`orders.reason.${resign.reason}` as DictKey)}</p>}
+      {tr.legs.some((l) => l.notice === "stop_slippage" && l.state === "active") && <p className="px-1 pb-1 text-[11px] text-sun">{t("orders.slippageNote")}</p>}
+      {tr.legs.some((l) => l.notice === "no_sol" && l.state === "active") && <p className="px-1 pb-1 text-[11px] text-sun">{t("orders.noSolNote")}</p>}
+    </>
   );
 }

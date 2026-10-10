@@ -43,7 +43,7 @@ export type BotDeps = {
   isLimited: (key: string, limit: number, windowMs: number) => Promise<boolean>;
   audit: (action: string, object: string, data?: Record<string, unknown>) => Promise<void>;
   /** Tells Telegram a button press was received (stops its spinner). Best effort; absent in tests that don't need it. */
-  answerCallback?: (callbackId: string) => Promise<void>;
+  answerCallback?: (callbackId: string, text?: string) => Promise<void>;
 };
 
 const PRIVATE_ONLY = new Set(["/watch", "/unwatch", "/watchlist", "/alert", "/alerts", "/link", "/unlink"]);

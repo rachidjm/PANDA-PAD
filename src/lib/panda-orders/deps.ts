@@ -62,8 +62,14 @@ export function realDeps(): Deps {
     feeBps: feeBpsForWallet,
     feeInstructions: (wallet, fee) => feeTransferInstructions(c, wallet, fee),
     signatureStatuses: (s) => statuses(c, s),
+    solBalance: (wallet) => c.getBalance(wallet, "confirmed"),
+    simulate: async (bytes, opts) => {
+      const r = await c.simulateTransaction(VersionedTransaction.deserialize(bytes), { sigVerify: false, replaceRecentBlockhash: opts.replaceBlockhash, commitment: "confirmed" });
+      return { err: r.value.err, logs: r.value.logs };
+    },
     hasKey: () => hasOrdersKey(),
     seal: (id, bytes) => sealTx(id, bytes),
+    open: (id, sealed) => openTx(id, sealed),
     audit,
   };
 }

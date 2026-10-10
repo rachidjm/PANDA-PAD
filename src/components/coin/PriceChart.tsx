@@ -204,6 +204,7 @@ export default function PriceChart({
         formatValue,
         grabLine: (line, price, info) => {
           if (!line.lineId) return;
+          if (line.order) return draw.startOrderDrag(line.order, price, info);
           draw.startTrancheDrag(line.groupId, line.lineId, line.kind === "stop" ? "stop" : "sell", price, info);
         },
       }

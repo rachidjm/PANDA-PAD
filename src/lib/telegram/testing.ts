@@ -52,6 +52,8 @@ export function testConfig(over: Partial<TelegramConfig> = {}): TelegramConfig {
     minBuyUsd: 20,
     groupUrl: "https://t.me/pandacommunity",
     channelUrl: "https://t.me/pandaupdates",
+    changelogEnabled: true,
+    changelogSecret: "k".repeat(40),
     domain: "launchonpanda.app",
     siteUrl: "https://launchonpanda.app",
     ...over,

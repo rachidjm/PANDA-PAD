@@ -678,11 +678,29 @@ export const telegramSuggestions = pgTable(
   (t) => [index("telegram_suggestions_created").on(t.createdAt), check("telegram_suggestions_len", sql`char_length(${t.text}) BETWEEN 1 AND 1000`)]
 );
 
+/** Public changelog drafts (src/lib/telegram/changelog.ts): what was proposed, and what an admin decided — once. */
+export const telegramChangelogs = pgTable(
+  "telegram_changelogs",
+  {
+    id: text("id").primaryKey(),
+    text: text("text").notNull(),
+    status: text("status").notNull().default("pending"),
+    decidedBy: bigint("decided_by", { mode: "number" }),
+    decidedAt: bigint("decided_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("telegram_changelogs_created").on(t.createdAt),
+    check("telegram_changelogs_status", sql`${t.status} IN ('pending', 'published', 'discarded')`),
+    check("telegram_changelogs_len", sql`char_length(${t.text}) BETWEEN 1 AND 3500`),
+  ]
+);
+
 export const schema = {
   pendingFeeLocks, sessions, authNonces, auditEvents, auditAnchors,
   rewardRegistry, rewardLedgers, rewardDistributions, rewardCredits, rewardBalances, rewardClaims, payoutDays, holderPayoutRuns,
   trades, backfillMarks, activityEvents, economyDaily, economyTotal, protocolPause,
   referrals, referralAttemptLog, referralPayouts, referralDailyVolume, pandaLaunches, founderAllocations, founderPandaAccrual, vanityMintKeys,
   legacyFeeWallets, recruiterCodes, reservedMintKeys, pandaNonceAccounts, pandaOrders,
-  telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions,
+  telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions, telegramChangelogs,
 };

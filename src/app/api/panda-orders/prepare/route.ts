@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   if (g instanceof NextResponse) return g;
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  const r = await prepareOrders(realDeps(), { wallet: g.wallet, mint: b.mint, ticker: b.ticker, groupId: b.groupId, n: b.n, pool: b.pool, tranches: b.tranches, riskAccepted: b.riskAccepted });
+  const r = await prepareOrders(realDeps(), { wallet: g.wallet, mint: b.mint, ticker: b.ticker, groupId: b.groupId, n: b.n, pool: b.pool, tranches: b.tranches, riskAccepted: b.riskAccepted, setupSignature: b.setupSignature });
   if (!r.ok) return failure(r);
   return NextResponse.json(r);
 }

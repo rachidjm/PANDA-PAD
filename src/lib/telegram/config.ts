@@ -21,6 +21,9 @@ export type TelegramConfig = {
   /** Public invite links (not secrets): where the "Join the Community" / "Updates channel" / "Discuss" buttons point. Unset → no button. */
   groupUrl: string | null;
   channelUrl: string | null;
+  /** The public changelog: drafts are accepted (FEATURE_TELEGRAM_CHANGELOG) only with this secret (CHANGELOG_PUBLISH_SECRET). */
+  changelogEnabled: boolean;
+  changelogSecret: string | null;
   /** "launchonpanda.app" — what the wallet-linking message names, and where the bot's links point. */
   domain: string;
   siteUrl: string;
@@ -52,6 +55,8 @@ export function telegramConfig(env: Env = process.env): TelegramConfig {
     minBuyUsd: Number.isFinite(min) && min > 0 ? min : 20,
     groupUrl: telegramUrl(env.TELEGRAM_GROUP_URL),
     channelUrl: telegramUrl(env.TELEGRAM_CHANNEL_URL),
+    changelogEnabled: isEnabled("TELEGRAM_CHANGELOG", env),
+    changelogSecret: /^[A-Za-z0-9_-]{32,256}$/.test(env.CHANGELOG_PUBLISH_SECRET?.trim() ?? "") ? env.CHANGELOG_PUBLISH_SECRET!.trim() : null,
     domain: siteDomain(),
     siteUrl: siteUrl(),
   };

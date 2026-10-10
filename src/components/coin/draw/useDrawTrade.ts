@@ -94,11 +94,19 @@ export type ChartLine = {
   lineId?: string;
   /** A sell / stop on a coin already held (a draft tranche or a live PANDA order): its sell is drawn green. */
   held?: boolean;
+  /** A live PANDA order that can be changed: grabbing its tag moves it, and the change waits for "Guardar cambio". */
+  order?: { groupId: string; trancheId: string; leg: "sell" | "stop" };
+  /** That order's line has been moved (or its % changed) and the change isn't signed yet. */
+  edited?: boolean;
 };
+
+/** A change to a live PANDA order's tranche that the user hasn't signed yet: only what differs from the live order. */
+export type OrderEdit = { groupId: string; trancheId: string; sellUsd?: number; stopUsd?: number; pct?: number };
+export const orderEditKey = (groupId: string, trancheId: string) => `${groupId}:${trancheId}`;
 
 export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | null; priceChangeH1Pct: number | null; engine: boolean };
 
-export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "create" | "cancel" | "done";
+export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "signOrders" | "create" | "cancel" | "done" | "doneOrders";
 
 
 /** One percentage tranche's own order shape, issues and readiness (allocation.ts's rules). */
@@ -169,7 +177,9 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   // What the NEXT committed price on the chart is for, while it isn't just "set this leg of the active draft"
   // (the normal path): placing a brand new percentage tranche, or dragging an existing one's line. Cleared the
   // moment it's used, or when drawing is cancelled outright — see startTarget/startTrancheDrag below.
-  const pendingTrancheRef = useRef<{ mode: "place"; leg: "sell" | "stop" } | { mode: "drag"; lineId: string; leg: "sell" | "stop" } | null>(null);
+  const pendingTrancheRef = useRef<
+    { mode: "place"; leg: "sell" | "stop" } | { mode: "drag"; lineId: string; leg: "sell" | "stop" } | { mode: "order"; groupId: string; trancheId: string; leg: "sell" | "stop" } | null
+  >(null);
   // The tab the user picked STAYS picked: every tap on the chart adds (or, for a buy strategy, moves) a line of
   // that type until another tab is picked or drawing is cancelled. `held`: Venta/Stop on a coin already held.
   const modeRef = useRef<{ target: DrawTarget; held: boolean } | null>(null);
@@ -191,7 +201,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
   const [balances, setBalances] = useState<{ sol: number | null; usdc: number | null }>({ sol: null, usdc: null });
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [step, setStep] = useState<Step>("idle");
-  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string; pandaIssues?: Record<string, string[]> } | null>(null);
+  const [error, setError] = useState<{ message?: string; issues?: StrategyIssue[]; code?: string; pandaIssues?: Record<string, string[]>; detail?: { needLamports: number; haveLamports: number } } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const jwt = useRef<{ token: string; at: number } | null>(null);
@@ -311,10 +321,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     load();
     const t = setInterval(load, 30_000);
     document.addEventListener("visibilitychange", load);
+    // A buy / sell in the trade box just landed (TradingPanel's BALANCE_EVENT).
+    window.addEventListener("panda:balance-changed", load);
     return () => {
       cancelled = true;
       clearInterval(t);
       document.removeEventListener("visibilitychange", load);
+      window.removeEventListener("panda:balance-changed", load);
     };
   }, [balanceKey, publicKey, readConnection, mint, step]);
   // Only a read for THIS wallet and THIS coin counts: a disconnected wallet or a different coin is "not known yet".
@@ -349,6 +362,38 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     const t = setInterval(refreshPanda, 30_000);
     return () => clearInterval(t);
   }, [pandaEligible, connected, refreshPanda, publicKey]);
+  // ── changes to live orders the user hasn't signed yet ("Guardar cambio") ─────────────────────────────────────────
+  const [orderEdits, setOrderEdits] = useState<Record<string, OrderEdit>>({});
+  const [savingEdit, setSavingEdit] = useState<string | null>(null);
+  const pandaListRef = useRef<OrdersList | null>(null);
+  useEffect(() => {
+    pandaListRef.current = pandaList;
+  }, [pandaList]);
+  /** Merges `patch` into the tranche's pending change; whatever ends up equal to the live order is dropped again. */
+  const patchOrderEdit = useCallback((groupId: string, trancheId: string, patch: Partial<Pick<OrderEdit, "sellUsd" | "stopUsd" | "pct">>) => {
+    const legs = (pandaListRef.current?.orders ?? []).filter((o) => o.groupId === groupId && o.trancheId === trancheId && o.state === "active");
+    if (legs.length === 0) return;
+    const k = orderEditKey(groupId, trancheId);
+    setOrderEdits((all) => {
+      const next: OrderEdit = { ...(all[k] ?? { groupId, trancheId }), ...patch };
+      const sell = legs.find((o) => o.leg === "sell");
+      const stop = legs.find((o) => o.leg === "stop");
+      if (!sell || next.sellUsd === sell.targetUsd) delete next.sellUsd;
+      if (!stop || next.stopUsd === stop.targetUsd) delete next.stopUsd;
+      if (next.pct === legs[0].pct) delete next.pct;
+      const rest = { ...all };
+      delete rest[k];
+      return next.sellUsd === undefined && next.stopUsd === undefined && next.pct === undefined ? rest : { ...rest, [k]: next };
+    });
+  }, []);
+  const clearOrderEdit = useCallback((k: string) => {
+    setOrderEdits((all) => {
+      const rest = { ...all };
+      delete rest[k];
+      return rest;
+    });
+  }, []);
+
   const committedUi = useMemo(() => {
     const raw = pandaList?.committedRaw ? Number(pandaList.committedRaw) : 0;
     const decimals = balanceRead?.decimals ?? pandaList?.orders[0]?.tokenDecimals ?? null;
@@ -482,10 +527,27 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     // Live PANDA orders: each leg at the price the user drew.
     for (const o of pandaList?.orders ?? []) {
       if (o.state !== "active" && o.state !== "sending") continue;
-      out.push({ key: `po-${o.id}`, groupId: o.groupId, kind: o.leg === "sell" ? "sell1" : "stop", price: o.targetUsd, tag: `#${o.n}`, live: true, active: false, pct: o.pct, held: true });
+      // An active order can be grabbed by its tag and moved: the change shows at once and waits for "Guardar cambio".
+      const edit = orderEdits[orderEditKey(o.groupId, o.trancheId)];
+      const moved = o.leg === "sell" ? edit?.sellUsd : edit?.stopUsd;
+      const editable = o.state === "active" && pandaMode;
+      out.push({
+        key: `po-${o.id}`,
+        groupId: o.groupId,
+        kind: o.leg === "sell" ? "sell1" : "stop",
+        price: moved ?? o.targetUsd,
+        tag: `#${o.n}`,
+        live: true,
+        active: false,
+        pct: edit?.pct ?? o.pct,
+        held: true,
+        lineId: editable ? `po:${o.id}` : undefined,
+        order: editable ? { groupId: o.groupId, trancheId: o.trancheId, leg: o.leg } : undefined,
+        edited: moved !== undefined || edit?.pct !== undefined,
+      });
     }
     return out;
-  }, [drafts, records, activeId, pandaList]);
+  }, [drafts, records, activeId, pandaList, orderEdits, pandaMode]);
 
   // ── editing drafts ───────────────────────────────────────────────────────────────────────────────
   // Only what's actually visible right now (current drafts + live records) counts toward the next number —
@@ -661,14 +723,18 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       if (phase === "move") return setMachine(move(s, p, { ...info, pressed: info.pressed }));
       if (phase === "down") return setMachine(down(s, p, info));
       const r = up(s, p, info);
-      if (r.picked !== null && activeId) {
-        const pending = pendingTrancheRef.current;
-        // After every tap the picked tab stays armed (sticky mode); after a drag, whatever was armed before comes back.
-        const rearm = () => {
-          const m = modeRef.current;
-          pendingTrancheRef.current = m?.held ? { mode: "place", leg: m.target === "stop" ? "stop" : "sell" } : null;
-          setMachine(m ? start(m.target) : IDLE);
-        };
+      const pending = pendingTrancheRef.current;
+      // After every tap the picked tab stays armed (sticky mode); after a drag, whatever was armed before comes back.
+      const rearm = () => {
+        const m = modeRef.current;
+        pendingTrancheRef.current = m?.held ? { mode: "place", leg: m.target === "stop" ? "stop" : "sell" } : null;
+        setMachine(m ? start(m.target) : IDLE);
+      };
+      if (r.picked !== null && pending?.mode === "order") {
+        // A live order's line was dropped somewhere else: nothing is sent — the change waits for "Guardar cambio".
+        patchOrderEdit(pending.groupId, pending.trancheId, pending.leg === "sell" ? { sellUsd: r.picked } : { stopUsd: r.picked });
+        rearm();
+      } else if (r.picked !== null && activeId) {
         if (pending?.mode === "place") {
           const pct = selectedPctRef.current;
           const tranches = drafts.find((d) => d.id === activeId)?.tranches ?? [];
@@ -700,7 +766,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setMachine(r.state);
       }
     },
-    [activeId, applyPrice, setMachine, selectedPct, heldStatus, current, drafts]
+    [activeId, applyPrice, setMachine, selectedPct, heldStatus, current, drafts, patchOrderEdit]
   );
 
   /** Grabs an already-placed tranche leg's line (its tag on the chart) and starts repositioning it right away —
@@ -714,6 +780,18 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       setError(null);
       setNotice(null);
       setMachine(start(leg === "sell" ? "sell1" : "stop"));
+      onPointer("down", price, { ...info, pressed: true });
+    },
+    [setMachine, onPointer]
+  );
+
+  /** The same grab, on a LIVE PANDA order's line: releasing it leaves a pending change, never an order by itself. */
+  const startOrderDrag = useCallback(
+    (order: { groupId: string; trancheId: string; leg: "sell" | "stop" }, price: number, info: { type: string; button: number }) => {
+      pendingTrancheRef.current = { mode: "order", ...order };
+      setError(null);
+      setNotice(null);
+      setMachine(start(order.leg === "sell" ? "sell1" : "stop"));
       onPointer("down", price, { ...info, pressed: true });
     },
     [setMachine, onPointer]
@@ -834,10 +912,12 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         tranches: tranches.map((t) => ({ trancheId: t.id, pct: t.pct, sellUsd: t.sell, stopUsd: t.stop })),
       });
       type Prepared = { phase: "setup"; transaction: string; nonceAccounts: string[] } | { phase: "orders"; orders: { id: string; transaction: string }[] };
-      const prepare = async (): Promise<Prepared> => {
-        const res = await fetch("/api/panda-orders/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      // The server checks the SOL and simulates every transaction BEFORE answering: when something would fail, this
+      // throws with the reason and the wallet is never opened.
+      const prepare = async (setupSignature?: string): Promise<Prepared> => {
+        const res = await fetch("/api/panda-orders/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: setupSignature ? JSON.stringify({ ...JSON.parse(body), setupSignature }) : body });
         const data = await res.json();
-        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues);
+        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues, data.detail);
         return data as Prepared;
       };
       try {
@@ -847,23 +927,28 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         let p = await prepare();
         // First time on this wallet: the order accounts are created first (up to 5 per approval, so a draft with
         // more lines takes one more). Then the same request returns the orders themselves.
+        // An account whose deposit this browser already sent is NEVER asked for again (creating it twice fails, and the
+        // wallet shows a red warning for it): if the server doesn't see it yet, this waits and asks again.
+        const created = new Set<string>();
         for (let rounds = 0; p.phase === "setup"; rounds++) {
           if (rounds >= 2) throw new ApiError("Order accounts not ready yet — try again.", "nonce_pending");
           setStep("setup");
-          await sendAndConfirm(p.transaction);
+          const setupSignature = await sendAndConfirm(p.transaction);
+          for (const a of p.nonceAccounts) created.add(a);
           setStep("prepare");
-          // The new accounts can take a moment to be visible to PANDA's RPC: a few short retries.
+          // The new accounts can take a moment to be visible to PANDA's RPC: short retries, up to ~40 s.
           for (let k = 0; ; k++) {
             try {
-              p = await prepare();
+              p = await prepare(setupSignature);
+              if (p.phase === "setup" && p.nonceAccounts.some((a) => created.has(a))) throw new ApiError("Order accounts not ready yet — try again.", "nonce_pending");
               break;
             } catch (err) {
-              if (!(err instanceof ApiError && err.code === "nonce_pending") || k >= 7) throw err;
+              if (!(err instanceof ApiError && err.code === "nonce_pending") || k >= 15) throw err;
               await new Promise((r) => setTimeout(r, 2500));
             }
           }
         }
-        setStep("sign");
+        setStep("signOrders");
         const txs = p.orders.map((o) => base64ToVersionedTransaction(o.transaction));
         const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
         setStep("create");
@@ -878,13 +963,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setDrafts((ds) => ds.filter((x) => x.id !== d.id));
         setActiveId(null);
         await refreshPanda();
-        setStep("done");
+        setStep("doneOrders");
         setTimeout(() => setStep("idle"), 3500);
       } catch (err) {
         setStep("idle");
         setError(
           err instanceof ApiError
-            ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues }
+            ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues, detail: err.detail }
             : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined }
         );
       }
@@ -892,12 +977,83 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [coin, ensureSession, signTransaction, signAllTransactions, sendAndConfirm, refreshPanda]
   );
 
+  /** "Guardar cambio": ONE wallet approval swaps the live order for the changed one, on the same order account (no new
+   *  deposit, nothing sent to the chain). Until it is signed — or if it is refused — the old order stays as it is. */
+  const saveOrderEdit = useCallback(
+    async (k: string, riskAccepted: boolean) => {
+      const edit = orderEdits[k];
+      if (!edit || !signTransaction) return;
+      setError(null);
+      setSavingEdit(k);
+      try {
+        await ensureSession();
+        const res = await fetch("/api/panda-orders/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...edit, riskAccepted }) });
+        const data = await res.json();
+        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues, data.detail);
+        const prepared = data.orders as { replaces: string; transaction: string; ticket: unknown }[];
+        const txs = prepared.map((o) => base64ToVersionedTransaction(o.transaction));
+        const signed = signAllTransactions && txs.length > 1 ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
+        const sub = await fetch("/api/panda-orders/modify/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signed: prepared.map((o, i) => ({ replaces: o.replaces, ticket: o.ticket, transaction: versionedTransactionToBase64(signed[i]) })) }),
+        });
+        const result = await sub.json();
+        if (!sub.ok) throw new ApiError(result.error, result.code);
+        await refreshPanda();
+        clearOrderEdit(k);
+      } catch (err) {
+        // "nothing" / "nonce_used": the order filled or was cancelled meanwhile — show what's really there now.
+        if (err instanceof ApiError && (err.code === "nothing" || err.code === "nonce_used")) {
+          clearOrderEdit(k);
+          await refreshPanda();
+        }
+        setError(
+          err instanceof ApiError
+            ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues, detail: err.detail }
+            : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined }
+        );
+      } finally {
+        setSavingEdit(null);
+      }
+    },
+    [orderEdits, ensureSession, signTransaction, signAllTransactions, refreshPanda, clearOrderEdit]
+  );
+
+  /** The × on ONE line of a tranche that has both a sell and a stop: only that line goes; the other keeps working on
+   *  the same order account. It takes a wallet signature like every cancel — a free message, nothing sent to the chain.
+   *  (The last line of a tranche is cancelled with closePanda: that also gives the deposit back.) */
+  const cancelPandaLeg = useCallback(
+    async (orderId: string) => {
+      setError(null);
+      setCancelling(orderId);
+      try {
+        if (!signMessage) throw new ApiError("This wallet can't sign messages.", "no_sign_message");
+        await ensureSession();
+        const ask = await fetch("/api/panda-orders/cancel-leg", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId }) });
+        const asked = await ask.json();
+        if (!ask.ok) throw new ApiError(asked.error, asked.code);
+        const signature = await signMessage(new TextEncoder().encode(asked.message));
+        const done = await fetch("/api/panda-orders/cancel-leg", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId, issuedAt: asked.issuedAt, signature: bs58.encode(signature) }) });
+        const result = await done.json();
+        if (!done.ok) throw new ApiError(result.error, result.code);
+        await refreshPanda();
+      } catch (err) {
+        if (err instanceof ApiError && err.code === "nothing") await refreshPanda();
+        setError(err instanceof ApiError ? { message: err.message, code: err.code } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+      } finally {
+        setCancelling(null);
+      }
+    },
+    [ensureSession, signMessage, refreshPanda]
+  );
+
   /** Closes order accounts — a whole strategy, one tranche, or (`recover`) every free one: the deposit comes back to
    *  the wallet and any order signed on them can never execute. One approval. */
   const closePanda = useCallback(
-    async (target: { groupId: string; trancheId?: string } | { recover: true }) => {
+    async (target: { groupId: string; trancheId?: string } | { recover: true } | { allOf: string }) => {
       setError(null);
-      setCancelling("recover" in target ? "recover" : target.trancheId ?? target.groupId);
+      setCancelling("recover" in target ? "recover" : "allOf" in target ? "all" : target.trancheId ?? target.groupId);
       try {
         await ensureSession();
         const res = await fetch("/api/panda-orders/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target) });
@@ -1073,6 +1229,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     freeNonces: pandaList?.freeNonces ?? [],
     freeDepositLamports: (pandaList?.freeNonces.length ?? 0) * (pandaList?.rentLamports ?? 0),
     confirmPanda,
+    orderEdits,
+    savingEdit,
+    patchOrderEdit,
+    clearOrderEdit,
+    saveOrderEdit,
+    startOrderDrag,
+    cancelPandaLeg,
     closePanda,
     resignPanda,
     refreshPanda,
@@ -1139,7 +1302,7 @@ async function signOneByOne<T extends Transaction | VersionedTransaction>(txs: T
 }
 
 class ApiError extends Error {
-  constructor(message: string, public code?: string, public issues?: StrategyIssue[], public pandaIssues?: Record<string, string[]>) {
+  constructor(message: string, public code?: string, public issues?: StrategyIssue[], public pandaIssues?: Record<string, string[]>, public detail?: { needLamports: number; haveLamports: number }) {
     super(message);
   }
 }

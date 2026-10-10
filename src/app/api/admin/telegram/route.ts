@@ -6,7 +6,7 @@ import { recordAudit } from "@/lib/audit/log";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { checkActive } from "@/lib/protocol/pause-store";
-import { tgEnqueue, tgListSuggestions, tgOutboxCounts, tgStats } from "@/lib/db/telegram";
+import { tgEnqueue, tgListChangelogs, tgListSuggestions, tgOutboxCounts, tgStats } from "@/lib/db/telegram";
 import { makeTelegramCall } from "@/lib/telegram/api";
 import { telegramConfig } from "@/lib/telegram/config";
 import { buildAnnouncement } from "@/lib/telegram/feeds";
@@ -68,6 +68,8 @@ export async function GET(req: Request) {
   return NextResponse.json(
     {
       enabled: cfg.enabled,
+      changelogEnabled: cfg.changelogEnabled,
+      hasChangelogSecret: !!cfg.changelogSecret,
       hasToken: cfg.hasToken,
       hasSecret: !!cfg.webhookSecret,
       botUsername: cfg.botUsername,
@@ -89,8 +91,8 @@ export async function GET(req: Request) {
 
 async function dbData() {
   const d = getDb();
-  const [stats, outbox, suggestions] = await Promise.all([tgStats(d), tgOutboxCounts(d), tgListSuggestions(d, 50)]);
-  return { stats, outbox, suggestions };
+  const [stats, outbox, suggestions, changelogs] = await Promise.all([tgStats(d), tgOutboxCounts(d), tgListSuggestions(d, 50), tgListChangelogs(d, 20)]);
+  return { stats, outbox, suggestions, changelogs };
 }
 
 export async function POST(req: Request) {

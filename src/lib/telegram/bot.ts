@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { tgClaimUpdate, tgEnqueue } from "@/lib/db/telegram";
 import { CALLBACK_HELP, handleMessage, showHelp, type BotDeps } from "./commands";
 import { parseUpdate } from "./updates";
+import { handleChangelogCallback, isChangelogCallback } from "./changelog";
 import { esc, tt } from "./text";
 
 /** True only if the header carries exactly the configured secret (constant-time). No secret configured → never. */
@@ -31,6 +32,12 @@ export async function handleUpdate(d: BotDeps, raw: unknown): Promise<UpdateOutc
     return "handled";
   }
   if (u.kind === "callback") {
+    if (isChangelogCallback(u.data)) {
+      // "✅ Publicar" / "❌ Descartar" on a changelog draft: only an admin's press does anything (changelog.ts).
+      const r = await handleChangelogCallback(d, { data: u.data, fromId: u.message.fromId, chatId: u.message.chatId });
+      await d.answerCallback?.(u.callbackId, r.toast).catch(() => undefined);
+      return r.outcome === "published" || r.outcome === "discarded" || r.outcome === "off" ? "handled" : "ignored";
+    }
     // Always acknowledged (Telegram shows a spinner on the button until it is), whatever the button was.
     await d.answerCallback?.(u.callbackId).catch(() => undefined);
     if (u.data !== CALLBACK_HELP) return "ignored";

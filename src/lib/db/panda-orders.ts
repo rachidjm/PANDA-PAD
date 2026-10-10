@@ -100,3 +100,24 @@ export async function pgLiveByNonces(db: Db, wallet: string, nonces: string[]): 
   if (nonces.length === 0) return [];
   return db.select().from(pandaOrders).where(and(eq(pandaOrders.wallet, wallet), inArray(pandaOrders.nonceAccount, nonces), inArray(pandaOrders.state, [...LIVE_STATES])));
 }
+
+/** A changed order: each old one leaves (cancelled, reason "replaced", its signed bytes erased) and its replacement
+ *  goes live in the SAME transaction — for every pair, or for none (an old order that is no longer active rolls it back). */
+export async function pgReplaceActive(db: Db, wallet: string, swaps: { replaces: string; row: PandaOrderInsert }[], now: number): Promise<boolean> {
+  try {
+    await db.transaction(async (tx) => {
+      for (const s of swaps) {
+        const gone = await tx
+          .update(pandaOrders)
+          .set({ state: "cancelled", reason: "replaced", txCiphertext: null, txIv: null, updatedAt: now })
+          .where(and(eq(pandaOrders.id, s.replaces), eq(pandaOrders.wallet, wallet), eq(pandaOrders.state, "active")))
+          .returning({ id: pandaOrders.id });
+        if (gone.length !== 1) throw new Error("not_active");
+        await tx.insert(pandaOrders).values(s.row);
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

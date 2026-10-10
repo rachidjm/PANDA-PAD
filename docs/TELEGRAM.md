@@ -285,3 +285,41 @@ Si `TELEGRAM_GROUP_URL` o `TELEGRAM_CHANNEL_URL` no están puestas (o no son un 
 - **Del todo:** `FEATURE_TELEGRAM_BOT=false` y redeploy. El webhook pasa a responder 404 y el cron se salta.
 - **Que Telegram deje de llamar:** `/admin` → "Quitar webhook".
 - **Revocar el bot:** @BotFather → `/revoke` del token.
+
+## 9. Changelog público con aprobación (`FEATURE_TELEGRAM_CHANGELOG`)
+
+Nada se publica en el canal sin que un admin pulse un botón.
+
+1. **Borrador.** `npm run changelog -- borrador.md` lee un Markdown con las secciones `## New`, `## Improved`, `## Fixed`
+   (líneas con `- `), lo comprueba y lo envía a `POST /api/telegram/changelog` con `Authorization: Bearer
+   <CHANGELOG_PUBLISH_SECRET>` (el script lo lee de `.env.local`; en Vercel es Sensitive). Sin secreto o con uno
+   incorrecto: 401. Con el flag apagado o sin secreto configurado: 404.
+2. **Aprobación.** El bot guarda el borrador (`telegram_changelogs`, estado `pending`) y lo envía por PRIVADO a cada id de
+   `TELEGRAM_ADMIN_IDS` con «✅ Publicar» y «❌ Descartar». Solo cuenta la pulsación de un admin (se comprueba el id del
+   callback). La decisión se toma UNA vez (cambio de estado atómico): no se puede publicar dos veces.
+3. **Publicación.** «Publicar» lo manda a `TELEGRAM_CHANNEL_ID` con el botón «💬 Discuss in Community». «Descartar» lo
+   marca como descartado. Los borradores y su estado se ven en /admin → Bot de Telegram.
+
+Formato fijo (en inglés), solo las secciones con contenido y como mucho 3 líneas cortas por sección:
+
+```
+🛠 PANDA Update · October 10, 2026
+
+✨ New
+- ...
+🔧 Improved
+- ...
+🐛 Fixed
+- ...
+
+🌐 launchonpanda.app
+```
+
+Reglas del contenido, comprobadas en el script y otra vez en el servidor (`src/lib/telegram/changelog-format.ts`): nunca
+detalles de seguridad (como mucho «Security improvements»), direcciones de wallets, nombres de variables, secretos,
+archivos o código, /admin, infraestructura, funciones que no vea todo el mundo, ni promesas de futuro, de precio o de
+recompensas. Solo cambios ya subidos a `main` y desplegados.
+
+Requisitos: `FEATURE_TELEGRAM_BOT` encendido, webhook registrado con `callback_query` (para que funcionen los botones),
+`TELEGRAM_ADMIN_IDS`, `TELEGRAM_CHANNEL_ID`, y que el admin haya abierto el chat privado con el bot (/start).
+Migración 0015.

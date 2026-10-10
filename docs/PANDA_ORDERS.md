@@ -62,3 +62,20 @@ La comisión de trading de PANDA (1 % por defecto, 0,5 % referido/veterano) sobr
 - El vigilante depende del cron de Vercel: hay un hueco de unos segundos entre ejecuciones.
 - Phantom puede mostrar un aviso propio al firmar transacciones con durable nonce.
 - Curvas cotizadas en USDC y pools invertidos (SOL/token) no se admiten.
+
+## Antes de firmar, cambiar una orden y cancelar una sola línea (octubre 2026)
+
+- **Antes de abrir la wallet** el servidor comprueba que hay SOL suficiente (depósitos de las cuentas nuevas + comisión
+  del depósito + una comisión de ejecución por tramo + margen: `requiredLamports`) y **simula cada transacción**
+  (`sigVerify: false`). Si algo fallaría, la wallet no se abre y se dice el motivo. Una VENTA por encima del mercado
+  «falla» en su propio mínimo hasta que el precio llega: eso es la orden funcionando, y pasa la comprobación. La wallet
+  del usuario hace su propia simulación y puede mostrar un aviso por ese mismo motivo.
+- **Una cuenta de órdenes nunca se pide dos veces.** El navegador manda la firma del depósito confirmado
+  (`setupSignature`); si la lectura del servidor aún no ve la cuenta, responde «espera» en vez de otro depósito.
+- **Cambiar una orden** (`modify.ts`, `/api/panda-orders/modify` y `/modify/submit`): la orden nueva se firma sobre el
+  MISMO valor de nonce que la antigua, así que no hay depósito ni transacción en cadena, y la otra línea del tramo sigue
+  valiendo. La firma antigua solo existía cifrada en la base de datos de PANDA y se borra en la misma transacción que
+  guarda la nueva. Lo preparado viaja como un «ticket» sellado con la clave de órdenes; no se guarda nada intermedio.
+- **Cancelar UNA línea de un tramo con dos** (`/api/panda-orders/cancel-leg`): firma de un mensaje gratuito que el
+  servidor reconstruye; se borra la transacción firmada de esa línea y la otra sigue activa. La última línea de un tramo
+  se cancela cerrando la cuenta (devuelve el depósito). «Cancelar todo» cierra todas las cuentas de esa moneda.
