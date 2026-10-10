@@ -394,6 +394,18 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     });
   }, []);
 
+  // Another account (or none): nothing of the previous wallet may stay on screen — its orders, its pending changes,
+  // its "had access" memory. The new wallet's own list is read right after (refreshPanda depends on publicKey).
+  const walletKey = publicKey?.toBase58() ?? null;
+  useEffect(() => {
+    hadAccess.current = false;
+    Promise.resolve().then(() => {
+      setPandaList(null);
+      setOrderEdits({});
+      setServerAccess("checking");
+    });
+  }, [walletKey]);
+
   const committedUi = useMemo(() => {
     const raw = pandaList?.committedRaw ? Number(pandaList.committedRaw) : 0;
     const decimals = balanceRead?.decimals ?? pandaList?.orders[0]?.tokenDecimals ?? null;

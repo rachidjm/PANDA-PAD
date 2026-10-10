@@ -8,7 +8,7 @@ import ConnectModal from "@/components/wallet/ConnectModal";
 import { truncateAddress } from "@/lib/format";
 import { pendingCode, pendingReferrer } from "@/lib/referrals/client";
 import { phantomBrowseUrl } from "@/lib/wallet/phantom-link";
-import { afterAnswer, connectStep, hasAnsweredConnectModal, markConnectModalAnswered, type ConnectStep } from "@/lib/wallet/connect-flow";
+import { afterAnswer, connectPlan, connectStep, hasAnsweredConnectModal, markConnectModalAnswered, readyToReconnect, type ConnectStep } from "@/lib/wallet/connect-flow";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 
@@ -20,7 +20,7 @@ const PHANTOM = "Phantom";
  * Connected: the wallet's own dropdown (WalletPanel), with "Cambiar de cuenta" and disconnect.
  */
 export default function WalletButton() {
-  const { wallets, select, connect, disconnect, connected, connecting, publicKey, wallet } = useWallet();
+  const { wallets, select, connect, disconnect, connected, connecting, disconnecting, publicKey, wallet } = useWallet();
   const { t } = useLanguage();
   const { referrals } = useFeatures();
   const [open, setOpen] = useState(false);
@@ -32,6 +32,8 @@ export default function WalletButton() {
   // inside the install dead-end (see run()) so that screen reads "your code is applied, install Phantom to finish"
   // instead of looking like the ordinary "have a code?" ask, which it must never show again once one is known.
   const [appliedLabel, setAppliedLabel] = useState<string | null>(null);
+  // "Cambiar de cuenta" in progress: the wallet is being disconnected; it is asked to connect again only afterwards.
+  const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,6 +55,9 @@ export default function WalletButton() {
     };
   }, []);
 
+  const phantom = wallets.find((w) => w.adapter.name === PHANTOM);
+  const installed = phantom?.readyState === "Installed";
+
   // The "code applied" notice is small and self-clearing.
   useEffect(() => {
     if (!notice) return;
@@ -60,18 +65,23 @@ export default function WalletButton() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const phantom = wallets.find((w) => w.adapter.name === PHANTOM);
-  const installed = phantom?.readyState === "Installed";
-
-  /** Connects Phantom. Once it's the selected wallet, `connect()` runs on it; otherwise selecting it makes the
-   *  provider's autoConnect do the connection. Only ever called from a click (or the modal's click). */
+  /** Connects Phantom, from wherever things really are (connectPlan): if the adapter was left connected behind the
+   *  library's back it is disconnected first; then `connect()` on the selected wallet, or selecting it (which makes the
+   *  provider connect). A connect the user closes leaves everything ready for the next click. */
   const connectPhantom = useCallback(async () => {
-    if (wallet?.adapter.name === PHANTOM) {
+    const adapter = phantom?.adapter;
+    const plan = connectPlan({ walletSelected: wallet?.adapter.name === PHANTOM, libraryConnected: connected, adapterConnected: !!adapter?.connected });
+    if (plan.resetAdapter) {
+      await adapter!.disconnect().catch(() => {});
+      // Let the library finish letting go of the wallet before it is selected again (otherwise it sees no change).
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    if (plan.how === "connect") {
       await connect().catch(() => {});
       return;
     }
     select(PHANTOM as WalletName);
-  }, [wallet, connect, select]);
+  }, [phantom, wallet, connected, connect, select]);
 
   /** Runs the chosen step. The phone redirect is a plain navigation in the same click, so it isn't blocked.
    *  `applied`: the recruiter label already resolved for this click (see startConnect) — carried into the
@@ -146,12 +156,27 @@ export default function WalletButton() {
     run(step, applied);
   }
 
+  /** "Cambiar de cuenta": close the PANDA session, disconnect — and only when that is really done (the effect below)
+   *  ask the wallet to connect again, so the user picks the account there. */
   async function switchAccount() {
     setOpen(false);
+    setSwitching(true);
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-    await disconnect().catch(() => {});
-    startConnect();
+    try {
+      await disconnect();
+    } catch {
+      setSwitching(false); // it didn't disconnect: nothing to reconnect, and a later disconnect must not reconnect by itself
+    }
   }
+  useEffect(() => {
+    if (!readyToReconnect({ switching, libraryConnected: connected, connecting, disconnecting })) return;
+    // Two frames later: the library has dropped the old wallet, and this connect starts from a clean state.
+    const timer = setTimeout(() => {
+      setSwitching(false);
+      startConnect();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [switching, connected, connecting, disconnecting, startConnect]);
 
   if (connected && publicKey) {
     return (
@@ -188,10 +213,10 @@ export default function WalletButton() {
     <div className="relative">
       <button
         onClick={startConnect}
-        disabled={connecting}
+        disabled={connecting || switching}
         className="rounded-full bg-paper px-4 py-2 text-sm font-semibold text-ink hover:brightness-90 transition disabled:opacity-60"
       >
-        {connecting ? t("wallet.connecting") : t("wallet.connect")}
+        {connecting || switching ? t("wallet.connecting") : t("wallet.connect")}
       </button>
       {notice && (
         <p role="status" className="absolute right-0 top-full z-50 mt-2 whitespace-nowrap rounded-xl border border-bamboo/30 bg-ink-raised px-3 py-1.5 text-xs font-medium text-bamboo shadow-lg">
