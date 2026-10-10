@@ -89,6 +89,7 @@ export function realBotDeps(): BotDeps {
     market: realMarket,
     isLimited: rateLimited,
     audit: (action, object, data) => recordAudit({ actor: "system:telegram", action, object, ...(data ? { newState: data } : {}) }),
+    answerCallback: async (callbackId) => void (await makeTelegramCall()("answerCallbackQuery", { callback_query_id: callbackId })),
   };
 }
 

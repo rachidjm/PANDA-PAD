@@ -8,6 +8,7 @@ import { evaluateAlerts, parseAlertSpec } from "./alerts";
 import { handleUpdate, secretMatches } from "./bot";
 import { parseUpdate } from "./updates";
 import { ADMIN_TG, botDeps, coin, dm, fakeMarket, inGroup, newUserId, OTHER, PANDA, queued } from "./testing";
+import { telegramConfig } from "./config";
 
 let db: Db;
 before(async () => {
@@ -56,18 +57,77 @@ test("an update is handled once: Telegram re-sending the same update_id gets no 
 });
 
 // ── commands ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-test("/start: welcome in the user's language; a recruiter deep link points to the site with ?ref= (wallet) or ?code=", async () => {
+type Markup = { inline_keyboard: { text: string; url?: string; callback_data?: string }[][] };
+const buttonsOf = (q: { payload: Record<string, unknown> }) => ((q.payload.reply_markup as Markup | undefined)?.inline_keyboard ?? []).map((row) => row[0]);
+
+test("/start: a short welcome in the user's language with the four buttons — community, channel, open PANDA, how alerts work", async () => {
   const d = botDeps(db);
   const u = newUserId();
+  await handleMessage(d, dm(u, "/start"));
+  const en = (await queued(db, u)).at(-1)!;
+  assert.match(en.text, /Welcome to PANDA[\s\S]*launchpad for Solana coins[\s\S]*Not financial advice/);
+  assert.deepEqual(buttonsOf(en), [
+    { text: "💬 Join the Community", url: "https://t.me/pandacommunity" },
+    { text: "📢 Updates channel", url: "https://t.me/pandaupdates" },
+    { text: "🌐 Open PANDA", url: "https://launchonpanda.app" },
+    { text: "🔔 How alerts work", callback_data: "help" },
+  ]);
   await handleMessage(d, dm(u, "/start", "es"));
-  assert.match(await last(u), /Bot de PANDA/);
+  const es = (await queued(db, u)).at(-1)!;
+  assert.match(es.text, /Bienvenido a PANDA/);
+  assert.deepEqual(buttonsOf(es).map((b) => b.text), ["💬 Únete a la comunidad", "📢 Canal de novedades", "🌐 Abrir PANDA", "🔔 Cómo funcionan las alertas"]);
+  assert.equal((await tgGetUser(db, u))?.lang, "es", "the language follows the latest message");
+});
+
+test("/start without TELEGRAM_GROUP_URL / TELEGRAM_CHANNEL_URL: those two buttons simply aren't there", async () => {
+  const u = newUserId();
+  const d = botDeps(db);
+  d.cfg = { ...d.cfg, groupUrl: null, channelUrl: null };
+  await handleMessage(d, dm(u, "/start"));
+  assert.deepEqual(buttonsOf((await queued(db, u)).at(-1)!).map((b) => b.text), ["🌐 Open PANDA", "🔔 How alerts work"]);
+  assert.equal(telegramConfig({ TELEGRAM_GROUP_URL: "http://t.me/x", TELEGRAM_CHANNEL_URL: "https://evil.example/x" }).groupUrl, null, "only https://t.me links are accepted");
+  assert.equal(telegramConfig({ TELEGRAM_GROUP_URL: "https://t.me/+AbCdEf123" }).groupUrl, "https://t.me/+AbCdEf123");
+});
+
+test("/start with a recruiter deep link: the recruiter flow comes FIRST (?ref= for a wallet, ?code= for a code), then the welcome and its buttons", async () => {
+  const d = botDeps(db);
+  const u = newUserId();
   await handleMessage(d, dm(u, `/start ref_${PANDA}`));
-  const q = await queued(db, u);
-  const btn = (q.at(-1)!.payload.reply_markup as { inline_keyboard: { url: string }[][] }).inline_keyboard[0][0].url;
-  assert.equal(btn, `https://launchonpanda.app/?ref=${PANDA}`);
+  let q = await queued(db, u);
+  assert.equal(q.length, 2);
+  assert.match(q[0].text, /recruiter link/);
+  assert.equal(buttonsOf(q[0])[0].url, `https://launchonpanda.app/?ref=${PANDA}`);
+  assert.match(q[1].text, /Welcome to PANDA/);
+  assert.equal(buttonsOf(q[1]).length, 4);
   await handleMessage(d, dm(u, "/start ref_MYCODE1"));
-  assert.equal(((await queued(db, u)).at(-1)!.payload.reply_markup as { inline_keyboard: { url: string }[][] }).inline_keyboard[0][0].url, "https://launchonpanda.app/?code=MYCODE1");
-  assert.equal((await tgGetUser(db, u))?.lang, "en", "the language follows the latest message");
+  q = await queued(db, u);
+  assert.equal(buttonsOf(q[2])[0].url, "https://launchonpanda.app/?code=MYCODE1");
+  assert.match(q[3].text, /Welcome to PANDA/);
+});
+
+test("/start link: the wallet-linking flow comes FIRST (a one-time link), then the welcome and its buttons", async () => {
+  const d = botDeps(db);
+  const u = newUserId();
+  await handleMessage(d, dm(u, "/start link"));
+  const q = await queued(db, u);
+  assert.equal(q.length, 2);
+  assert.match(buttonsOf(q[0])[0].url!, /^https:\/\/launchonpanda\.app\/telegram\/link\?code=[A-Za-z0-9_-]{24}$/);
+  assert.match(q[0].text, /NEVER ask for your seed phrase/);
+  assert.match(q[1].text, /Welcome to PANDA/);
+});
+
+test("the 'How alerts work' button shows /help, is acknowledged to Telegram, and any other button data does nothing", async () => {
+  const u = newUserId();
+  const acked: string[] = [];
+  const d = botDeps(db, { answerCallback: async (id) => void acked.push(id) });
+  const press = (id: number, data: string) => ({ update_id: id, callback_query: { id: `cb${id}`, from: { id: u, language_code: "es" }, data, message: { message_id: 5, chat: { id: u, type: "private" } } } });
+  assert.equal(await handleUpdate(d, press(910_001, "help")), "handled");
+  assert.match(await last(u), /Comandos:[\s\S]*\/alert/);
+  assert.equal(await handleUpdate(d, press(910_002, "other")), "ignored");
+  assert.equal(await handleUpdate(d, press(910_003, "DROP TABLE")), "ignored");
+  assert.deepEqual(acked, ["cb910001", "cb910002"], "valid presses are acknowledged; malformed data isn't even parsed");
+  assert.equal((await queued(db, u)).length, 1);
+  assert.equal(parseUpdate({ update_id: 1, callback_query: { id: "x", from: { id: 1, is_bot: true }, data: "help", message: { chat: { id: 1, type: "private" } } } }).kind, "ignored");
 });
 
 test("/help, /new (none yet and with launches), /trending: real data or an honest 'unavailable'", async () => {

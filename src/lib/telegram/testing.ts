@@ -50,6 +50,8 @@ export function testConfig(over: Partial<TelegramConfig> = {}): TelegramConfig {
     groupId: "-1002",
     topics: { newCoins: 11, buys: 12, payouts: 13, suggestions: 14 },
     minBuyUsd: 20,
+    groupUrl: "https://t.me/pandacommunity",
+    channelUrl: "https://t.me/pandaupdates",
     domain: "launchonpanda.app",
     siteUrl: "https://launchonpanda.app",
     ...over,

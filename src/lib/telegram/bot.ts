@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { tgClaimUpdate, tgEnqueue } from "@/lib/db/telegram";
-import { handleMessage, type BotDeps } from "./commands";
+import { CALLBACK_HELP, handleMessage, showHelp, type BotDeps } from "./commands";
 import { parseUpdate } from "./updates";
 import { esc, tt } from "./text";
 
@@ -28,6 +28,13 @@ export async function handleUpdate(d: BotDeps, raw: unknown): Promise<UpdateOutc
       { chatId: String(u.message.chatId), method: "sendMessage", payload: { parse_mode: "HTML", text: tt(u.message.lang, "chatId", { chatId: u.channelId, type: "channel", title: u.channelTitle ? `\n${esc(u.channelTitle)}` : "", thread: "" }) } },
       d.now()
     );
+    return "handled";
+  }
+  if (u.kind === "callback") {
+    // Always acknowledged (Telegram shows a spinner on the button until it is), whatever the button was.
+    await d.answerCallback?.(u.callbackId).catch(() => undefined);
+    if (u.data !== CALLBACK_HELP) return "ignored";
+    await showHelp(d, u.message);
     return "handled";
   }
   await handleMessage(d, u.message);

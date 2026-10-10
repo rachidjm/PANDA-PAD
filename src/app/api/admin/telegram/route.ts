@@ -74,6 +74,8 @@ export async function GET(req: Request) {
       botUsernameFromTelegram: me?.ok ? me.result?.username : null,
       channelId: cfg.channelId,
       groupId: cfg.groupId,
+      groupUrl: cfg.groupUrl,
+      channelUrl: cfg.channelUrl,
       topics: cfg.topics,
       adminIds: cfg.adminIds.size,
       minBuyUsd: cfg.minBuyUsd,
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
 
   if (action === "announce_preview" || action === "announce") {
     if (!cfg.channelId) return NextResponse.json({ error: "TELEGRAM_CHANNEL_ID isn't set." }, { status: 409 });
-    const built = buildAnnouncement({ text: String(body?.text ?? ""), imageUrl: body?.imageUrl ? String(body.imageUrl) : undefined, buttonText: body?.buttonText ? String(body.buttonText) : undefined, buttonUrl: body?.buttonUrl ? String(body.buttonUrl) : undefined }, cfg.channelId);
+    const built = buildAnnouncement({ text: String(body?.text ?? ""), imageUrl: body?.imageUrl ? String(body.imageUrl) : undefined, buttonText: body?.buttonText ? String(body.buttonText) : undefined, buttonUrl: body?.buttonUrl ? String(body.buttonUrl) : undefined }, cfg.channelId, cfg.groupUrl);
     if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 });
     if (action === "announce_preview") return NextResponse.json({ ok: true, preview: built.message });
     if (!cfg.enabled || !cfg.hasToken) return NextResponse.json({ error: "The bot is off (FEATURE_TELEGRAM_BOT / TELEGRAM_BOT_TOKEN)." }, { status: 409 });
@@ -121,7 +123,7 @@ export async function POST(req: Request) {
     if (!cfg.enabled) return NextResponse.json({ error: "Switch FEATURE_TELEGRAM_BOT on first (the webhook answers 404 while it's off)." }, { status: 409 });
     if (!cfg.webhookSecret) return NextResponse.json({ error: "TELEGRAM_WEBHOOK_SECRET isn't set (or is too short)." }, { status: 409 });
     const url = `${cfg.siteUrl}/api/telegram/webhook`;
-    const r = await call("setWebhook", { url, secret_token: cfg.webhookSecret, allowed_updates: ["message"], max_connections: 20, drop_pending_updates: false });
+    const r = await call("setWebhook", { url, secret_token: cfg.webhookSecret, allowed_updates: ["message", "callback_query"], max_connections: 20, drop_pending_updates: false });
     await audit(url, { ok: r.ok });
     return r.ok ? NextResponse.json({ ok: true, url }) : NextResponse.json({ error: r.description ?? "Telegram refused it." }, { status: 502 });
   }

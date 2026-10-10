@@ -168,7 +168,7 @@ Tests que **deben fallar** (y fallan) en `src/lib/telegram/link.test.ts`: firma 
 
 | Comando | Dónde | Notas |
 |---|---|---|
-| `/start [ref_<wallet o código>]` | Privado y grupo | Bienvenida. Con código de reclutador: botón a `launchonpanda.app/?ref=…` o `?code=…` (la web lo aplica, como hoy) |
+| `/start [ref_<wallet o código> \| link]` | Privado y grupo | Bienvenida corta (qué es PANDA y qué hace el bot) con botones. Con `ref_…`: primero el botón a `launchonpanda.app/?ref=…` o `?code=…` (la web lo aplica, como hoy). Con `link`: primero el enlace de vinculación. Después, siempre, la bienvenida y sus botones |
 | `/help` | Privado y grupo | |
 | `/new` | Privado y grupo | Últimas monedas de `panda_launches` |
 | `/trending` | Privado y grupo | Volumen 24 h de la caché (sin llamadas extra) |
@@ -187,6 +187,16 @@ Tests que **deben fallar** (y fallan) en `src/lib/telegram/link.test.ts`: firma 
 - Los mensajes de bots se ignoran, igual que los comandos dirigidos a otro bot.
 
 Los comandos se registran con `setMyCommands` (EN y ES) desde `/admin`. Los comandos de admin no se publican.
+
+**Botones de `/start`** (inglés por defecto, español si Telegram está en español):
+- "💬 Join the Community" → `TELEGRAM_GROUP_URL`.
+- "📢 Updates channel" → `TELEGRAM_CHANNEL_URL`.
+- "🌐 Open PANDA" → la web.
+- "🔔 How alerts work" → muestra `/help` en el mismo chat. Es el único botón que no es un enlace: Telegram envía una actualización `callback_query`, y por eso el webhook se registra para `message` y `callback_query`.
+
+Si `TELEGRAM_GROUP_URL` o `TELEGRAM_CHANNEL_URL` no están puestas (o no son un enlace `https://t.me/…`), ese botón no aparece.
+
+**Anuncios al canal:** cada anuncio termina con el botón "💬 Discuss in Community", que abre el grupo (`TELEGRAM_GROUP_URL`). El canal y el grupo no se pueden vincular porque el grupo usa Temas, así que este botón sustituye a los comentarios. Va después del botón propio del anuncio, si lo tiene, y no aparece si el enlace del grupo no está puesto.
 
 ---
 
@@ -232,12 +242,13 @@ Los comandos se registran con `setMyCommands` (EN y ES) desde `/admin`. Los coma
    - `TELEGRAM_WEBHOOK_SECRET`: **ya está creada** (Sensitive, generada aleatoriamente y sin mostrar).
    - `TELEGRAM_BOT_USERNAME`: sin @.
    - `TELEGRAM_ADMIN_IDS`: tu ID numérico. Puedes saberlo con @userinfobot o con `/chatid` por privado cuando el bot funcione: el ID del chat privado es tu ID.
+   - `TELEGRAM_GROUP_URL` y `TELEGRAM_CHANNEL_URL`: enlaces públicos `https://t.me/…` del grupo y del canal (no son secretos).
    - `TELEGRAM_MIN_BUY_USD`: opcional; por defecto 20.
 3. **Fusionar en `main`.** El build de producción aplica la migración 0014 y despliega con el bot **apagado**.
 4. **Encender:** poner `FEATURE_TELEGRAM_BOT=true` y redeplegar.
 5. **`/admin` → Bot de Telegram:**
    - "Cargar estado": token "set", secreto "set" y el @usuario que devuelve Telegram.
-   - "Registrar webhook": registra `https://launchonpanda.app/api/telegram/webhook` con el secreto y solo actualizaciones `message`.
+   - "Registrar webhook": registra `https://launchonpanda.app/api/telegram/webhook` con el secreto y solo actualizaciones `message` y `callback_query` (los botones del bot). Si ya lo habías registrado antes de este cambio, vuelve a pulsarlo.
    - "Registrar comandos (EN + ES)".
 6. **Obtener IDs:**
    - Escribe `/start` al bot por privado.

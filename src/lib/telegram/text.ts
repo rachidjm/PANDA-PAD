@@ -7,7 +7,12 @@ import type { Lang } from "@/lib/db/telegram";
 
 const EN = {
   welcome:
-    "🐼 <b>PANDA bot</b>\nLaunch and trade Solana coins on {site}.\n\nWhat I can do:\n/new — latest coins launched on PANDA\n/trending — most traded coins (24h volume)\n/token &lt;address or ticker&gt; — a coin's price, market cap and liquidity\n/watch, /watchlist, /unwatch — your watchlist\n/alert — a one-time price or market-cap alert (private chat)\n/link — link your wallet (you sign on {domain})\n/suggest — send us an idea\n/help — this list",
+    "🐼 <b>Welcome to PANDA</b>\nPANDA is a launchpad for Solana coins: create a coin, trade it, and follow it on {site}.\n\nThis bot shows coin data (/token, /trending, /new), keeps your watchlist, sends you one-time price alerts and links your wallet — you only ever sign on {domain}.\n\nNot financial advice.",
+  btnCommunity: "💬 Join the Community",
+  btnChannel: "📢 Updates channel",
+  btnOpen: "🌐 Open PANDA",
+  btnAlerts: "🔔 How alerts work",
+  btnDiscuss: "💬 Discuss in Community",
   help: "Commands:\n/new · /trending · /token &lt;address or ticker&gt;\n/watch &lt;address&gt; · /unwatch &lt;address&gt; · /watchlist\n/alert &lt;address&gt; price|mcap above|below &lt;value&gt;\n/alerts · /alert remove &lt;n&gt;\n/link · /unlink · /suggest &lt;text&gt;\n\nPANDA will never ask for your seed phrase or private key. Not financial advice.",
   nfa: "Not financial advice.",
   refWelcome: "You came with a recruiter link. Open PANDA with it, so it is applied when you connect your wallet:",
@@ -89,7 +94,12 @@ type Key = keyof typeof EN;
 
 const ES: Record<Key, string> = {
   welcome:
-    "🐼 <b>Bot de PANDA</b>\nLanza y opera monedas de Solana en {site}.\n\nLo que puedo hacer:\n/new — últimas monedas lanzadas en PANDA\n/trending — monedas más operadas (volumen 24 h)\n/token &lt;dirección o ticker&gt; — precio, cap. de mercado y liquidez\n/watch, /watchlist, /unwatch — tu lista de seguimiento\n/alert — una alerta de precio o cap. de mercado (por privado)\n/link — vincula tu wallet (firmas en {domain})\n/suggest — envíanos una idea\n/help — esta lista",
+    "🐼 <b>Bienvenido a PANDA</b>\nPANDA es una plataforma para lanzar monedas de Solana: crea una moneda, opérala y síguela en {site}.\n\nEste bot muestra datos de monedas (/token, /trending, /new), guarda tu lista de seguimiento, te envía alertas de precio de un solo aviso y vincula tu wallet — solo firmas en {domain}.\n\nNo es asesoramiento financiero.",
+  btnCommunity: "💬 Únete a la comunidad",
+  btnChannel: "📢 Canal de novedades",
+  btnOpen: "🌐 Abrir PANDA",
+  btnAlerts: "🔔 Cómo funcionan las alertas",
+  btnDiscuss: "💬 Discuss in Community",
   help: "Comandos:\n/new · /trending · /token &lt;dirección o ticker&gt;\n/watch &lt;dirección&gt; · /unwatch &lt;dirección&gt; · /watchlist\n/alert &lt;dirección&gt; price|mcap above|below &lt;valor&gt;\n/alerts · /alert remove &lt;n&gt;\n/link · /unlink · /suggest &lt;texto&gt;\n\nPANDA nunca te pedirá tu frase semilla ni tu clave privada. No es asesoramiento financiero.",
   nfa: "No es asesoramiento financiero.",
   refWelcome: "Has llegado con un enlace de reclutador. Abre PANDA con él para que se aplique al conectar tu wallet:",

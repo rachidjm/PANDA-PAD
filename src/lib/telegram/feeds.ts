@@ -159,8 +159,12 @@ export async function postPayoutDigest(d: FeedDeps): Promise<number> {
 // ── official announcements (from /admin) → channel ─────────────────────────────────────────────────────────────────
 export type Announcement = { text: string; imageUrl?: string; buttonText?: string; buttonUrl?: string };
 
-/** Validates an announcement and builds the message. Text is sent as plain text (escaped): no markup can be injected. */
-export function buildAnnouncement(a: Announcement, channelId: string): { ok: true; message: OutMessage } | { ok: false; error: string } {
+/**
+ * Validates an announcement and builds the message. Text is sent as plain text (escaped): no markup can be injected.
+ * `groupUrl`: every announcement ends with a "Discuss in Community" button to the group — the channel and the group can't be
+ * linked (the group uses Topics), so this stands in for comments. No link configured → no such button.
+ */
+export function buildAnnouncement(a: Announcement, channelId: string, groupUrl: string | null = null): { ok: true; message: OutMessage } | { ok: false; error: string } {
   const text = typeof a.text === "string" ? a.text.trim() : "";
   const image = a.imageUrl?.trim() || "";
   const bText = a.buttonText?.trim() || "";
@@ -171,7 +175,8 @@ export function buildAnnouncement(a: Announcement, channelId: string): { ok: tru
   if ((bText && !bUrl) || (!bText && bUrl)) return { ok: false, error: "A button needs both a label and a link." };
   if (bText && bText.length > 40) return { ok: false, error: "The button label can be up to 40 characters." };
   if (bUrl && !/^https:\/\/\S{4,500}$/.test(bUrl)) return { ok: false, error: "The button link must be an https:// URL." };
-  const markup = bText ? { reply_markup: { inline_keyboard: [[{ text: bText, url: bUrl }]] } } : {};
+  const rows = [...(bText ? [[{ text: bText, url: bUrl }]] : []), ...(groupUrl ? [[{ text: tt(LANG, "btnDiscuss"), url: groupUrl }]] : [])];
+  const markup = rows.length ? { reply_markup: { inline_keyboard: rows } } : {};
   const message: OutMessage = image
     ? { chatId: channelId, method: "sendPhoto", payload: { photo: image, caption: esc(text), parse_mode: "HTML", ...markup } }
     : { chatId: channelId, method: "sendMessage", payload: { text: esc(text), parse_mode: "HTML", ...markup } };

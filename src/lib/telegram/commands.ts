@@ -42,6 +42,8 @@ export type BotDeps = {
   /** true = over the limit. */
   isLimited: (key: string, limit: number, windowMs: number) => Promise<boolean>;
   audit: (action: string, object: string, data?: Record<string, unknown>) => Promise<void>;
+  /** Tells Telegram a button press was received (stops its spinner). Best effort; absent in tests that don't need it. */
+  answerCallback?: (callbackId: string) => Promise<void>;
 };
 
 const PRIVATE_ONLY = new Set(["/watch", "/unwatch", "/watchlist", "/alert", "/alerts", "/link", "/unlink"]);
@@ -132,7 +134,26 @@ export async function handleMessage(d: BotDeps, m: Incoming): Promise<void> {
 }
 
 // ── replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-type Button = { text: string; url: string };
+type Button = { text: string; url: string } | { text: string; callback_data: string };
+
+/** The one button that isn't a link: "How alerts work" (bot.ts answers it with /help). */
+export const CALLBACK_HELP = "help";
+
+/** /start's buttons. The community and channel ones exist only when their public link is configured. */
+export function startButtons(cfg: TelegramConfig, lang: Lang): Button[] {
+  return [
+    ...(cfg.groupUrl ? [{ text: tt(lang, "btnCommunity"), url: cfg.groupUrl }] : []),
+    ...(cfg.channelUrl ? [{ text: tt(lang, "btnChannel"), url: cfg.channelUrl }] : []),
+    { text: tt(lang, "btnOpen"), url: cfg.siteUrl },
+    { text: tt(lang, "btnAlerts"), callback_data: CALLBACK_HELP },
+  ];
+}
+
+/** A press of "How alerts work": the same answer as /help, in the chat where the button was. */
+export async function showHelp(d: BotDeps, m: Incoming): Promise<void> {
+  if (await d.isLimited(`tg:user:${m.fromId}`, 20, 60_000)) return;
+  await say(d, m, tt(m.lang, "help"));
+}
 
 async function say(d: BotDeps, m: Incoming, text: string, buttons: Button[] = []): Promise<void> {
   await tgEnqueue(
@@ -154,13 +175,17 @@ async function say(d: BotDeps, m: Incoming, text: string, buttons: Button[] = []
 
 // ── commands ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function start(d: BotDeps, m: Incoming, payload: string | undefined): Promise<void> {
-  await say(d, m, tt(m.lang, "welcome", { site: d.cfg.siteUrl.replace(/^https?:\/\//, ""), domain: d.cfg.domain }));
+  // A deep link's own flow comes FIRST, the welcome and its buttons after it.
   // t.me/<bot>?start=ref_<recruiter wallet or code>: the website applies it (the existing ?ref= / ?code= links), nothing is stored here.
   const ref = /^ref_([A-Za-z0-9_-]{3,44})$/.exec(payload ?? "")?.[1];
   if (ref) {
     const url = walletKey(ref) ? `${d.cfg.siteUrl}/?ref=${ref}` : `${d.cfg.siteUrl}/?code=${encodeURIComponent(ref)}`;
     await say(d, m, tt(m.lang, "refWelcome"), [{ text: tt(m.lang, "openPanda"), url }]);
+  } else if (payload === "link" && m.chatType === "private") {
+    // t.me/<bot>?start=link: straight into wallet linking (the same one-time link /link gives).
+    await link(d, m);
   }
+  await say(d, m, tt(m.lang, "welcome", { site: d.cfg.siteUrl.replace(/^https?:\/\//, ""), domain: d.cfg.domain }), startButtons(d.cfg, m.lang));
 }
 
 async function newCoins(d: BotDeps, m: Incoming): Promise<void> {

@@ -145,3 +145,15 @@ test("announcements: plain text (escaped), https only, button needs label + link
   const photo = buildAnnouncement({ text: "x", imageUrl: "https://img/x.png" }, "-100");
   assert.equal(photo.ok && photo.message.method, "sendPhoto");
 });
+
+test("every announcement ends with a 'Discuss in Community' button to the group — after the announcement's own button, and only when the group link is set", () => {
+  const GROUP = "https://t.me/pandacommunity";
+  const plain = buildAnnouncement({ text: "News" }, "-100", GROUP);
+  assert.deepEqual(plain.ok && plain.message.payload.reply_markup, { inline_keyboard: [[{ text: "💬 Discuss in Community", url: GROUP }]] });
+  const withButton = buildAnnouncement({ text: "News", buttonText: "Open", buttonUrl: "https://launchonpanda.app" }, "-100", GROUP);
+  assert.deepEqual(withButton.ok && withButton.message.payload.reply_markup, { inline_keyboard: [[{ text: "Open", url: "https://launchonpanda.app" }], [{ text: "💬 Discuss in Community", url: GROUP }]] });
+  const photo = buildAnnouncement({ text: "News", imageUrl: "https://img/x.png" }, "-100", GROUP);
+  assert.deepEqual(photo.ok && photo.message.payload.reply_markup, { inline_keyboard: [[{ text: "💬 Discuss in Community", url: GROUP }]] });
+  const noLink = buildAnnouncement({ text: "News" }, "-100", null);
+  assert.equal(noLink.ok && noLink.message.payload.reply_markup, undefined);
+});

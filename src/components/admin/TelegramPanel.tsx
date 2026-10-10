@@ -11,6 +11,8 @@ type Status = {
   botUsernameFromTelegram: string | null;
   channelId: string | null;
   groupId: string | null;
+  groupUrl: string | null;
+  channelUrl: string | null;
   topics: Record<string, number | null>;
   adminIds: number;
   minBuyUsd: number;
@@ -35,7 +37,7 @@ export default function TelegramPanel() {
   const [imageUrl, setImageUrl] = useState("");
   const [buttonText, setButtonText] = useState("");
   const [buttonUrl, setButtonUrl] = useState("");
-  const [preview, setPreview] = useState<{ text: string; image?: string; button?: string } | null>(null);
+  const [preview, setPreview] = useState<{ text: string; image?: string; buttons: string[] } | null>(null);
 
   async function load() {
     setBusy(true);
@@ -76,7 +78,7 @@ export default function TelegramPanel() {
     const p = d.preview.payload as { text?: string; caption?: string; photo?: string; reply_markup?: { inline_keyboard: { text: string }[][] } };
     // The server's escaped text, shown as Telegram will show it (plain text).
     const unescape = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-    setPreview({ text: unescape(p.text ?? p.caption ?? ""), image: p.photo, button: p.reply_markup?.inline_keyboard[0]?.[0]?.text });
+    setPreview({ text: unescape(p.text ?? p.caption ?? ""), image: p.photo, buttons: (p.reply_markup?.inline_keyboard ?? []).map((row) => row[0]?.text).filter(Boolean) });
   }
 
   async function send() {
@@ -124,6 +126,7 @@ export default function TelegramPanel() {
           {row("TELEGRAM_WEBHOOK_SECRET", status.hasSecret ? "set" : "missing")}
           {row("bot", status.botUsernameFromTelegram ? `@${status.botUsernameFromTelegram}` : status.botUsername ?? "—")}
           {row("channel / group", `${status.channelId ?? "—"} / ${status.groupId ?? "—"}`)}
+          {row("TELEGRAM_CHANNEL_URL / TELEGRAM_GROUP_URL", `${status.channelUrl ?? "—"} / ${status.groupUrl ?? "—"}`)}
           {row("topics", Object.entries(status.topics).map(([k, v]) => `${k}=${v ?? "—"}`).join(" "))}
           {row("TELEGRAM_ADMIN_IDS", status.adminIds)}
           {row("min $PANDA buy", `$${status.minBuyUsd}`)}
@@ -157,7 +160,11 @@ export default function TelegramPanel() {
             <img src={preview.image} alt="" className="max-h-60 w-full object-cover" />
           )}
           <p className="whitespace-pre-wrap break-words px-3 py-2">{preview.text}</p>
-          {preview.button && <div className="border-t border-white/10 py-2 text-center text-[#6ab3f3]">{preview.button}</div>}
+          {preview.buttons.map((b) => (
+            <div key={b} className="border-t border-white/10 py-2 text-center text-[#6ab3f3]">
+              {b}
+            </div>
+          ))}
         </div>
       )}
 

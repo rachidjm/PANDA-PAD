@@ -3,7 +3,7 @@ import { langOf } from "./text";
 
 /**
  * Turns what Telegram POSTs into what the bot handles — or null. Nothing is trusted: every field is type-checked and sized.
- * Only `message` updates are handled (the bot is registered for those alone — see admin "register webhook").
+ * Only `message` and `callback_query` updates are handled (the bot is registered for those alone — see admin "register webhook").
  */
 
 export const MAX_BODY_BYTES = 64 * 1024;
@@ -15,6 +15,8 @@ export type ParsedUpdate =
   | { kind: "message"; updateId: number; message: Incoming }
   /** An admin forwarded a channel's post to the bot in private: answer with that channel's id (/chatid can't be typed in a channel). */
   | { kind: "forwarded_channel"; updateId: number; message: Incoming; channelId: number; channelTitle?: string }
+  /** A press of one of the bot's own inline buttons (callback_data is ours: short, fixed strings). */
+  | { kind: "callback"; updateId: number; callbackId: string; data: string; message: Incoming }
   | { kind: "ignored"; updateId: number }
   | { kind: "invalid" };
 
@@ -23,6 +25,17 @@ export function parseUpdate(raw: unknown): ParsedUpdate {
   const u = raw as Record<string, unknown>;
   if (!int(u.update_id) || u.update_id < 0) return { kind: "invalid" };
   const updateId = u.update_id;
+  const cb = u.callback_query as Record<string, unknown> | undefined;
+  if (cb && typeof cb === "object") {
+    const from = cb.from as Record<string, unknown> | undefined;
+    const chat = (cb.message as Record<string, unknown> | undefined)?.chat as Record<string, unknown> | undefined;
+    const cmsg = cb.message as Record<string, unknown> | undefined;
+    if (typeof cb.id !== "string" || cb.id.length > 64 || typeof cb.data !== "string" || !/^[a-z_]{1,32}$/.test(cb.data)) return { kind: "ignored", updateId };
+    if (!from || !int(from.id) || from.id <= 0 || from.is_bot === true) return { kind: "ignored", updateId };
+    if (!chat || !int(chat.id) || typeof chat.type !== "string" || !CHAT_TYPES.has(chat.type)) return { kind: "ignored", updateId };
+    const threadId = cmsg && int(cmsg.message_thread_id) && cmsg.message_thread_id > 0 && cmsg.is_topic_message === true ? cmsg.message_thread_id : undefined;
+    return { kind: "callback", updateId, callbackId: cb.id, data: cb.data, message: { chatId: chat.id, chatType: chat.type as Incoming["chatType"], threadId, fromId: from.id, lang: langOf(from.language_code), text: "" } };
+  }
   const msg = u.message as Record<string, unknown> | undefined;
   if (!msg || typeof msg !== "object") return { kind: "ignored", updateId };
 
