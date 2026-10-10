@@ -85,7 +85,9 @@ const PANDA_ERR = [
   "nothing",
   "busy",
   "no_change",
-  "no_sign_message",
+  "advance_unconfirmed",
+  "advance_failed",
+  "last_leg",
 ];
 
 const money = (n: number) => `${n < 0 ? "-" : ""}${formatUsd(Math.abs(n))}`;
@@ -1065,7 +1067,7 @@ function PandaTranche({ group, tr, draw, formatValue, unit, toDisplay, fromDispl
   const sellChanges = !!edit && liveLegs.some((l) => l.leg === "sell") && (edit.sellUsd !== undefined || edit.pct !== undefined);
   const resign = tr.legs.find((l) => l.state === "needs_resign");
   const pctText = (n: number) => `${n.toLocaleString(lang, { maximumFractionDigits: 1 })}%`;
-  const cancelOne = (l: ClientOrder) => (liveLegs.length > 1 ? draw.cancelPandaLeg(l.id) : draw.closePanda({ groupId: group.groupId, trancheId: tr.trancheId }));
+  const cancelOne = (l: ClientOrder) => (liveLegs.length > 1 ? draw.cancelPandaLeg(l) : draw.closePanda({ groupId: group.groupId, trancheId: tr.trancheId }));
   return (
     <>
       {tr.legs.map((l) => {

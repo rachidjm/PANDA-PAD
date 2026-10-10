@@ -64,6 +64,9 @@ export type Deps = {
   /** Simulates an UNSIGNED transaction (sigVerify off). `replaceBlockhash` for a normal one; never for an order, whose
    *  "blockhash" is its nonce. */
   simulate: (bytes: Uint8Array, opts: { replaceBlockhash: boolean }) => Promise<{ err: unknown; logs: string[] | null }>;
+  /** Broadcasts a signed transaction (no preflight: it was simulated before the wallet was asked). */
+  send: (bytes: Uint8Array) => Promise<void>;
+  sleep: (ms: number) => Promise<void>;
   hasKey: () => boolean;
   seal: (orderId: string, bytes: Uint8Array) => SealedTx | null;
   open: (orderId: string, sealed: SealedTx) => Uint8Array | null;
@@ -143,6 +146,74 @@ export type PrepareResult =
   | { ok: true; phase: "setup"; transaction: string; nonceAccounts: string[]; rentLamports: number }
   | { ok: true; phase: "orders"; orders: PreparedOrder[]; venue: "curve" | "amm" };
 
+/** One spare order account per wallet with orders: where a changed order is signed while the old account's nonce is advanced. */
+export const RESERVE_ACCOUNTS = 1;
+
+/**
+ * `need` FREE order accounts of this wallet (not carrying a live order), read from the chain — or the setup transaction
+ * that creates the missing ones (the user's deposit, returned when they are closed), or why neither is possible.
+ */
+export async function pickNonces(
+  deps: Deps,
+  o: { wallet: PublicKey; groupId?: string; need: number; tranches: number; setupSignature?: unknown }
+): Promise<{ usable: ParsedNonce[] } | Extract<PrepareResult, { phase: "setup" }> | Failure> {
+  const db = deps.db();
+  const now = deps.now();
+  const wallet = o.wallet;
+  const rows = await pgNonceAccounts(db, wallet.toBase58());
+  const allLive = await pgLiveOrders(db, wallet.toBase58());
+  const inUse = new Set(allLive.filter((x) => !(o.groupId !== undefined && x.groupId === o.groupId && x.state === "prepared")).map((x) => x.nonceAccount));
+  const candidates = rows.filter((r) => r.state !== "closed" && !inUse.has(r.address));
+  const infos = candidates.length ? await deps.accounts(candidates.map((r) => new PublicKey(r.address))) : [];
+  const usable: ParsedNonce[] = [];
+  // The browser says its setup transaction confirmed: if the chain agrees, its accounts EXIST — they just aren't visible
+  // to this read yet. They are never offered again (creating an account twice fails, and wallets flag it in red).
+  const setupLanded = typeof o.setupSignature === "string" && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(o.setupSignature) ? (await deps.signatureStatuses([o.setupSignature]))[0]?.ok === true : false;
+  let pendingRecent = 0;
+  // Handed out in a setup transaction that never landed (the user closed the popup…): offered again, same address.
+  const stale: { address: PublicKey; seed: string }[] = [];
+  for (let k = 0; k < candidates.length; k++) {
+    const r = candidates[k];
+    const parsed = parseNonce(r.address, infos[k] ?? null);
+    if (parsed && parsed.authority === wallet.toBase58()) {
+      usable.push(parsed);
+      if (r.state !== "ready") await pgSetNonceState(db, r.wallet, r.address, "ready", now);
+    } else if (!infos[k] && r.state === "pending") {
+      if (setupLanded || now - r.updatedAt < PENDING_GRACE_MS) pendingRecent++;
+      else stale.push({ address: new PublicKey(r.address), seed: r.seed });
+    } else if (!infos[k]) {
+      await pgSetNonceState(db, r.wallet, r.address, "closed", now);
+    }
+  }
+  if (usable.length >= o.need) return { usable };
+  if (usable.length + pendingRecent >= o.need) return fail(409, "nonce_pending", "Your order accounts are still being created — try again in a few seconds.");
+  const need = Math.min(o.need - usable.length - pendingRecent, SETUP_PER_TX);
+  const taken = new Set(rows.filter((r) => r.state !== "closed").map((r) => r.address));
+  const fresh: { address: PublicKey; seed: string }[] = stale.slice(0, need);
+  for (let idx = 0; idx < MAX_NONCE_INDEX && fresh.length < need; idx++) {
+    const address = await nonceAddress(wallet, idx);
+    if (taken.has(address.toBase58())) continue;
+    const [onChain] = await deps.accounts([address]);
+    if (onChain) continue; // something already lives there (an old account PANDA doesn't track) — skip it
+    fresh.push({ address, seed: nonceSeed(idx) });
+  }
+  if (fresh.length < need) return fail(422, "too_many", "Too many order accounts — cancel or recover some first.");
+  const rent = await deps.rentLamports();
+  const short = await solCheck(deps, wallet, requiredLamports(fresh.length, o.tranches, rent));
+  if (short) return short;
+  const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...setupInstructions(wallet, fresh, rent));
+  const bad = await simulateOrFail(deps, new VersionedTransaction(tx.compileMessage()).serialize(), "setup");
+  if (bad) return bad;
+  for (const f of fresh) await pgUpsertNonce(db, { address: f.address.toBase58(), wallet: wallet.toBase58(), seed: f.seed, state: "pending" }, now);
+  return {
+    ok: true,
+    phase: "setup",
+    transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+    nonceAccounts: fresh.map((f) => f.address.toBase58()),
+    rentLamports: rent,
+  };
+}
+
 export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<PrepareResult | Failure> {
   if (!deps.hasKey()) return fail(503, "not_configured", "PANDA orders aren't configured on this deployment.");
   const wallet = key(i.wallet);
@@ -200,60 +271,11 @@ export async function prepareOrders(deps: Deps, i: PrepareInput): Promise<Prepar
   }
   if (Object.keys(amountIssues).length) return fail(422, "issues", "A line is too small to sell anything.", amountIssues);
 
-  // ── nonce accounts: one per tranche, reusing the wallet's free ones first ──────────────────────────────────────
-  const rows = await pgNonceAccounts(db, wallet.toBase58());
-  const allLive = await pgLiveOrders(db, wallet.toBase58());
-  const inUse = new Set(allLive.filter((o) => !(o.groupId === i.groupId && o.state === "prepared")).map((o) => o.nonceAccount));
-  const candidates = rows.filter((r) => r.state !== "closed" && !inUse.has(r.address));
-  const infos = candidates.length ? await deps.accounts(candidates.map((r) => new PublicKey(r.address))) : [];
-  const usable: ParsedNonce[] = [];
-  // The browser says its setup transaction confirmed: if the chain agrees, its accounts EXIST — they just aren't visible
-  // to this read yet. They are never offered again (creating an account twice fails, and wallets flag it in red).
-  const setupLanded = typeof i.setupSignature === "string" && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(i.setupSignature) ? (await deps.signatureStatuses([i.setupSignature]))[0]?.ok === true : false;
-  let pendingRecent = 0;
-  // Handed out in a setup transaction that never landed (the user closed the popup…): offered again, same address.
-  const stale: { address: PublicKey; seed: string }[] = [];
-  for (let k = 0; k < candidates.length; k++) {
-    const r = candidates[k];
-    const parsed = parseNonce(r.address, infos[k] ?? null);
-    if (parsed && parsed.authority === wallet.toBase58()) {
-      usable.push(parsed);
-      if (r.state !== "ready") await pgSetNonceState(db, r.wallet, r.address, "ready", now);
-    } else if (!infos[k] && r.state === "pending") {
-      if (setupLanded || now - r.updatedAt < PENDING_GRACE_MS) pendingRecent++;
-      else stale.push({ address: new PublicKey(r.address), seed: r.seed });
-    } else if (!infos[k]) {
-      await pgSetNonceState(db, r.wallet, r.address, "closed", now);
-    }
-  }
-  if (usable.length < plans.length) {
-    if (usable.length + pendingRecent >= plans.length) return fail(409, "nonce_pending", "Your order accounts are still being created — try again in a few seconds.");
-    const need = Math.min(plans.length - usable.length - pendingRecent, SETUP_PER_TX);
-    const taken = new Set(rows.filter((r) => r.state !== "closed").map((r) => r.address));
-    const fresh: { address: PublicKey; seed: string }[] = stale.slice(0, need);
-    for (let idx = 0; idx < MAX_NONCE_INDEX && fresh.length < need; idx++) {
-      const address = await nonceAddress(wallet, idx);
-      if (taken.has(address.toBase58())) continue;
-      const [onChain] = await deps.accounts([address]);
-      if (onChain) continue; // something already lives there (an old account PANDA doesn't track) — skip it
-      fresh.push({ address, seed: nonceSeed(idx) });
-    }
-    if (fresh.length < need) return fail(422, "too_many", "Too many order accounts — cancel or recover some first.");
-    const rent = await deps.rentLamports();
-    const short = await solCheck(deps, wallet, requiredLamports(fresh.length, plans.length, rent));
-    if (short) return short;
-    const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...setupInstructions(wallet, fresh, rent));
-    const bad = await simulateOrFail(deps, new VersionedTransaction(tx.compileMessage()).serialize(), "setup");
-    if (bad) return bad;
-    for (const f of fresh) await pgUpsertNonce(db, { address: f.address.toBase58(), wallet: wallet.toBase58(), seed: f.seed, state: "pending" }, now);
-    return {
-      ok: true,
-      phase: "setup",
-      transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
-      nonceAccounts: fresh.map((f) => f.address.toBase58()),
-      rentLamports: rent,
-    };
-  }
+  // ── order accounts: one per tranche, reusing the wallet's free ones first — plus ONE spare (the reserve), so that
+  // changing or cancelling a line later can really void the old order on chain (modify.ts) without a new deposit. ──
+  const picked = await pickNonces(deps, { wallet, groupId: i.groupId, need: plans.length + RESERVE_ACCOUNTS, tranches: plans.length, setupSignature: i.setupSignature });
+  if (!("usable" in picked)) return picked;
+  const usable = picked.usable;
 
   // ── the orders themselves: one transaction per leg, both legs of a tranche on the SAME nonce ────────────────────
   const short = await solCheck(deps, wallet, requiredLamports(0, plans.length, 0));
@@ -349,9 +371,12 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
   const db = deps.db();
   const live = await pgLiveOrders(db, i.wallet);
   let targets: string[];
+  const inUse = new Set(live.map((o) => o.nonceAccount));
+  const free = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state !== "closed" && !inUse.has(r.address)).map((r) => r.address);
   if (i.recover === true) {
-    const inUse = new Set(live.map((o) => o.nonceAccount));
-    targets = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state !== "closed" && !inUse.has(r.address)).map((r) => r.address);
+    // While orders are live, one free account stays as the reserve (it is what lets an order be changed or one line
+    // cancelled for real); everything beyond it — or everything, once no order is left — goes back to the wallet.
+    targets = live.length > 0 ? free.slice(RESERVE_ACCOUNTS) : free;
   } else if (i.allOf !== undefined) {
     // "Cancelar todo": every live order on one coin (up to CLOSE_PER_TX accounts per approval).
     if (!key(i.allOf)) return fail(400, "invalid", "Invalid coin.");
@@ -361,6 +386,8 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
     targets = [...new Set(live.filter((o) => o.groupId === i.groupId && (i.trancheId === undefined || o.trancheId === i.trancheId)).map((o) => o.nonceAccount))];
   }
   targets = targets.slice(0, CLOSE_PER_TX);
+  // Cancelling the LAST live orders: the reserve has no more use, so its deposit comes back in the same transaction.
+  const alsoFree = i.recover !== true && live.every((o) => targets.includes(o.nonceAccount)) ? free.slice(0, CLOSE_PER_TX - targets.length) : [];
   if (targets.length === 0) return fail(404, "nothing", "Nothing to close.");
   const infos = await deps.accounts(targets.map((t) => new PublicKey(t)));
   const closable = targets.map((t, k) => parseNonce(t, infos[k] ?? null)).filter((p): p is ParsedNonce => !!p && p.authority === i.wallet);
@@ -369,6 +396,11 @@ export async function closeNonces(deps: Deps, i: CloseInput): Promise<{ ok: true
     // that still exists but couldn't be read as this wallet's nonce is left alone: cancelling always takes a signature.
     await markClosed(deps, i.wallet, targets.filter((_, k) => !infos[k]));
     return fail(404, "nothing", "Those accounts are already closed.");
+  }
+  // …but only alongside a cancel that is whole: if an order account couldn't be read, nothing else rides along.
+  if (alsoFree.length && closable.length === targets.length) {
+    const freeInfos = await deps.accounts(alsoFree.map((t) => new PublicKey(t)));
+    closable.push(...alsoFree.map((t, k) => parseNonce(t, freeInfos[k] ?? null)).filter((p): p is ParsedNonce => !!p && p.authority === i.wallet));
   }
   const tx = new Transaction({ feePayer: wallet, recentBlockhash: await deps.latestBlockhash() }).add(...closeInstructions(wallet, closable.map((c) => ({ address: new PublicKey(c.address), lamports: c.lamports }))));
   return {
@@ -428,7 +460,9 @@ export async function listOrders(
   const orders = await pgListOrders(db, i.wallet, i.mint);
   const live = await pgLiveOrders(db, i.wallet);
   const inUse = new Set(live.map((o) => o.nonceAccount));
-  const freeNonces = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state === "ready" && !inUse.has(r.address)).map((r) => r.address);
+  const allFree = (await pgNonceAccounts(db, i.wallet)).filter((r) => r.state === "ready" && !inUse.has(r.address)).map((r) => r.address);
+  // What "Recuperar depósitos" would give back now: not the reserve while there are live orders (closeNonces).
+  const freeNonces = live.some((o) => o.state !== "prepared") ? allFree.slice(RESERVE_ACCOUNTS) : allFree;
   const committed = i.mint ? committedRaw(live.filter((o) => o.mint === i.mint && o.state !== "prepared").map((o) => ({ nonceAccount: o.nonceAccount, tokenAmountRaw: o.tokenAmountRaw, state: o.state as OrderState }))) : null;
   return {
     // An order the user CHANGED lives on as its replacement: the old row is history, not a cancelled order to show.

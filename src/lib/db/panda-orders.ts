@@ -101,23 +101,28 @@ export async function pgLiveByNonces(db: Db, wallet: string, nonces: string[]): 
   return db.select().from(pandaOrders).where(and(eq(pandaOrders.wallet, wallet), inArray(pandaOrders.nonceAccount, nonces), inArray(pandaOrders.state, [...LIVE_STATES])));
 }
 
-/** A changed order: each old one leaves (cancelled, reason "replaced", its signed bytes erased) and its replacement
- *  goes live in the SAME transaction — for every pair, or for none (an old order that is no longer active rolls it back). */
-export async function pgReplaceActive(db: Db, wallet: string, swaps: { replaces: string; row: PandaOrderInsert }[], now: number): Promise<boolean> {
+/** A changed tranche: every old order leaves (cancelled, reason "replaced", its signed bytes erased) and the new ones go
+ *  live in the SAME transaction — all of it, or none (an old order that is no longer active rolls everything back). */
+export async function pgReplaceActive(db: Db, wallet: string, oldIds: string[], rows: PandaOrderInsert[], now: number): Promise<boolean> {
   try {
     await db.transaction(async (tx) => {
-      for (const s of swaps) {
+      for (const id of oldIds) {
         const gone = await tx
           .update(pandaOrders)
           .set({ state: "cancelled", reason: "replaced", txCiphertext: null, txIv: null, updatedAt: now })
-          .where(and(eq(pandaOrders.id, s.replaces), eq(pandaOrders.wallet, wallet), eq(pandaOrders.state, "active")))
+          .where(and(eq(pandaOrders.id, id), eq(pandaOrders.wallet, wallet), eq(pandaOrders.state, "active")))
           .returning({ id: pandaOrders.id });
         if (gone.length !== 1) throw new Error("not_active");
-        await tx.insert(pandaOrders).values(s.row);
       }
+      if (rows.length) await tx.insert(pandaOrders).values(rows);
     });
     return true;
   } catch {
     return false;
   }
+}
+
+/** Orders (any wallet) that executed since `since` — what the cron makes sure is in each wallet's trade log. */
+export async function pgExecutedSince(db: Db, since: number, limit = 50): Promise<PandaOrderRow[]> {
+  return db.select().from(pandaOrders).where(and(eq(pandaOrders.state, "executed"), sql`${pandaOrders.executedAt} >= ${since}`)).orderBy(desc(pandaOrders.executedAt)).limit(limit);
 }

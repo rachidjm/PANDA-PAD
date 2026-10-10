@@ -72,10 +72,21 @@ La comisión de trading de PANDA (1 % por defecto, 0,5 % referido/veterano) sobr
   del usuario hace su propia simulación y puede mostrar un aviso por ese mismo motivo.
 - **Una cuenta de órdenes nunca se pide dos veces.** El navegador manda la firma del depósito confirmado
   (`setupSignature`); si la lectura del servidor aún no ve la cuenta, responde «espera» en vez de otro depósito.
-- **Cambiar una orden** (`modify.ts`, `/api/panda-orders/modify` y `/modify/submit`): la orden nueva se firma sobre el
-  MISMO valor de nonce que la antigua, así que no hay depósito ni transacción en cadena, y la otra línea del tramo sigue
-  valiendo. La firma antigua solo existía cifrada en la base de datos de PANDA y se borra en la misma transacción que
-  guarda la nueva. Lo preparado viaja como un «ticket» sellado con la clave de órdenes; no se guarda nada intermedio.
-- **Cancelar UNA línea de un tramo con dos** (`/api/panda-orders/cancel-leg`): firma de un mensaje gratuito que el
-  servidor reconstruye; se borra la transacción firmada de esa línea y la otra sigue activa. La última línea de un tramo
-  se cancela cerrando la cuenta (devuelve el depósito). «Cancelar todo» cierra todas las cuentas de esa moneda.
+- **Cuenta de reserva.** Cada wallet con órdenes tiene una cuenta de órdenes libre de más (se crea en el mismo depósito
+  que las de los tramos: N líneas → N + 1 cuentas). Mientras haya órdenes vivas no se ofrece en «Recuperar depósitos»;
+  se devuelve al cancelar las últimas órdenes («Cancelar todo» la cierra en la misma transacción) o al recuperar
+  depósitos cuando ya no queda ninguna orden.
+- **Cambiar una orden / cancelar UNA línea de un tramo con dos** (`modify.ts`, `/api/panda-orders/modify` y
+  `/modify/submit`): la orden vieja se anula DE VERDAD en la cadena. En UNA aprobación (lote) el usuario firma
+  (1) una transacción que solo AVANZA el nonce de la cuenta vieja — es ella misma «durable» (su blockhash es ese nonce),
+  así que no caduca mientras se lee la wallet — y (2) las órdenes del tramo tal como deben quedar (la línea cambiada y la
+  pareja que sigue; al cancelar una línea, solo la que sigue) sobre la cuenta de reserva. PANDA envía (1) y SOLO cuando
+  la cadena la confirma cambia las órdenes en su base de datos; la cuenta vieja pasa a ser la reserva. Si no se confirma
+  (`advance_pending`), no se da nada por cambiado ni cancelado y el navegador vuelve a preguntar con la misma petición
+  (es idempotente). Lo preparado viaja como un «ticket» sellado con la clave de órdenes; no se guarda nada intermedio.
+  Una wallet con órdenes anteriores a la reserva la crea (un depósito) la primera vez que cambia una orden.
+- La última línea de un tramo se cancela cerrando su cuenta (devuelve el depósito).
+- **Órdenes ejecutadas en el gráfico** (`executions.ts`): al ejecutarse, la venta se añade al registro de operaciones de
+  la wallet con los datos de su propia transacción (SOL recibido, monedas vendidas, hora del bloque) — lo hace el cron
+  justo después, y también el listado de órdenes si faltara alguna. El gráfico la marca en esa hora y a ese precio real:
+  «V» verde (venta) o «S» roja (stop), con «Ver transacción».

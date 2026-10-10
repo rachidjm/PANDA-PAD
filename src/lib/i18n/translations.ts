@@ -1077,7 +1077,10 @@ export const dict = {
   "draw.buyClearLines": { en: "Remove your sell / stop lines to draw a buy.", es: "Quita tus líneas de venta o stop para dibujar una compra." },
   "draw.pandaAckShort": { en: "I sign now; PANDA only sends it when my price is reached.", es: "Firmo ahora; PANDA solo la envía cuando se llega a mi precio." },
   "draw.pandaAckStop": { en: "I sign now. In a very fast drop the stop may not sell.", es: "Firmo ahora. En una caída muy rápida el stop puede no vender." },
-  "draw.pandaFee": { en: "Fee {fee}% · deposit ≈ {deposit} SOL per line, returned to you", es: "Comisión {fee}% · depósito ≈ {deposit} SOL por línea, se te devuelve" },
+  "draw.pandaFee": {
+    en: "Fee {fee}% · deposit ≈ {deposit} SOL per line, plus one more the first time as a reserve (it lets you change or cancel an order for real, on Solana). All of it comes back when you cancel everything or recover your deposits.",
+    es: "Comisión {fee}% · depósito ≈ {deposit} SOL por línea, y uno más la primera vez como reserva (es lo que permite cambiar o cancelar una orden de verdad, en Solana). Se te devuelve todo al cancelar todo o al recuperar depósitos.",
+  },
   "draw.issue.over_100": { en: "You've gone over 100% of your balance: remove a line or mark a smaller %.", es: "Te has pasado del 100% de tu saldo: quita una línea o marca un % menor." },
   // PANDA orders — pre-signed sells / stops on a held Pump.fun / PumpSwap coin (src/lib/panda-orders)
   "draw.step.setup": { en: "Step 1 of 2 · approve the deposit in your wallet…", es: "Paso 1 de 2 · aprueba el depósito en tu wallet…" },
@@ -1090,7 +1093,10 @@ export const dict = {
   "orders.save": { en: "Save change", es: "Guardar cambio" },
   "orders.saving": { en: "Sign in your wallet…", es: "Firma en tu wallet…" },
   "orders.undo": { en: "Undo", es: "Deshacer" },
-  "orders.editNote": { en: "One signature · no new deposit · same fee", es: "Una sola firma · sin depósito nuevo · misma comisión" },
+  "orders.editNote": {
+    en: "One approval · no new deposit · same fee · the old order is cancelled on Solana",
+    es: "Una sola aprobación · sin depósito nuevo · misma comisión · la orden vieja se anula en Solana",
+  },
   "orders.cancelOne": { en: "Cancel this order", es: "Cancelar esta orden" },
   "orders.changePct": { en: "Change %", es: "Cambiar %" },
   "orders.err.insufficient_sol": {
@@ -1111,12 +1117,17 @@ export const dict = {
   },
   "orders.err.nonce_used": { en: "That order is no longer active (it executed or was cancelled).", es: "Esa orden ya no está activa (se ejecutó o se canceló)." },
   "orders.err.nothing": { en: "That order is no longer active (it executed or was cancelled).", es: "Esa orden ya no está activa (se ejecutó o se canceló)." },
-  "orders.err.busy": { en: "That order is executing right now.", es: "Esa orden se está ejecutando ahora mismo." },
+  "orders.err.busy": { en: "That order was executing right at that moment. Check your orders.", es: "Esa orden se estaba ejecutando justo en ese momento. Revisa tus órdenes." },
   "orders.err.no_change": { en: "Nothing changed.", es: "No ha cambiado nada." },
-  "orders.err.no_sign_message": {
-    en: "Your wallet can't sign messages, so one line can't be cancelled on its own. Use \"Cancel all\".",
-    es: "Tu wallet no puede firmar mensajes, así que no se puede cancelar una sola línea. Usa «Cancelar todo».",
+  "orders.err.advance_unconfirmed": {
+    en: "Solana hasn't confirmed the cancellation of the old order, so nothing was changed: your order is still as it was. Try again in a moment.",
+    es: "Solana no ha confirmado la anulación de la orden vieja, así que no se ha cambiado nada: tu orden sigue como estaba. Inténtalo de nuevo en un momento.",
   },
+  "orders.err.advance_failed": {
+    en: "The old order couldn't be cancelled on Solana, so nothing was changed. Try again.",
+    es: "No se pudo anular la orden vieja en Solana, así que no se ha cambiado nada. Inténtalo de nuevo.",
+  },
+  "orders.err.last_leg": { en: "That is the only line of its order: cancel the order instead.", es: "Es la única línea de su orden: cancela la orden entera." },
   "draw.buyOff": { en: "Buying with Draw Your Trade isn't switched on here.", es: "La compra con Draw Your Trade no está activada aquí." },
   "draw.pandaNotice": {
     en: "It only sells if the market pays what you sign (sell: up to 1% under your price; stop: up to 3%). If not, nothing is sold.",
@@ -1979,6 +1990,9 @@ export const dict = {
   "chart.mc": { en: "Market cap", es: "Cap. de mercado" },
   "chart.trade.bought": { en: "You bought", es: "Compraste" },
   "chart.trade.sold": { en: "You sold", es: "Vendiste" },
+  "chart.trade.pandaSell": { en: "PANDA sell", es: "Venta PANDA" },
+  "chart.trade.pandaStop": { en: "PANDA stop", es: "Stop PANDA" },
+  "chart.trade.viewTx": { en: "View transaction", es: "Ver transacción" },
   "chart.loadError": { en: "Couldn't load this range right now.", es: "No se pudo cargar este rango ahora mismo." },
   "chart.retry": { en: "Retry", es: "Reintentar" },
   "chart.tooYoung": { en: "Chart available in a few minutes", es: "Gráfico disponible en unos minutos" },

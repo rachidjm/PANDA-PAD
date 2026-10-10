@@ -87,6 +87,14 @@ export function orderTransaction(p: { wallet: PublicKey; nonceAccount: PublicKey
   return new VersionedTransaction(message);
 }
 
+/** The transaction that VOIDS, on chain, every order signed on a nonce account: it only advances that nonce. It is itself
+ *  durable (its "blockhash" is the nonce it advances), so it can't expire while the user reads their wallet, and it can
+ *  land exactly once. Fee payer and only signer: the wallet. */
+export function advanceTransaction(p: { wallet: PublicKey; nonceAccount: PublicKey; nonceValue: string }): VersionedTransaction {
+  const message = new TransactionMessage({ payerKey: p.wallet, recentBlockhash: p.nonceValue, instructions: [SystemProgram.nonceAdvance({ noncePubkey: p.nonceAccount, authorizedPubkey: p.wallet })] }).compileToV0Message();
+  return new VersionedTransaction(message);
+}
+
 export const messageHash = (message: Uint8Array) => createHash("sha256").update(message).digest("hex");
 
 export type VerifyResult = { ok: true; bytes: Uint8Array; signature: string } | { ok: false; reason: "unreadable" | "modified" | "wrong_signer" | "bad_signature" };

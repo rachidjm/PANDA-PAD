@@ -9,7 +9,7 @@ import { CHART, clientYToChartY, domainFor, priceToY, yToPrice } from "@/lib/str
 import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
-import { TradeMarkerDots, TradeMarkerTooltip } from "@/components/coin/TradeMarkers";
+import { TradeMarkerDots, TradeMarkerTooltip, type PandaExecutions } from "@/components/coin/TradeMarkers";
 import { useCurrency } from "@/components/portfolio/useCurrency";
 import type { LoggedTrade } from "@/lib/portfolio/trade-log";
 import { useRegisterDrawTradeForAI } from "@/components/ai/DrawTradeAIBridge";
@@ -103,6 +103,8 @@ export default function PriceChart({
   const { currency, eurUsd } = useCurrency(lang);
   const [myTrades, setMyTrades] = useState<LoggedTrade[]>([]);
   const [hoveredTradeKey, setHoveredTradeKey] = useState<string | null>(null);
+  // Bumped when a PANDA order of this wallet has executed and isn't among the trades read so far (see below).
+  const [tradesVersion, setTradesVersion] = useState(0);
   useEffect(() => {
     let cancelled = false;
     if (!connected || !publicKey || !coin) {
@@ -124,7 +126,7 @@ export default function PriceChart({
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, coin]);
+  }, [connected, publicKey, coin, tradesVersion]);
 
   function loadTimeframe(next: Timeframe) {
     if (!poolAddress || byTf[next]) return;
@@ -209,6 +211,17 @@ export default function PriceChart({
         },
       }
     : undefined;
+
+  // An executed PANDA order is a real sell: the server logs it with the wallet's other trades (from its own transaction),
+  // and here it is drawn with its own mark — green "V" for a sell, red "S" for a stop. If one executed since the trades
+  // were read, they are read again (a couple of times at most: the log is written when the order list is asked for).
+  const pandaExecutions = draw.pandaExecutions;
+  const missingExecution = [...pandaExecutions.keys()].some((sig) => !myTrades.some((tr) => tr.signature === sig));
+  useEffect(() => {
+    if (!missingExecution || tradesVersion >= 3) return;
+    const timer = setTimeout(() => setTradesVersion((n) => n + 1), tradesVersion === 0 ? 0 : 4000);
+    return () => clearTimeout(timer);
+  }, [missingExecution, tradesVersion, pandaExecutions]);
 
   // Lets the AI Assistant's "Ayuda con Draw Your Trade" panel (opened from anywhere) reach THIS coin's own
   // live draw controller — see src/components/ai/DrawTradeAIBridge.tsx.
@@ -313,6 +326,7 @@ export default function PriceChart({
             onHover={setHoverIndex}
             overlay={overlay}
             myTrades={hasRealTimes ? myTrades : []}
+            pandaExecutions={pandaExecutions}
             hoveredTradeKey={hoveredTradeKey}
             onHoverTrade={setHoveredTradeKey}
             currency={currency}
@@ -394,6 +408,7 @@ function AreaChart({
   onHover,
   overlay,
   myTrades,
+  pandaExecutions,
   hoveredTradeKey,
   onHoverTrade,
   currency,
@@ -410,6 +425,7 @@ function AreaChart({
   hoverIndex: number | null;
   onHover: (index: number | null) => void;
   myTrades: LoggedTrade[];
+  pandaExecutions: PandaExecutions;
   hoveredTradeKey: string | null;
   onHoverTrade: (key: string | null) => void;
   currency: import("@/lib/format").Currency;
@@ -611,7 +627,7 @@ function AreaChart({
 
         {overlay && <StrategyLines overlay={overlay} domain={domain} />}
 
-        {myTrades.length > 0 && <TradeMarkerDots trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} onHover={onHoverTrade} toDisplay={toDisplay} />}
+        {myTrades.length > 0 && <TradeMarkerDots trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} onHover={onHoverTrade} panda={pandaExecutions} toDisplay={toDisplay} />}
 
         {hoverIndex !== null && !drawing && (
           <line x1={active.x} x2={active.x} y1={padding} y2={height - padding} stroke="var(--paper)" strokeOpacity="0.25" strokeDasharray="3 3" />
@@ -635,7 +651,7 @@ function AreaChart({
 
       {overlay && <PriceTags overlay={overlay} domain={domain} priceAtClientY={priceAtClientY} onGrabPointer={setDragPointerId} />}
       {myTrades.length > 0 && (
-        <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} toDisplay={toDisplay} />
+        <TradeMarkerTooltip trades={myTrades} candles={candles} domain={domain} hoveredKey={hoveredTradeKey} panda={pandaExecutions} currency={currency} eurUsd={eurUsd} boxHeight={svgHeight} toDisplay={toDisplay} />
       )}
 
       {axisTicks.length > 0 && (

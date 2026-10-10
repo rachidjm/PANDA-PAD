@@ -977,75 +977,112 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     [coin, ensureSession, signTransaction, signAllTransactions, sendAndConfirm, refreshPanda]
   );
 
-  /** "Guardar cambio": ONE wallet approval swaps the live order for the changed one, on the same order account (no new
-   *  deposit, nothing sent to the chain). Until it is signed — or if it is refused — the old order stays as it is. */
+  /**
+   * Changes a live tranche — or drops one of its two lines — and VOIDS the old order on chain, with ONE wallet approval:
+   * the batch holds the transaction that advances the old account's nonce (after it lands the old order can never
+   * execute) and the tranche's orders as they should be now, signed on the wallet's reserve account. PANDA sends the
+   * advance and swaps the orders only when the chain confirms it; until then, and if it never confirms, nothing is
+   * treated as changed. (A wallet with no reserve account yet approves its deposit first.)
+   */
+  const runModify = useCallback(
+    async (change: { groupId: string; trancheId: string; sellUsd?: number; stopUsd?: number; pct?: number; drop?: "sell" | "stop"; riskAccepted: boolean }) => {
+      if (!signTransaction) throw new ApiError("This wallet can't sign transactions.");
+      type Prepared = { phase: "setup"; transaction: string; nonceAccounts: string[] } | { phase: "orders"; advance: string; orders: { id: string; transaction: string }[]; ticket: unknown };
+      const prepare = async (setupSignature?: string): Promise<Prepared> => {
+        const res = await fetch("/api/panda-orders/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...change, setupSignature }) });
+        const data = await res.json();
+        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues, data.detail);
+        return data as Prepared;
+      };
+      await ensureSession();
+      let p = await prepare();
+      if (p.phase === "setup") {
+        // Only for a wallet whose orders are from before reserve accounts existed: one deposit, returned like the others.
+        const created = new Set(p.nonceAccounts);
+        const setupSignature = await sendAndConfirm(p.transaction);
+        for (let k = 0; ; k++) {
+          try {
+            p = await prepare(setupSignature);
+            if (p.phase === "setup" && p.nonceAccounts.some((a) => created.has(a))) throw new ApiError("Order accounts not ready yet — try again.", "nonce_pending");
+            break;
+          } catch (err) {
+            if (!(err instanceof ApiError && err.code === "nonce_pending") || k >= 15) throw err;
+            await new Promise((r) => setTimeout(r, 2500));
+          }
+        }
+        if (p.phase === "setup") throw new ApiError("Order accounts not ready yet — try again.", "nonce_pending");
+      }
+      // ONE approval: the advance first, then the orders.
+      const txs = [p.advance, ...p.orders.map((o) => o.transaction)].map(base64ToVersionedTransaction);
+      const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
+      const body = JSON.stringify({
+        groupId: change.groupId,
+        trancheId: change.trancheId,
+        ticket: p.ticket,
+        advance: versionedTransactionToBase64(signed[0]),
+        signed: p.orders.map((o, k) => ({ id: o.id, transaction: versionedTransactionToBase64(signed[k + 1]) })),
+      });
+      // PANDA sends the advance and waits for the chain. "advance_pending" = not confirmed yet, nothing changed: the
+      // same request is asked again (it never repeats what already happened) for up to ~2 minutes.
+      for (let k = 0; ; k++) {
+        const sub = await fetch("/api/panda-orders/modify/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+        const result = await sub.json().catch(() => ({}));
+        if (sub.ok) return;
+        if (result.code !== "advance_pending" || k >= 6) throw new ApiError(result.error ?? "", result.code === "advance_pending" ? "advance_unconfirmed" : result.code);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    },
+    [ensureSession, sendAndConfirm, signTransaction, signAllTransactions]
+  );
+
+  const modifyError = (err: unknown) =>
+    setError(
+      err instanceof ApiError
+        ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues, detail: err.detail }
+        : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined }
+    );
+
+  /** "Guardar cambio". Until it is signed and confirmed on chain — or if it is refused — the old order stays as it is. */
   const saveOrderEdit = useCallback(
     async (k: string, riskAccepted: boolean) => {
       const edit = orderEdits[k];
-      if (!edit || !signTransaction) return;
+      if (!edit) return;
       setError(null);
       setSavingEdit(k);
       try {
-        await ensureSession();
-        const res = await fetch("/api/panda-orders/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...edit, riskAccepted }) });
-        const data = await res.json();
-        if (!res.ok) throw new ApiError(data.error, data.code, undefined, data.issues, data.detail);
-        const prepared = data.orders as { replaces: string; transaction: string; ticket: unknown }[];
-        const txs = prepared.map((o) => base64ToVersionedTransaction(o.transaction));
-        const signed = signAllTransactions && txs.length > 1 ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
-        const sub = await fetch("/api/panda-orders/modify/submit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ signed: prepared.map((o, i) => ({ replaces: o.replaces, ticket: o.ticket, transaction: versionedTransactionToBase64(signed[i]) })) }),
-        });
-        const result = await sub.json();
-        if (!sub.ok) throw new ApiError(result.error, result.code);
+        await runModify({ ...edit, riskAccepted });
         await refreshPanda();
         clearOrderEdit(k);
       } catch (err) {
-        // "nothing" / "nonce_used": the order filled or was cancelled meanwhile — show what's really there now.
-        if (err instanceof ApiError && (err.code === "nothing" || err.code === "nonce_used")) {
-          clearOrderEdit(k);
-          await refreshPanda();
-        }
-        setError(
-          err instanceof ApiError
-            ? { message: err.message, code: err.code, pandaIssues: err.pandaIssues, detail: err.detail }
-            : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined }
-        );
+        // The order filled or was cancelled meanwhile — show what's really there now.
+        if (err instanceof ApiError && (err.code === "nothing" || err.code === "nonce_used" || err.code === "busy")) clearOrderEdit(k);
+        await refreshPanda();
+        modifyError(err);
       } finally {
         setSavingEdit(null);
       }
     },
-    [orderEdits, ensureSession, signTransaction, signAllTransactions, refreshPanda, clearOrderEdit]
+    [orderEdits, runModify, refreshPanda, clearOrderEdit]
   );
 
-  /** The × on ONE line of a tranche that has both a sell and a stop: only that line goes; the other keeps working on
-   *  the same order account. It takes a wallet signature like every cancel — a free message, nothing sent to the chain.
-   *  (The last line of a tranche is cancelled with closePanda: that also gives the deposit back.) */
+  /** The × on ONE line of a tranche that has both a sell and a stop: that line is cancelled for real (the old nonce is
+   *  advanced) and the other one is signed again in the same approval, so it keeps working. (The last line of a tranche
+   *  is cancelled with closePanda: that also gives the deposit back.) */
   const cancelPandaLeg = useCallback(
-    async (orderId: string) => {
+    async (order: { id: string; groupId: string; trancheId: string; leg: "sell" | "stop" }) => {
       setError(null);
-      setCancelling(orderId);
+      setCancelling(order.id);
       try {
-        if (!signMessage) throw new ApiError("This wallet can't sign messages.", "no_sign_message");
-        await ensureSession();
-        const ask = await fetch("/api/panda-orders/cancel-leg", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId }) });
-        const asked = await ask.json();
-        if (!ask.ok) throw new ApiError(asked.error, asked.code);
-        const signature = await signMessage(new TextEncoder().encode(asked.message));
-        const done = await fetch("/api/panda-orders/cancel-leg", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId, issuedAt: asked.issuedAt, signature: bs58.encode(signature) }) });
-        const result = await done.json();
-        if (!done.ok) throw new ApiError(result.error, result.code);
-        await refreshPanda();
+        await runModify({ groupId: order.groupId, trancheId: order.trancheId, drop: order.leg, riskAccepted: false });
+        clearOrderEdit(orderEditKey(order.groupId, order.trancheId));
       } catch (err) {
-        if (err instanceof ApiError && err.code === "nothing") await refreshPanda();
-        setError(err instanceof ApiError ? { message: err.message, code: err.code } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
+        modifyError(err);
       } finally {
+        await refreshPanda();
         setCancelling(null);
       }
     },
-    [ensureSession, signMessage, refreshPanda]
+    [runModify, refreshPanda, clearOrderEdit]
   );
 
   /** Closes order accounts — a whole strategy, one tranche, or (`recover`) every free one: the deposit comes back to
@@ -1094,6 +1131,13 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     },
     [pandaList, newDraft]
   );
+
+  /** This wallet's EXECUTED orders on this coin, by transaction: the chart marks each one where it really executed. */
+  const pandaExecutions = useMemo(() => {
+    const map = new Map<string, { leg: "sell" | "stop"; pct: number }>();
+    if (connected) for (const o of pandaList?.orders ?? []) if (o.state === "executed" && o.signature) map.set(o.signature, { leg: o.leg, pct: o.pct });
+    return map;
+  }, [pandaList, connected]);
 
   const pandaGroups = useMemo(() => groupOrders((pandaList?.orders ?? []).filter((o) => o.state !== "prepared")), [pandaList]);
 
@@ -1222,6 +1266,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
     pandaMode,
     pandaAccess,
     pandaGroups,
+    pandaExecutions,
     current,
     selectedPct,
     setSelectedPct,

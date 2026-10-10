@@ -48,14 +48,14 @@ const sign = (base64: string, kp: Keypair) => {
 
 const input = (wallet: string, groupId: string, tranches: unknown[], riskAccepted = true) => ({ wallet, mint: MINT, ticker: "TST", groupId, n: 1, tranches, riskAccepted });
 
-test("first time: one setup transaction creates one nonce account per tranche, funded and owned by the wallet", async () => {
+test("first time: one setup transaction creates one nonce account per tranche PLUS one reserve, funded and owned by the wallet", async () => {
   const { chain, kp, deps, wallet } = setup();
   const gid = group();
   const r = await createNonces(deps, chain, kp, input(wallet, gid, [{ trancheId: "t-aaaa1", pct: 25, sellUsd: 2 }, { trancheId: "t-aaaa2", pct: 10, stopUsd: 0.5 }]));
-  assert.equal(r.nonceAccounts.length, 2);
+  assert.equal(r.nonceAccounts.length, 3, "two tranches + the reserve");
   assert.equal(r.rentLamports, 1_056_640);
   const rows = await pgNonceAccounts(db, wallet);
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.ok(rows.every((x) => x.state === "pending"));
 });
 
@@ -192,8 +192,8 @@ test("cancel = close the tranche's nonce account (deposit back): once the chain 
   const close = await closeNonces(deps, { wallet, groupId: gid });
   assert.equal(close.ok, true);
   if (!close.ok) return;
-  assert.equal(close.nonceAccounts.length, 2);
-  assert.equal(close.lamports, 2 * 1_056_640, "the whole deposit comes back");
+  assert.equal(close.nonceAccounts.length, 3, "both tranches' accounts and — nothing being left live — the reserve");
+  assert.equal(close.lamports, 3 * 1_056_640, "the whole deposit comes back, the reserve's too");
   for (const a of close.nonceAccounts) chain.accounts.set(a, null); // the user's close transaction landed
   const done = await confirmClosed(deps, { wallet, nonceAccounts: close.nonceAccounts });
   assert.equal(done.ok, true);
@@ -211,15 +211,17 @@ test("recover: after an order executes its nonce account is free — its deposit
   const r = (await prepareOrders(deps, input(wallet, gid, tranches))) as Extract<PrepareResult, { phase: "orders" }>;
   await submitOrders(deps, { wallet, groupId: gid, signed: r.orders.map((o) => ({ id: o.id, transaction: sign(o.transaction, kp) })) });
   const none = await closeNonces(deps, { wallet, recover: true });
-  assert.equal(none.ok, false, "both nonces are still in use by live orders");
+  assert.equal(none.ok, false, "both nonces are in use by live orders, and the reserve stays while there are orders");
+  assert.deepEqual((await listOrders(deps, { wallet })).freeNonces, [], "nothing to recover yet");
   const rows = (await pgListOrders(db, wallet)).filter((o) => o.groupId === gid);
   const sold = rows.find((o) => o.trancheId === "t-iiii1")!;
   await pgTransition(db, sold.id, ["active"], { state: "executed", executedAt: deps.clock.t }, deps.clock.t); // the watcher saw it land
   const rec = await closeNonces(deps, { wallet, recover: true });
   assert.equal(rec.ok, true);
-  if (rec.ok) assert.deepEqual(rec.nonceAccounts, [sold.nonceAccount], "only the free one");
+  const stillLive = rows.find((o) => o.trancheId === "t-iiii2")!.nonceAccount;
+  if (rec.ok) assert.ok(rec.nonceAccounts.length === 1 && rec.nonceAccounts[0] !== stillLive, "one free account comes back; one stays as the reserve; the live one is never touched");
   const listed = await listOrders(deps, { wallet });
-  assert.deepEqual(listed.freeNonces, [sold.nonceAccount]);
+  assert.equal(listed.freeNonces.length, 1);
   assert.equal(listed.rentLamports, 1_056_640);
 });
 
@@ -250,7 +252,7 @@ test("the user closed the setup popup: right after, 'still being created'; a bit
   const again = await prepareOrders(deps, input(wallet, gid, tranches));
   assert.equal(again.ok && again.phase, "setup");
   if (first.ok && first.phase === "setup" && again.ok && again.phase === "setup") assert.deepEqual(again.nonceAccounts, first.nonceAccounts);
-  assert.equal((await pgNonceAccounts(db, wallet)).length, 1);
+  assert.equal((await pgNonceAccounts(db, wallet)).length, 2, "the tranche's account and the reserve — the same two, not four");
 });
 
 test("cancelling always takes the wallet's signature: asking to close changes nothing until the chain shows the account gone", async () => {

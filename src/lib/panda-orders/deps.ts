@@ -12,6 +12,9 @@ import { getOrdersLookupTable } from "./alt";
 import { loadVenue, priceAccounts, quoteOut, refreshVenue, saleInstructions } from "./market";
 import { newOrderId, type Deps } from "./service";
 import type { WatchDeps } from "./watcher";
+import type { ExecutionDeps } from "./executions";
+import { getTrades, recordTrade } from "@/lib/portfolio/trade-log";
+import { solPriceUsd } from "@/lib/solana/prices";
 
 /** The real dependencies of PANDA orders: the chain (PANDA's own RPC), Postgres, prices, fees, audit. Server-only. */
 
@@ -67,6 +70,10 @@ export function realDeps(): Deps {
       const r = await c.simulateTransaction(VersionedTransaction.deserialize(bytes), { sigVerify: false, replaceRecentBlockhash: opts.replaceBlockhash, commitment: "confirmed" });
       return { err: r.value.err, logs: r.value.logs };
     },
+    send: async (bytes) => {
+      await c.sendRawTransaction(bytes, { skipPreflight: true, maxRetries: 3 });
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     hasKey: () => hasOrdersKey(),
     seal: (id, bytes) => sealTx(id, bytes),
     open: (id, sealed) => openTx(id, sealed),
@@ -97,5 +104,28 @@ export function realWatchDeps(): WatchDeps {
     statuses: (s) => statuses(c, s),
     audit,
     alert: (message, detail) => alertOps(message, detail ?? {}),
+  };
+}
+
+/** Reads a confirmed transaction: what this wallet received in SOL and how many of `mint` left it. The same reading the
+ *  trade log uses for a sell made by hand (/api/portfolio/record-trade). */
+export function realExecutionDeps(): ExecutionDeps {
+  const c = connection();
+  return {
+    now: () => Date.now(),
+    getTrades,
+    recordTrade,
+    solUsd: solPriceUsd,
+    txFacts: async (signature, wallet, mint) => {
+      const tx = await c.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 });
+      if (!tx || tx.meta?.err) return null;
+      const index = tx.transaction.message.accountKeys.findIndex((k) => k.pubkey.toBase58() === wallet);
+      if (index === -1) return null;
+      const lamports = (tx.meta?.postBalances[index] ?? 0) - (tx.meta?.preBalances[index] ?? 0);
+      const pre = tx.meta?.preTokenBalances?.find((b) => b.mint === mint && b.owner === wallet)?.uiTokenAmount.uiAmount || 0;
+      const post = tx.meta?.postTokenBalances?.find((b) => b.mint === mint && b.owner === wallet)?.uiTokenAmount.uiAmount || 0;
+      if (!(lamports > 0) || !(pre > post)) return null; // not a sale of this coin by this wallet
+      return { solAmount: lamports / 1e9, tokenAmount: pre - post, blockTimeMs: tx.blockTime ? tx.blockTime * 1000 : null };
+    },
   };
 }
