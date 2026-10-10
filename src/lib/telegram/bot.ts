@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { tgClaimUpdate, tgEnqueue } from "@/lib/db/telegram";
 import { CALLBACK_HELP, handleMessage, showHelp, type BotDeps } from "./commands";
 import { parseUpdate } from "./updates";
-import { handleChangelogCallback, isChangelogCallback } from "./changelog";
+import { handleChangelogCallback, handleDraftEditReply, isChangelogCallback } from "./changelog";
 import { esc, tt } from "./text";
 
 /** True only if the header carries exactly the configured secret (constant-time). No secret configured → never. */
@@ -34,9 +34,9 @@ export async function handleUpdate(d: BotDeps, raw: unknown): Promise<UpdateOutc
   if (u.kind === "callback") {
     if (isChangelogCallback(u.data)) {
       // "✅ Publicar" / "❌ Descartar" on a changelog draft: only an admin's press does anything (changelog.ts).
-      const r = await handleChangelogCallback(d, { data: u.data, fromId: u.message.fromId, chatId: u.message.chatId });
+      const r = await handleChangelogCallback(d, { data: u.data, fromId: u.message.fromId, chatId: u.message.chatId, messageId: u.message.messageId });
       await d.answerCallback?.(u.callbackId, r.toast).catch(() => undefined);
-      return r.outcome === "published" || r.outcome === "discarded" || r.outcome === "off" ? "handled" : "ignored";
+      return r.outcome === "not_admin" || r.outcome === "unknown" || r.outcome === "already" ? "ignored" : "handled";
     }
     // Always acknowledged (Telegram shows a spinner on the button until it is), whatever the button was.
     await d.answerCallback?.(u.callbackId).catch(() => undefined);
@@ -44,6 +44,8 @@ export async function handleUpdate(d: BotDeps, raw: unknown): Promise<UpdateOutc
     await showHelp(d, u.message);
     return "handled";
   }
+  // An admin answering "✏️ Editar" with their own text for a draft (changelog.ts) — never treated as a command.
+  if (await handleDraftEditReply(d, u.message)) return "handled";
   await handleMessage(d, u.message);
   return "handled";
 }

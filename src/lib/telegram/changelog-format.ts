@@ -95,7 +95,101 @@ export function parseChangelogMarkdown(md: string): ChangelogInput {
       continue;
     }
     const head = line.replace(/^#+\s*/, "").replace(/[^A-Za-z]/g, "").toLowerCase();
-    current = head === "new" ? "new" : head === "improved" ? "improved" : head === "fixed" ? "fixed" : null;
+    current = head === "new" || head === "nuevo" ? "new" : head === "improved" || head === "mejorado" ? "improved" : head === "fixed" || head === "corregido" ? "fixed" : null;
   }
   return out;
+}
+
+// ── three versions, each with its Spanish translation ───────────────────────────────────────────────────────────────
+
+export const VERSIONS = 3;
+/** The translation is only ever shown to the admins (never published): same sections, Spanish titles. */
+export const ES_TITLES: Record<SectionKey, string> = { new: "✨ Nuevo", improved: "🔧 Mejorado", fixed: "🐛 Corregido" };
+export const MAX_ES_CHARS = 220;
+
+export type VersionInput = ChangelogInput & { es?: ChangelogInput };
+export type DraftInput = { versions?: VersionInput[] };
+export type CheckedVersion = { sections: { title: string; items: string[] }[]; es: { title: string; items: string[] }[] };
+
+/** The translation: one line per English line, section by section. It is never published, so only its shape is checked. */
+function checkTranslation(en: ChangelogInput, es: unknown): { ok: true; sections: { title: string; items: string[] }[] } | { ok: false; problems: string[] } {
+  const o = (es && typeof es === "object" ? es : {}) as Record<string, unknown>;
+  const problems: string[] = [];
+  const sections: { title: string; items: string[] }[] = [];
+  for (const s of SECTIONS) {
+    const want = (en[s.key] ?? []).length;
+    const raw = o[s.key];
+    const items = Array.isArray(raw) && raw.every((x) => typeof x === "string") ? (raw as string[]).map((x) => x.trim().replace(/^[-•*]\s*/, "")) : [];
+    if (items.length !== want) {
+      problems.push(`${ES_TITLES[s.key]}: the translation needs ${want} line(s), one per English line (got ${items.length}).`);
+      continue;
+    }
+    if (items.some((it) => !it || it.length > MAX_ES_CHARS || /[\r\n<>]/.test(it))) problems.push(`${ES_TITLES[s.key]}: a translated line is empty, too long or has markup.`);
+    if (items.length) sections.push({ title: ES_TITLES[s.key], items });
+  }
+  return problems.length ? { ok: false, problems } : { ok: true, sections };
+}
+
+/** Exactly three versions, each within the format and content rules, each with its translation, and really different. */
+export function checkDraft(input: unknown): { ok: true; versions: CheckedVersion[] } | { ok: false; problems: string[] } {
+  const raw = (input && typeof input === "object" ? (input as DraftInput).versions : undefined) ?? [];
+  if (!Array.isArray(raw) || raw.length !== VERSIONS) return { ok: false, problems: [`A draft needs exactly ${VERSIONS} versions (got ${Array.isArray(raw) ? raw.length : 0}).`] };
+  const problems: string[] = [];
+  const versions: CheckedVersion[] = [];
+  raw.forEach((v, k) => {
+    const en = checkChangelog(v);
+    if (!en.ok) return problems.push(...en.problems.map((p) => `Version ${k + 1} · ${p}`));
+    const es = checkTranslation((v ?? {}) as ChangelogInput, (v as VersionInput).es);
+    if (!es.ok) return problems.push(...es.problems.map((p) => `Version ${k + 1} · ${p}`));
+    versions.push({ sections: en.sections, es: es.sections });
+  });
+  if (!problems.length) {
+    const body = versions.map((v) => JSON.stringify(v.sections).toLowerCase());
+    if (new Set(body).size !== body.length) problems.push("Two versions are the same: each one must be worded differently.");
+  }
+  return problems.length ? { ok: false, problems } : { ok: true, versions };
+}
+
+/** "10 de octubre de 2026" (UTC). */
+export const changelogDateEs = (now: number) => new Date(now).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+export function buildTranslationText(sections: { title: string; items: string[] }[], now: number): string {
+  const body = sections.map((s) => [s.title, ...s.items.map((i) => `- ${i}`)].join("\n")).join("\n");
+  return `🛠 PANDA Update · ${changelogDateEs(now)}\n\n${body}\n\n${SITE_LINE}`;
+}
+
+/**
+ * A draft file with its three versions (what `npm run changelog -- file.md` reads):
+ *
+ *   # Version 1
+ *   ## New
+ *   - …
+ *   ### ES
+ *   ## Nuevo
+ *   - …
+ *   # Version 2
+ *   …
+ */
+export function parseDraftMarkdown(md: string): DraftInput {
+  const versions: VersionInput[] = [];
+  let chunk: { en: string[]; es: string[] } | null = null;
+  let inEs = false;
+  const flush = () => {
+    if (!chunk) return;
+    versions.push({ ...parseChangelogMarkdown(chunk.en.join("\n")), es: parseChangelogMarkdown(chunk.es.join("\n")) });
+  };
+  for (const line of md.split(/\r?\n/)) {
+    const head = line.trim().replace(/^#+\s*/, "").toLowerCase();
+    if (/^#+\s*versi[oó]n\s*\d+\b/i.test(line.trim())) {
+      flush();
+      chunk = { en: [], es: [] };
+      inEs = false;
+    } else if (chunk && /^#+\s/.test(line.trim()) && /^(es|español|espanol|traducci[oó]n|spanish)\b/.test(head)) {
+      inEs = true;
+    } else if (chunk) {
+      (inEs ? chunk.es : chunk.en).push(line);
+    }
+  }
+  flush();
+  return { versions };
 }

@@ -255,9 +255,10 @@ export async function tgPayoutRunsSince(db: Db, since: number): Promise<{ mint: 
 // ── changelog drafts ────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type ChangelogRow = typeof telegramChangelogs.$inferSelect;
+export type DraftVersion = { en: string; es: string | null; mine?: boolean };
 
-export async function tgInsertChangelog(db: Db, c: { id: string; text: string; now: number }): Promise<void> {
-  await db.insert(telegramChangelogs).values({ id: c.id, text: c.text, status: "pending", createdAt: c.now });
+export async function tgInsertChangelog(db: Db, c: { id: string; kind?: string; versions: DraftVersion[]; now: number }): Promise<void> {
+  await db.insert(telegramChangelogs).values({ id: c.id, kind: c.kind ?? "changelog", text: c.versions[0].en, versions: c.versions, status: "pending", createdAt: c.now });
 }
 
 export async function tgGetChangelog(db: Db, id: string): Promise<ChangelogRow | null> {
@@ -265,11 +266,18 @@ export async function tgGetChangelog(db: Db, id: string): Promise<ChangelogRow |
   return row ?? null;
 }
 
-/** pending → published / discarded, ONCE: a draft already decided returns null (so it can never be published twice). */
-export async function tgDecideChangelog(db: Db, id: string, status: "published" | "discarded", by: number, now: number): Promise<ChangelogRow | null> {
+/** Replaces the versions on offer — only while the draft is still pending. */
+export async function tgSetChangelogVersions(db: Db, id: string, versions: DraftVersion[]): Promise<boolean> {
+  const rows = await db.update(telegramChangelogs).set({ versions }).where(and(eq(telegramChangelogs.id, id), eq(telegramChangelogs.status, "pending"))).returning({ id: telegramChangelogs.id });
+  return rows.length === 1;
+}
+
+/** pending → published / discarded, ONCE: a draft already decided returns null (so it can never be published twice).
+ *  Publishing records which version went out and its text. */
+export async function tgDecideChangelog(db: Db, id: string, status: "published" | "discarded", by: number, now: number, published?: { version: number; text: string }): Promise<ChangelogRow | null> {
   const [row] = await db
     .update(telegramChangelogs)
-    .set({ status, decidedBy: by, decidedAt: now })
+    .set({ status, decidedBy: by, decidedAt: now, ...(published ? { publishedVersion: published.version, text: published.text } : {}) })
     .where(and(eq(telegramChangelogs.id, id), eq(telegramChangelogs.status, "pending")))
     .returning();
   return row ?? null;
@@ -277,4 +285,8 @@ export async function tgDecideChangelog(db: Db, id: string, status: "published" 
 
 export async function tgListChangelogs(db: Db, limit = 20): Promise<ChangelogRow[]> {
   return db.select().from(telegramChangelogs).orderBy(desc(telegramChangelogs.createdAt)).limit(limit);
+}
+
+export async function tgDeleteState(db: Db, key: string): Promise<void> {
+  await db.delete(telegramState).where(eq(telegramState.key, key));
 }

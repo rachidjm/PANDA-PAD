@@ -34,7 +34,7 @@ export function parseUpdate(raw: unknown): ParsedUpdate {
     if (!from || !int(from.id) || from.id <= 0 || from.is_bot === true) return { kind: "ignored", updateId };
     if (!chat || !int(chat.id) || typeof chat.type !== "string" || !CHAT_TYPES.has(chat.type)) return { kind: "ignored", updateId };
     const threadId = cmsg && int(cmsg.message_thread_id) && cmsg.message_thread_id > 0 && cmsg.is_topic_message === true ? cmsg.message_thread_id : undefined;
-    return { kind: "callback", updateId, callbackId: cb.id, data: cb.data, message: { chatId: chat.id, chatType: chat.type as Incoming["chatType"], threadId, fromId: from.id, lang: langOf(from.language_code), text: "" } };
+    return { kind: "callback", updateId, callbackId: cb.id, data: cb.data, message: { chatId: chat.id, chatType: chat.type as Incoming["chatType"], threadId, fromId: from.id, lang: langOf(from.language_code), text: "", messageId: cmsg && int(cmsg.message_id) ? cmsg.message_id : undefined } };
   }
   const msg = u.message as Record<string, unknown> | undefined;
   if (!msg || typeof msg !== "object") return { kind: "ignored", updateId };
@@ -52,6 +52,8 @@ export function parseUpdate(raw: unknown): ParsedUpdate {
     fromId: from.id,
     lang: langOf(from.language_code),
     text: "",
+    messageId: int(msg.message_id) ? msg.message_id : undefined,
+    replyToMessageId: msg.reply_to_message && typeof msg.reply_to_message === "object" && int((msg.reply_to_message as Record<string, unknown>).message_id) ? ((msg.reply_to_message as Record<string, unknown>).message_id as number) : undefined,
   };
 
   const origin = msg.forward_origin as Record<string, unknown> | undefined;

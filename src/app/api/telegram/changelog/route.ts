@@ -8,12 +8,13 @@ import { realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
 
 export const maxDuration = 30;
-const MAX_BODY = 8_000;
+const MAX_BODY = 16_000;
 
 /**
  * Receives a changelog DRAFT (docs/TELEGRAM.md §9). Auth: `Authorization: Bearer <CHANGELOG_PUBLISH_SECRET>` — its own
  * secret, compared in constant time. Off (flag or secret missing) → 404, as if it didn't exist. A valid draft is stored and
- * sent to the admins' PRIVATE chat with "Publicar" / "Descartar"; this endpoint can never publish anything by itself.
+ * sent to the admins' PRIVATE chat (three versions to choose from, each with its translation); this endpoint can never
+ * publish anything by itself.
  */
 export async function POST(req: Request) {
   const cfg = telegramConfig();
@@ -33,5 +34,5 @@ export async function POST(req: Request) {
   await recordAudit({ actor: "system:changelog", action: "telegram.changelog.draft", object: r.id });
   // Straight to the admins' chat (the cron would deliver it within a minute anyway).
   await processOutbox(realQueueDeps(), 4_000).catch(() => undefined);
-  return NextResponse.json({ ok: true, id: r.id, sentTo: r.sentTo, text: r.text });
+  return NextResponse.json({ ok: true, id: r.id, sentTo: r.sentTo, versions: r.versions.length });
 }

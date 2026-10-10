@@ -290,15 +290,23 @@ Si `TELEGRAM_GROUP_URL` o `TELEGRAM_CHANNEL_URL` no están puestas (o no son un 
 
 Nada se publica en el canal sin que un admin pulse un botón.
 
-1. **Borrador.** `npm run changelog -- borrador.md` lee un Markdown con las secciones `## New`, `## Improved`, `## Fixed`
-   (líneas con `- `), lo comprueba y lo envía a `POST /api/telegram/changelog` con `Authorization: Bearer
-   <CHANGELOG_PUBLISH_SECRET>` (el script lo lee de `.env.local`; en Vercel es Sensitive). Sin secreto o con uno
-   incorrecto: 401. Con el flag apagado o sin secreto configurado: 404.
-2. **Aprobación.** El bot guarda el borrador (`telegram_changelogs`, estado `pending`) y lo envía por PRIVADO a cada id de
-   `TELEGRAM_ADMIN_IDS` con «✅ Publicar» y «❌ Descartar». Solo cuenta la pulsación de un admin (se comprueba el id del
-   callback). La decisión se toma UNA vez (cambio de estado atómico): no se puede publicar dos veces.
-3. **Publicación.** «Publicar» lo manda a `TELEGRAM_CHANNEL_ID` con el botón «💬 Discuss in Community». «Descartar» lo
-   marca como descartado. Los borradores y su estado se ven en /admin → Bot de Telegram.
+1. **Borrador con 3 versiones.** `npm run changelog -- borrador.md` lee un Markdown con `# Version 1`, `# Version 2` y
+   `# Version 3`. Cada versión lleva sus secciones `## New`, `## Improved`, `## Fixed` (líneas con `- `) y, tras un
+   `### ES`, su traducción (`## Nuevo`, `## Mejorado`, `## Corregido`, una línea por cada línea en inglés). Lo comprueba y
+   lo envía a `POST /api/telegram/changelog` con `Authorization: Bearer <CHANGELOG_PUBLISH_SECRET>` (el script lo lee de
+   `.env.local`; en Vercel es Sensitive). Sin secreto o con uno incorrecto: 401. Flag apagado o sin secreto: 404.
+2. **Aprobación.** El bot guarda el borrador (`telegram_changelogs`, estado `pending`, columna `versions`) y lo envía por
+   PRIVADO a cada id de `TELEGRAM_ADMIN_IDS` en UN mensaje: arriba «Versión 1/3», el texto en inglés y, debajo, separada
+   y en cursiva, «🇪🇸 Traducción (no se publica)». Botones:
+   - «1», «2», «3» (la elegida marcada «• 2 •») y «🔄» (siguiente): cambian de versión editando el mismo mensaje.
+   - «✏️ Editar»: el bot pide que respondas con tu texto (mismas secciones y líneas `- `). Se valida con las mismas
+     reglas; si algo está prohibido dice qué; si pasa, se añade como versión «4 · mía», sin traducción.
+   - «✅ Publicar»: publica la versión que ese mensaje muestra — solo su texto en inglés. «❌ Descartar»: no publica nada.
+   Solo cuenta la pulsación de un admin (se comprueba el id del callback) y se decide UNA vez (cambio de estado atómico).
+3. **Publicación.** Va a `TELEGRAM_CHANNEL_ID` con el botón «💬 Discuss in Community». La traducción nunca sale del
+   privado. Los borradores, su estado y la versión publicada se ven en /admin → Bot de Telegram.
+
+El mismo flujo sirve para otros tipos de borrador (columna `kind`; hoy solo `changelog` tiene dónde publicarse).
 
 Formato fijo (en inglés), solo las secciones con contenido y como mucho 3 líneas cortas por sección:
 
@@ -315,11 +323,11 @@ Formato fijo (en inglés), solo las secciones con contenido y como mucho 3 líne
 🌐 launchonpanda.app
 ```
 
-Reglas del contenido, comprobadas en el script y otra vez en el servidor (`src/lib/telegram/changelog-format.ts`): nunca
-detalles de seguridad (como mucho «Security improvements»), direcciones de wallets, nombres de variables, secretos,
-archivos o código, /admin, infraestructura, funciones que no vea todo el mundo, ni promesas de futuro, de precio o de
-recompensas. Solo cambios ya subidos a `main` y desplegados.
+Reglas del contenido, comprobadas en el script y otra vez en el servidor (`src/lib/telegram/changelog-format.ts`), para
+las tres versiones y para la del admin: nunca detalles de seguridad (como mucho «Security improvements»), direcciones de
+wallets, nombres de variables, secretos, archivos o código, /admin, infraestructura, funciones que no vea todo el mundo,
+ni promesas de futuro, de precio o de recompensas. Solo cambios ya subidos a `main` y desplegados.
 
 Requisitos: `FEATURE_TELEGRAM_BOT` encendido, webhook registrado con `callback_query` (para que funcionen los botones),
 `TELEGRAM_ADMIN_IDS`, `TELEGRAM_CHANNEL_ID`, y que el admin haya abierto el chat privado con el bot (/start).
-Migración 0015.
+Migraciones 0015 y 0016.

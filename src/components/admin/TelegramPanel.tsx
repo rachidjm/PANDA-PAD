@@ -23,7 +23,7 @@ type Status = {
   suggestions?: { id: string; telegramId: number; text: string; createdAt: number }[];
   changelogEnabled?: boolean;
   hasChangelogSecret?: boolean;
-  changelogs?: { id: string; text: string; status: "pending" | "published" | "discarded"; decidedBy: number | null; decidedAt: number | null; createdAt: number }[];
+  changelogs?: { id: string; text: string; versions?: unknown[]; publishedVersion?: number | null; status: "pending" | "published" | "discarded"; decidedBy: number | null; decidedAt: number | null; createdAt: number }[];
   error?: string;
 };
 
@@ -185,7 +185,10 @@ export default function TelegramPanel() {
               {status.changelogs.map((c) => (
                 <li key={c.id} className="rounded-xl bg-ink px-3 py-2">
                   <p className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-panda-grey">
-                    <span>{new Date(c.createdAt).toLocaleString()}</span>
+                    <span>
+                      {new Date(c.createdAt).toLocaleString()}
+                      {c.status === "published" && c.publishedVersion != null ? ` · v${c.publishedVersion + 1}` : c.versions?.length ? ` · ${c.versions.length} v.` : ""}
+                    </span>
                     <span className={`rounded-full px-2 py-0.5 font-bold uppercase tracking-wide ${c.status === "published" ? "bg-bamboo/20 text-bamboo" : c.status === "discarded" ? "bg-paper/10 text-panda-grey" : "bg-sun/20 text-sun"}`}>
                       {t(`admin.tg.changelog.${c.status}`)}
                     </span>

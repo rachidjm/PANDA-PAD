@@ -32,6 +32,10 @@ export type Incoming = {
   fromId: number;
   lang: Lang;
   text: string;
+  /** This message's own id (for a button press: the id of the message the button is on). */
+  messageId?: number;
+  /** Set when the message is a reply: the id of the message it answers. */
+  replyToMessageId?: number;
 };
 
 export type BotDeps = {
@@ -44,6 +48,8 @@ export type BotDeps = {
   audit: (action: string, object: string, data?: Record<string, unknown>) => Promise<void>;
   /** Tells Telegram a button press was received (stops its spinner). Best effort; absent in tests that don't need it. */
   answerCallback?: (callbackId: string, text?: string) => Promise<void>;
+  /** Rewrites one of the bot's own messages in place (text + buttons). Best effort. */
+  editMessage?: (chatId: number, messageId: number, payload: Record<string, unknown>) => Promise<void>;
 };
 
 const PRIVATE_ONLY = new Set(["/watch", "/unwatch", "/watchlist", "/alert", "/alerts", "/link", "/unlink"]);

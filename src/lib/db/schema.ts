@@ -683,7 +683,13 @@ export const telegramChangelogs = pgTable(
   "telegram_changelogs",
   {
     id: text("id").primaryKey(),
+    /** What is being approved: "changelog" (the channel) today; other kinds (posts for X) use the same approval flow. */
+    kind: text("kind").notNull().default("changelog"),
+    /** Version 1 while pending; once published, exactly what was published. */
     text: text("text").notNull(),
+    /** Every version on offer: [{ en, es | null, mine? }]. `es` is the translation shown to the admins — never published. */
+    versions: jsonb("versions").$type<{ en: string; es: string | null; mine?: boolean }[]>().notNull().default([]),
+    publishedVersion: smallint("published_version"),
     status: text("status").notNull().default("pending"),
     decidedBy: bigint("decided_by", { mode: "number" }),
     decidedAt: bigint("decided_at", { mode: "number" }),
