@@ -30,7 +30,8 @@ export default function WalletProvider({ children }: { children: React.ReactNode
   return (
     <ConnectionProvider endpoint={endpoint} config={config}>
       <SolanaWalletProvider wallets={wallets} autoConnect localStorageKey={tg ? "panda.tg.walletName" : "walletName"}>
-        <SessionKeeper />
+        {/* The Mini App has its own session, in memory (src/components/tg/session.ts): no cookie to keep there. */}
+        {!tg && <SessionKeeper />}
         {children}
       </SolanaWalletProvider>
     </ConnectionProvider>

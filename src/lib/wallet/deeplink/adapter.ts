@@ -41,7 +41,12 @@ export class DeepLinkFlowError extends Error {
   }
 }
 
-export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign"; url: string; opened: boolean };
+/**
+ * `opened`: the wallet's link was already opened when the sheet appears. `auto`: it was opened WITHOUT a tap (the second
+ * step of signing in, straight after connecting) — Telegram may have ignored it, so the sheet offers its button again
+ * if the app is still on screen a moment later.
+ */
+export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign" | "login"; url: string; opened: boolean; auto?: boolean };
 /** The sheet the Mini App shows during a wallet step. `ready` resolves once the wallet link has been opened by a tap. */
 export type WalletStepUi = { ready: Promise<void>; cancelled: () => boolean; end: (outcome: "ok" | "error" | "timeout") => void };
 
@@ -75,12 +80,16 @@ function btoaSafe(s: string): string {
 
 const SESSION_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}`;
 const PENDING_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.pending`;
+const LOGIN_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.signin`;
 const PENDING_MAX_AGE_MS = 10 * 60_000;
 /** How long the Mini App waits for the wallet's answer before it stops and says what to do. */
 export const RELAY_WAIT_MS = 2 * 60_000;
 export const RELAY_POLL_MS = 2_000;
 
 type PendingConnect = { relayId: string; dapp: DappKeys; at: number };
+/** A sign-in whose signature is on its way: where its answer will be, and which challenge it answers. Not a session. */
+type PendingLogin = { relayId: string; nonce: string; at: number };
+type RequestOptions = { kind?: WalletStep["kind"]; open?: "sheet" | "now" | "auto"; onRelay?: (relayId: string) => void };
 
 const store = {
   get<T>(key: string): T | null {
@@ -151,6 +160,11 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
       store.del(SESSION_KEY(this.provider));
       return false;
     }
+  }
+
+  /** True when this wallet is connected, or was connected earlier in this browser (then it is again, with nothing to open). Synchronous: safe inside a tap. */
+  restoreSaved(): boolean {
+    return !!this._publicKey || this.restore();
   }
 
   /** Silent: a saved connection, or one whose answer arrived while the app was closed (it came back through the bot's link). */
@@ -264,6 +278,45 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
     }
   }
 
+  /**
+   * PANDA's sign-in message, for the Mini App's own sign-in. `open: "now"` opens the wallet at once — call it straight
+   * from a tap; `"auto"` tries without one (right after connecting). The request is written down (not the session), so
+   * if Telegram restarts the app on the way back, resumeLogin() still finds the signature.
+   */
+  async signLogin(message: Uint8Array, nonce: string, open: "now" | "auto"): Promise<Uint8Array> {
+    try {
+      const out = await this.request<{ signature?: unknown }>(
+        "signMessage",
+        { message: bs58.encode(message), display: "utf8" },
+        { kind: "login", open, onRelay: (relayId) => store.set(LOGIN_KEY(this.provider), { relayId, nonce, at: Date.now() } satisfies PendingLogin) }
+      );
+      if (typeof out.signature !== "string") throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
+      return bs58.decode(out.signature);
+    } catch (err) {
+      throw this.fail(err, (m, c) => new WalletSignMessageError(m, c));
+    } finally {
+      store.del(LOGIN_KEY(this.provider));
+    }
+  }
+
+  /** A sign-in that was in the wallet when the app was restarted: its signature and the challenge it answers, or null. */
+  async resumeLogin(): Promise<{ nonce: string; signature: Uint8Array } | null> {
+    const pending = store.get<PendingLogin>(LOGIN_KEY(this.provider));
+    if (!pending) return null;
+    store.del(LOGIN_KEY(this.provider));
+    if (Date.now() - pending.at > PENDING_MAX_AGE_MS) return null;
+    if (!this._session && !this.restore()) return null;
+    const session = this._session;
+    if (!session) return null;
+    try {
+      const answer = await this.collect(pending.relayId, 20_000, () => false);
+      const out = readResult<{ signature?: unknown }>(session, answer);
+      return typeof out.signature === "string" ? { nonce: pending.nonce, signature: bs58.decode(out.signature) } : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
   private say(code: FlowCode): string {
     return bridge?.text(code) ?? code;
@@ -298,14 +351,18 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   }
 
   /** A signature: the sheet first (its button opens the wallet, inside that tap), then the wait for the answer. */
-  private async request<T>(method: DeepLinkMethod, body: Record<string, unknown>): Promise<T> {
+  private async request<T>(method: DeepLinkMethod, body: Record<string, unknown>, o: RequestOptions = {}): Promise<T> {
     const session = this._session;
     if (!session) throw new WalletNotConnectedError();
     const b = this.requireBridge();
     const relayId = newRelayId();
     const url = requestUrl(session, method, body, redirectUrl(b.siteUrl, this.provider, relayId, b.back()));
+    o.onRelay?.(relayId);
+    // Inside a tap the wallet opens before anything is awaited (Telegram allows it nowhere else).
+    const open = o.open ?? "sheet";
+    if (open !== "sheet") b.openLink(url);
     this.openSlot(relayId);
-    const ui = b.begin({ provider: this.provider, kind: "sign", url, opened: false });
+    const ui = b.begin({ provider: this.provider, kind: o.kind ?? "sign", url, opened: open !== "sheet", auto: open === "auto" });
     try {
       await ui.ready;
       const answer = await this.collect(relayId, RELAY_WAIT_MS, ui.cancelled);

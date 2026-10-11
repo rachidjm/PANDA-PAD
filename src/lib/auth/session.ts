@@ -48,6 +48,10 @@ export async function getSessionWallet(req: Request): Promise<string | null> {
 
 /** The wallet and the time it last signed in, or null. Checks revocation according to the `sessions` mode (see above). */
 export async function getSession(req: Request): Promise<Session | null> {
+  // The Telegram Mini App's session travels in a header, never in a cookie. A request that carries that header is judged
+  // by it alone: a cookie left in the same browser never stands in for a Mini App session that has ended.
+  const app = req.headers.get(APP_SESSION_HEADER);
+  if (app !== null) return appSession(req, app);
   const secret = sessionSecret();
   if (!secret) return null;
   const parsed = readSessionToken(readCookie(req, SESSION_COOKIE), secret, Date.now());
@@ -65,6 +69,21 @@ export async function getSession(req: Request): Promise<Session | null> {
   } catch (err) {
     console.error("[PANDA auth] session lookup failed", err instanceof Error ? err.message : err);
     return mode === "dual" ? session : null; // postgres mode fails CLOSED
+  }
+}
+
+const APP_SESSION_HEADER = "x-panda-app-session"; // src/lib/telegram/app-login.ts (kept in step by a test)
+
+/** The Mini App's session (src/lib/telegram/app-login.ts): its token, Telegram's signed data, the live row and the linked wallet — all checked, every time. */
+async function appSession(req: Request, token: string): Promise<Session | null> {
+  try {
+    const [{ appWalletSession, APP_INIT_DATA_HEADER }, { miniappEnabled }] = await Promise.all([import("@/lib/telegram/app-login"), import("@/lib/telegram/miniapp")]);
+    if (!miniappEnabled()) return null;
+    const s = await appWalletSession({ db: getDb(), now: Date.now, botToken: process.env.TELEGRAM_BOT_TOKEN!.trim() }, token, req.headers.get(APP_INIT_DATA_HEADER));
+    return s ? { wallet: s.wallet, issuedAt: s.issuedAt, jti: s.jti } : null;
+  } catch (err) {
+    console.error("[PANDA auth] mini app session lookup failed", err instanceof Error ? err.message : err);
+    return null;
   }
 }
 

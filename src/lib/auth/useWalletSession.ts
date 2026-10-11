@@ -32,6 +32,16 @@ async function retryPendingReferral(wallet: string): Promise<void> {
 }
 
 /**
+ * Inside the Telegram Mini App the session is the app's own (src/components/tg/session.ts): in memory, sent in a
+ * header, signed in once when the app opens. Its shell registers this, and from then on "make sure there is a session"
+ * is answered by it — the website's cookie sign-in below never runs there.
+ */
+let appDelegate: ((wallet: string) => Promise<void>) | null = null;
+export function setSessionDelegate(fn: ((wallet: string) => Promise<void>) | null): void {
+  appDelegate = fn;
+}
+
+/**
  * Proves the connected wallet is really the user's: asks the server for a
  * one-time challenge, has the wallet sign it (free, moves no funds), and lets
  * the server set an HttpOnly session cookie. The client never sees or stores
@@ -45,6 +55,7 @@ export function useWalletSession() {
   const ensureSession = useCallback(async (opts?: { adminFresh?: boolean }): Promise<void> => {
     if (!publicKey) throw new Error(t("auth.failed"));
     const wallet = publicKey.toBase58();
+    if (appDelegate) return appDelegate(wallet);
 
     const current = await fetch("/api/auth/session", { cache: "no-store" })
       .then((r) => r.json())

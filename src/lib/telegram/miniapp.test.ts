@@ -259,8 +259,12 @@ test("the wallet link is opened INSIDE the tap, and a signature waits for the us
   // Nothing is awaited before the link is opened: Telegram.WebApp.openLink only works inside a tap.
   assert.ok(connect.indexOf("b.openLink(url);") > 0 && !connect.slice(0, connect.indexOf("b.openLink(url);")).includes("await "));
   const request = adapter.slice(adapter.indexOf("  private async request<T>"), adapter.indexOf("  private openSlot"));
-  assert.ok(request.includes('b.begin({ provider: this.provider, kind: "sign", url, opened: false })') && request.includes("await ui.ready;"));
-  assert.ok(!request.includes("b.openLink("), "a signature's link is opened by the sheet's button, not by code running after a fetch");
+  // A transaction's signature waits for the user's own tap on the sheet ("sheet" is the default); only the sign-in,
+  // started by a tap on "Connect and sign in", opens the wallet itself — and then before anything is awaited.
+  assert.ok(request.includes('const open = o.open ?? "sheet";') && request.includes('opened: open !== "sheet"') && request.includes("await ui.ready;"));
+  assert.ok(request.indexOf("b.openLink(url);") > 0 && !request.slice(0, request.indexOf("b.openLink(url);")).includes("await "));
+  assert.equal(adapter.split('{ kind: "login", open, onRelay').length, 2);
+  assert.equal((adapter.match(/onRelay: /g) ?? []).length, 1, "only signLogin passes options to a request: every other signature waits for the sheet's tap");
   assert.match(adapter, /export const RELAY_WAIT_MS = 2 \* 60_000;/);
   const shell = readFileSync("src/components/tg/TgShell.tsx", "utf8");
   assert.ok(shell.includes("tg.openLink(url, { try_instant_view: false })"), "Telegram's official method");
@@ -268,7 +272,10 @@ test("the wallet link is opened INSIDE the tap, and a signature waits for the us
   assert.ok(shell.includes('sheet.phase === "timeout"') && shell.includes('t("tg.wallet.browser")'), "after two minutes: what happened and 'Open in browser'");
   // The page keeps trading on the same panel, and a computer gets no button that can't work.
   const coinScreen = readFileSync("src/components/tg/TgCoin.tsx", "utf8");
-  assert.ok(coinScreen.includes("adapter?.connect()") && coinScreen.indexOf("adapter?.connect()") < coinScreen.indexOf("select(name);"));
+  const start = shell.slice(shell.indexOf("  function startLogin("), shell.indexOf("  const logout ="));
+  assert.ok(start.includes("await adapter.connect(); // opens the wallet before anything is awaited") && start.indexOf("adapter.connect()") < start.indexOf("select(name);"));
+  assert.ok(!start.slice(0, start.indexOf("adapter.restoreSaved()")).includes("await "), "the tap reaches the wallet with nothing awaited on the way");
+  assert.ok(coinScreen.includes("authed && !!address && address === linked"), "trading needs the app's session and the linked wallet");
   assert.ok(coinScreen.includes("{!phone ? (") && coinScreen.includes('t("tg.wallet.desktop")'));
   assert.ok(coinScreen.includes("coin={drawOn ? coin : undefined}"), "Draw Your Trade is the website's own, on the same chart");
 });

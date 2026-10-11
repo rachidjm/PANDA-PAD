@@ -1,19 +1,29 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
+import type { WalletName } from "@solana/wallet-adapter-base";
+import bs58 from "bs58";
 import Logo from "@/components/Logo";
+import { setSessionDelegate } from "@/lib/auth/useWalletSession";
+import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import { setDeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "@/lib/wallet/deeplink/adapter";
-import { PROVIDERS } from "@/lib/wallet/deeplink/protocol";
+import { DEEPLINK_WALLET_NAMES, deepLinkProviders, setDeepLinkBridge, type DeepLinkWalletAdapter, type FlowCode, type WalletStep, type WalletStepUi } from "@/lib/wallet/deeplink/adapter";
+import { PROVIDERS, type DeepLinkProvider } from "@/lib/wallet/deeplink/protocol";
+import { appSession, endWalletTrip, installSessionFetch, inWalletTrip, startWalletTrip, takeTicket, type AppSession } from "./session";
 
 /**
  * The Telegram Mini App's frame (docs/TELEGRAM.md §12): it loads Telegram's own script, signs in with Telegram's signed
  * `initData` (checked on the server — nothing here is trusted), takes Telegram's colours, and gives every screen the
  * same things: who is signed in, a `fetch` that carries the session, a way to open a link outside Telegram, and the
  * sheet shown while the user's wallet app is asked to connect or sign.
+ *
+ * Two sessions, on purpose. Telegram's (who this Telegram account is) is enough to look around, keep a watchlist and
+ * set alerts. PANDA's (./session.ts) is the wallet's: the first screen asks for it — "Connect and sign in" — and from
+ * then on buying, selling, Draw Your Trade, orders and creating a coin never ask again while the app stays open.
  */
 
 type TgWebApp = {
@@ -62,6 +72,11 @@ export const coinOfStartParam = (v: string | undefined | null) => /^c_([1-9A-HJ-
 
 type Status = "loading" | "ready" | "outside" | "expired" | "error";
 type Session = { token: string; wallet: string | null };
+type LoginChallenge = { nonce: string; message: string; expiresAt: number };
+/** A sign-in message fetched ahead of time, while it still has time left to be signed. */
+const usable = (c: LoginChallenge | null) => (c && c.expiresAt - Date.now() > 30_000 ? c : null);
+/** The adapter keeps an English marker at the end of a refusal for the website's own panels; the Mini App doesn't show it. */
+export const cleanError = (message: string) => message.replace(/\s*\((?:cancelled|User rejected the request\.)\)$/, "");
 
 export type TgContext = {
   status: Status;
@@ -75,6 +90,12 @@ export type TgContext = {
   /** Opens a link in the phone's browser (outside Telegram's in-app one). Call it from a tap. */
   openExternal: (url: string) => void;
   refreshWallet: () => Promise<void>;
+  /** Signed in to PANDA with the linked wallet, for this opening of the app. */
+  authed: boolean;
+  /** From "just looking": shows the sign-in screen. */
+  askLogin: () => void;
+  /** Ends the session (here and on the server) and forgets the wallet connection. */
+  logout: () => void;
 };
 
 const Ctx = createContext<TgContext | null>(null);
@@ -160,19 +181,29 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
   const { t, setLang } = useLanguage();
   const pathname = usePathname();
   const router = useRouter();
+  const { wallets, select, disconnect } = useWallet();
   const [status, setStatus] = useState<Status>("loading");
+  /** True until the start has also looked for a session to pick up again (back from the wallet after a restart). */
+  const [booting, setBooting] = useState(true);
   const [wallet, setWallet] = useState<string | null>(null);
   const [phone, setPhone] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [browse, setBrowse] = useState(false);
+  const [login, setLogin] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const authed = useSyncExternalStore(appSession.subscribe, () => !!appSession.get(), () => false);
   const session = useRef<Session | null>(null);
   const signingIn = useRef<Promise<boolean> | null>(null);
-  // The latest translator and path, for the wallet bridge (which lives outside React).
+  const challenge = useRef<LoginChallenge | null>(null);
+  const lastHidden = useRef(0);
+  // The latest translator, path and wallets, for what lives outside React (the wallet bridge, the start).
   const tRef = useRef(t);
   const pathRef = useRef(pathname);
+  const walletsRef = useRef({ wallets, select });
   useEffect(() => {
     tRef.current = t;
     pathRef.current = pathname;
-  }, [t, pathname]);
+    walletsRef.current = { wallets, select };
+  }, [t, pathname, wallets, select]);
 
   const signIn = useCallback((): Promise<boolean> => {
     if (signingIn.current) return signingIn.current;
@@ -191,6 +222,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
           return false;
         }
         session.current = { token: data.token, wallet: data.wallet ?? null };
+        appSession.setInitData(tg.initData);
         setWallet(data.wallet ?? null);
         if (data.lang === "es" || data.lang === "en") setLang(data.lang);
         setStatus("ready");
@@ -238,6 +270,87 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     setWallet(data?.wallet ?? null);
   }, [api]);
 
+  // ── PANDA's session (src/components/tg/session.ts): in memory, for this opening of the app ───────────────────────
+  /** The sign-in message for the linked wallet, asked for ahead of time so the tap on the button can open the wallet at once. */
+  const fetchChallenge = useCallback(async (): Promise<LoginChallenge | null> => {
+    try {
+      const res = await api("/api/tg/login", { method: "POST" });
+      const data = (await res.json().catch(() => null)) as (Partial<LoginChallenge> & { code?: string }) | null;
+      if (res.ok && data?.nonce && data.message && data.expiresAt) return (challenge.current = { nonce: data.nonce, message: data.message, expiresAt: data.expiresAt });
+      if (data?.code === "not_linked") setWallet(null);
+    } catch {}
+    return (challenge.current = null);
+  }, [api]);
+
+  const finishLogin = useCallback(
+    async (nonce: string, signature: Uint8Array) => {
+      const res = await api("/api/tg/login", { method: "PUT", body: { nonce, signature: bs58.encode(signature) } });
+      const data = (await res.json().catch(() => null)) as Partial<AppSession> | null;
+      if (!res.ok || !data?.token || !data.jti || !data.resume || !data.wallet || !data.expiresAt) throw new Error(tRef.current("tg.login.failed"));
+      appSession.set({ token: data.token, jti: data.jti, resume: data.resume, wallet: data.wallet, expiresAt: data.expiresAt });
+    },
+    [api]
+  );
+
+  /** The session ends here and on the server. Leaving the app (not for the wallet) does this; so does "Sign out". */
+  const closeSession = useCallback(() => {
+    const s = appSession.get();
+    if (!s) return;
+    fetch("/api/tg/login", { method: "DELETE", keepalive: true, cache: "no-store", headers: appSession.headers() }).catch(() => undefined);
+    appSession.set(null);
+    setBrowse(false);
+  }, []);
+
+  /**
+   * "Connect and sign in": straight from the tap. With the wallet already connected in this phone it is ONE trip — the
+   * wallet opens on the sign-in message. The first time it is two: connecting, and then the message, which opens by
+   * itself when the user is back (and offers its button if Telegram didn't let it).
+   */
+  function startLogin(p: DeepLinkProvider) {
+    if (login.busy || !wallet) return;
+    const name = DEEPLINK_WALLET_NAMES[p] as WalletName;
+    const adapter = wallets.find((w) => w.adapter.name === name)?.adapter as DeepLinkWalletAdapter | undefined;
+    if (!adapter) return;
+    const linked = wallet;
+    const ready = usable(challenge.current);
+    challenge.current = null;
+    setLogin({ busy: true, error: null });
+    const run = (async () => {
+      let open: "now" | "auto" = "now";
+      if (!adapter.restoreSaved()) {
+        await adapter.connect(); // opens the wallet before anything is awaited
+        open = "auto";
+      }
+      if (adapter.publicKey?.toBase58() !== linked) {
+        await adapter.disconnect();
+        throw new Error(tRef.current("tg.wallet.mismatch", { address: truncateAddress(linked) }));
+      }
+      let c = ready;
+      if (!c) {
+        c = await fetchChallenge();
+        challenge.current = null;
+        open = "auto";
+      }
+      if (!c) throw new Error(tRef.current("tg.login.failed"));
+      const signature = await adapter.signLogin(new TextEncoder().encode(c.message), c.nonce, open);
+      await finishLogin(c.nonce, signature);
+    })();
+    select(name);
+    run.then(
+      () => setLogin({ busy: false, error: null }),
+      (e: unknown) => {
+        setLogin({ busy: false, error: cleanError(e instanceof Error && e.message ? e.message : tRef.current("tg.login.failed")) });
+        fetchChallenge();
+      }
+    );
+  }
+
+  const logout = useCallback(() => {
+    closeSession();
+    disconnect().catch(() => undefined);
+  }, [closeSession, disconnect]);
+  const askLogin = useCallback(() => setBrowse(false), []);
+
   /** The sheet of a wallet step, as the wallet adapter drives it. */
   const begin = useCallback(
     (step: WalletStep): WalletStepUi => {
@@ -248,42 +361,88 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         resolveReady = resolve;
         rejectReady = reject;
       });
-      if (step.opened) resolveReady();
+      if (step.opened) {
+        startWalletTrip();
+        resolveReady();
+      }
       // A rejection nobody is waiting for yet must not surface as an unhandled one.
       ready.catch(() => undefined);
       const open = () => {
+        startWalletTrip();
         openExternal(step.url); // inside the tap on the sheet's button
         resolveReady();
         setSheet((s) => (s && s.step === step ? { ...s, phase: "waiting" } : s));
       };
       const cancel = () => {
         cancelled = true;
+        endWalletTrip();
         rejectReady(new Error(`${tRef.current("tg.err.rejected")} (cancelled)`));
         setSheet((s) => (s && s.step === step ? null : s));
       };
       setSheet({ step, phase: step.opened ? "waiting" : "ask", open, cancel });
+      if (step.auto) {
+        // Opened without a tap: if the app is still on screen a moment later, Telegram ignored it — offer the button.
+        const at = Date.now();
+        setTimeout(() => {
+          if (cancelled || lastHidden.current >= at || document.visibilityState !== "visible") return;
+          setSheet((s) => (s && s.step === step && s.phase === "waiting" ? { ...s, phase: "ask" } : s));
+        }, 1600);
+      }
       return {
         ready,
         cancelled: () => cancelled,
-        end: (outcome) => setSheet((s) => (s && s.step === step ? (outcome === "timeout" ? { ...s, phase: "timeout" } : null) : s)),
+        end: (outcome) => {
+          endWalletTrip();
+          setSheet((s) => (s && s.step === step ? (outcome === "timeout" ? { ...s, phase: "timeout" } : null) : s));
+        },
       };
     },
     [openExternal]
   );
 
-  // Start: Telegram's script, its colours, then the sign-in. The wallet adapters get their bridge to the session here.
+  // Start: Telegram's script, its colours and safe areas, the Telegram sign-in — and a PANDA session to pick up again,
+  // if this start is the way back from the wallet. The wallet adapters get their bridge to all of it here.
   useEffect(() => {
     let undoTheme: (() => void) | null = null;
     let cancelled = false;
     setDeepLinkBridge({
       api,
       signedIn: () => !!session.current?.token,
-      openLink: openExternal,
+      openLink: (url) => {
+        startWalletTrip();
+        openExternal(url);
+      },
       siteUrl: window.location.origin,
       text: (code) => tRef.current(FLOW_TEXT[code]),
       begin,
       back: () => /^\/tg\/coin\/([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(pathRef.current)?.[1] ?? null,
     });
+    const undoFetch = installSessionFetch();
+    // "Make sure there is a session", asked by the website's own panels: here it is the app's, or the sign-in screen.
+    setSessionDelegate(async (w) => {
+      if (appSession.get()?.wallet === w) return;
+      setBrowse(false);
+      throw new Error(tRef.current("tg.login.needed"));
+    });
+
+    /** Back from the wallet after Telegram restarted the app: the same session (its one-time ticket), or a sign-in whose signature is waiting. */
+    const pickUp = async () => {
+      const ticket = takeTicket();
+      if (ticket) {
+        const res = await api("/api/tg/login", { method: "PATCH", body: ticket }).catch(() => null);
+        const data = res?.ok ? ((await res.json().catch(() => null)) as Partial<AppSession> | null) : null;
+        if (data?.token && data.jti && data.resume && data.wallet && data.expiresAt) return appSession.set({ token: data.token, jti: data.jti, resume: data.resume, wallet: data.wallet, expiresAt: data.expiresAt });
+      }
+      for (const w of walletsRef.current.wallets) {
+        const adapter = w.adapter as Partial<DeepLinkWalletAdapter> & { name: WalletName };
+        const found = await adapter.resumeLogin?.();
+        if (!found) continue;
+        await finishLogin(found.nonce, found.signature).catch(() => undefined);
+        if (appSession.get()) walletsRef.current.select(adapter.name);
+        return;
+      }
+    };
+
     loadScript().then(() => {
       if (cancelled) return;
       const tg = webApp();
@@ -303,18 +462,54 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         onSafe();
         for (const e of SAFE_EVENTS) tg.onEvent?.(e, onSafe);
       }
-      signIn().then((ok) => {
+      signIn().then(async (ok) => {
+        if (ok) {
+          // A website cookie left in this browser never stands in for the app's session.
+          fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+          await pickUp().catch(() => undefined);
+        }
+        if (cancelled) return;
+        setBooting(false);
         // Back from the wallet through the bot's link: straight to the coin the user was on.
-        const coin = ok && !cancelled ? coinOfStartParam(tg?.initDataUnsafe?.start_param) : null;
+        const coin = ok ? coinOfStartParam(tg?.initDataUnsafe?.start_param) : null;
         if (coin && pathRef.current === "/tg") router.replace(`/tg/coin/${coin}`);
       });
     });
     return () => {
       cancelled = true;
       undoTheme?.();
+      undoFetch();
+      setSessionDelegate(null);
       setDeepLinkBridge(null);
     };
-  }, [signIn, openExternal, api, begin, router]);
+  }, [signIn, openExternal, api, begin, router, finishLogin]);
+
+  // Leaving the app — closing it, or leaving Telegram — ends the session, here and on the server. Stepping out to the
+  // wallet app to sign is not leaving: the session is still there on the way back.
+  useEffect(() => {
+    const left = () => {
+      lastHidden.current = Date.now();
+      if (!inWalletTrip()) closeSession();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") left();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", left);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", left);
+    };
+  }, [closeSession]);
+
+  const gate = status === "ready" && !booting && !authed && !browse;
+  // The sign-in message is fetched while the sign-in screen is up (and again before it gets old): the tap then opens the wallet with no wait.
+  useEffect(() => {
+    if (!gate || !wallet || !phone) return;
+    Promise.resolve().then(fetchChallenge);
+    const id = setInterval(fetchChallenge, 4 * 60_000);
+    return () => clearInterval(id);
+  }, [gate, wallet, phone, fetchChallenge]);
 
   // Telegram's own back arrow, on every screen below the first.
   const deep = pathname !== "/tg";
@@ -322,17 +517,24 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     const back = webApp()?.BackButton;
     if (!back || status !== "ready") return;
     const go = () => router.back();
-    if (deep) {
+    if (deep && !gate) {
       back.show();
       back.onClick(go);
     } else back.hide();
     return () => back.offClick(go);
-  }, [deep, router, status]);
+  }, [deep, gate, router, status]);
 
-  const value = useMemo<TgContext>(() => ({ status, wallet, botUsername, phone, api, openExternal, refreshWallet }), [status, wallet, botUsername, phone, api, openExternal, refreshWallet]);
+  const value = useMemo<TgContext>(
+    () => ({ status, wallet, botUsername, phone, api, openExternal, refreshWallet, authed, askLogin, logout }),
+    [status, wallet, botUsername, phone, api, openExternal, refreshWallet, authed, askLogin, logout]
+  );
   const botUrl = botUsername ? `https://t.me/${botUsername}` : null;
   const openWeb = () => openExternal(window.location.origin + webAddressOf(pathname));
   const walletName = sheet ? PROVIDERS[sheet.step.provider].label : "";
+  const sheetTitle: DictKey = !sheet ? "tg.sheet.signTitle" : sheet.phase === "timeout" ? "tg.sheet.timeoutTitle" : sheet.step.kind === "connect" ? "tg.sheet.connectTitle" : sheet.step.kind === "login" ? "tg.sheet.loginTitle" : "tg.sheet.signTitle";
+  const sheetText: DictKey = !sheet ? "tg.sheet.ask" : sheet.phase === "timeout" ? "tg.err.timeout" : sheet.step.kind === "login" ? (sheet.phase === "ask" ? "tg.sheet.loginAsk" : "tg.sheet.loginWaiting") : sheet.phase === "ask" ? "tg.sheet.ask" : "tg.sheet.waiting";
+  const primary = "flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-sm font-bold disabled:opacity-50";
+  const ghost = "flex min-h-12 w-full items-center justify-center rounded-xl border border-paper/15 px-4 text-sm font-semibold text-paper/80";
 
   return (
     <Ctx.Provider value={value}>
@@ -352,9 +554,60 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         </header>
 
         <div className="flex-1 px-4 pb-[calc(var(--safe-bottom)+6rem)]">
-          {status === "ready" ? (
+          {gate ? (
+            <div className="mx-auto max-w-sm pb-4 pt-6 text-center">
+              <h1 className="font-display text-2xl font-bold leading-tight">{t("tg.login.title")}</h1>
+              {!phone ? (
+                <>
+                  <p className="mt-3 text-sm leading-relaxed text-paper/80">{t("tg.login.desktop")}</p>
+                  <div className="mt-5 grid gap-2">
+                    <button type="button" onClick={openWeb} className={`${primary} bg-paper text-ink`}>
+                      {t("tg.wallet.browser")}
+                    </button>
+                  </div>
+                </>
+              ) : !wallet ? (
+                <>
+                  <p className="mt-3 text-sm leading-relaxed text-paper/80">{t("tg.login.link1")}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-paper/80">{t("tg.login.link2")}</p>
+                  <div className="mt-5 grid gap-2">
+                    {botUsername && (
+                      <a href={`https://t.me/${botUsername}?start=link`} className={`${primary} bg-bamboo text-ink`}>
+                        {t("tg.wallet.linkButton")}
+                      </a>
+                    )}
+                    <button type="button" onClick={() => refreshWallet()} className={ghost}>
+                      {t("tg.wallet.linkedCheck")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 text-sm leading-relaxed text-paper/80">{t("tg.login.body")}</p>
+                  <p className="mt-2 text-xs text-panda-grey">{t("tg.wallet.linked", { address: truncateAddress(wallet) })}</p>
+                  <div className="mt-5 grid gap-2">
+                    {deepLinkProviders.map((p, i) => (
+                      <button key={p} type="button" onClick={() => startLogin(p)} disabled={login.busy} className={`${primary} ${i === 0 ? "bg-bamboo text-ink" : "bg-paper text-ink"}`}>
+                        {login.busy ? t("tg.login.working") : t("tg.login.button", { wallet: PROVIDERS[p].label })}
+                      </button>
+                    ))}
+                  </div>
+                  {login.error && (
+                    <p className="mt-3 text-xs leading-snug text-clay-red" role="alert">
+                      {login.error}
+                    </p>
+                  )}
+                  <p className="mt-3 text-[11px] leading-snug text-panda-grey">{t("tg.login.closes")}</p>
+                </>
+              )}
+              <button type="button" onClick={() => setBrowse(true)} className="mt-4 min-h-12 w-full rounded-xl text-sm font-semibold text-paper/80 underline underline-offset-4">
+                {t("tg.login.browse")}
+              </button>
+              <p className="mt-1 text-[11px] leading-snug text-panda-grey">{t("tg.login.browseNote")}</p>
+            </div>
+          ) : status === "ready" && !booting ? (
             children
-          ) : status === "loading" ? (
+          ) : status === "loading" || status === "ready" ? (
             <p className="py-16 text-center text-sm text-panda-grey" role="status">
               {t("tg.loading")}
             </p>
@@ -385,7 +638,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
           )}
         </div>
 
-        {status === "ready" && (
+        {status === "ready" && !booting && !gate && (
           <nav data-bottom-bar className="fixed inset-x-0 bottom-0 z-30 border-t border-paper/10 bg-ink/95 pb-[calc(var(--safe-bottom)+0.25rem)] pl-[var(--safe-left)] pr-[var(--safe-right)] backdrop-blur" aria-label="PANDA">
             <ul className="mx-auto flex max-w-xl">
               {NAV.map((n) => {
@@ -409,19 +662,19 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
           <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-3 pt-[calc(var(--safe-top)+0.75rem)]" role="dialog" aria-modal="true" aria-labelledby="tg-wallet-sheet">
             <div className="w-full max-w-md rounded-3xl border border-paper/10 bg-ink-raised p-5 pb-[calc(var(--safe-bottom)+1.25rem)] shadow-2xl">
               <h2 id="tg-wallet-sheet" className="font-display text-lg font-bold">
-                {t(sheet.phase === "timeout" ? "tg.sheet.timeoutTitle" : sheet.step.kind === "connect" ? "tg.sheet.connectTitle" : "tg.sheet.signTitle", { wallet: walletName })}
+                {t(sheetTitle, { wallet: walletName })}
               </h2>
               <p className="mt-1.5 text-sm leading-relaxed text-paper/80" role="status">
-                {t(sheet.phase === "timeout" ? "tg.err.timeout" : sheet.phase === "ask" ? "tg.sheet.ask" : "tg.sheet.waiting", { wallet: walletName })}
+                {t(sheetText, { wallet: walletName })}
               </p>
               <div className="mt-4 grid gap-2">
                 {sheet.phase !== "timeout" && (
-                  <button type="button" onClick={sheet.open} className={`w-full rounded-xl py-3 text-sm font-bold ${sheet.phase === "ask" ? "bg-bamboo text-ink" : "border border-paper/15 text-paper/80"}`}>
+                  <button type="button" onClick={sheet.open} className={`min-h-12 w-full rounded-xl px-4 text-sm font-bold ${sheet.phase === "ask" ? "bg-bamboo text-ink" : "border border-paper/15 text-paper/80"}`}>
                     {t(sheet.phase === "ask" ? "tg.sheet.open" : "tg.sheet.openAgain", { wallet: walletName })}
                   </button>
                 )}
                 {sheet.phase === "timeout" && (
-                  <button type="button" onClick={openWeb} className="w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink">
+                  <button type="button" onClick={openWeb} className="min-h-12 w-full rounded-xl bg-paper px-4 text-sm font-bold text-ink">
                     {t("tg.wallet.browser")}
                   </button>
                 )}
