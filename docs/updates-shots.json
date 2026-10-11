@@ -219,6 +219,17 @@
         "w": 390,
         "h": 780
       }
+    },
+    {
+      "name": "draw-guide-phone",
+      "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda",
+      "langs": [
+        "en",
+        "es"
+      ],
+      "mobile": true,
+      "wait": 7000,
+      "steps": "const press = (re) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()))?.click(); const c = document.querySelector('[data-tutorial=chart]'); c.scrollIntoView({ block: 'center' }); await sleep(600); press(/How it works|Cómo funciona/); await sleep(3200); window.__clip = { x: 0, y: scrollY, w: 390, h: 844 };"
     }
   ]
 }
