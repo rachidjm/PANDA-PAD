@@ -181,7 +181,8 @@ export const RELAY_MAX_CHARS = 6_000;
 const RELAY_ID = /^[A-Za-z0-9_-]{32}$/;
 export const isRelayId = (v: unknown): v is string => typeof v === "string" && RELAY_ID.test(v);
 export const relayKey = (id: string) => `relay:${id}`;
-export type RelaySlot = { telegramId: number; expiresAt: number; answer: Record<string, string> | null };
+/** `telegramId` null: the wallet answered before the Mini App could say whose slot it is (the phone froze it); the first signed-in reader that knows the id — a 192-bit secret only the Mini App that made it has — takes it. */
+export type RelaySlot = { telegramId: number | null; expiresAt: number; answer: Record<string, string> | null };
 
 /** Only the fields a wallet's redirect can carry, as short strings — nothing else is stored. */
 export function cleanRelayAnswer(raw: unknown): Record<string, string> | null {

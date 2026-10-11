@@ -10,6 +10,7 @@ import TradingPanel from "@/components/coin/TradingPanel";
 import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { Coin } from "@/lib/types";
 import { DEEPLINK_WALLET_NAMES, deepLinkProviders } from "@/lib/wallet/deeplink/adapter";
 import { PROVIDERS, type DeepLinkProvider } from "@/lib/wallet/deeplink/protocol";
@@ -23,8 +24,14 @@ import { useTg } from "./TgShell";
  */
 export default function TgCoin({ coin, holderCount }: { coin: Coin; holderCount: number | null }) {
   const { t } = useLanguage();
-  const { openExternal } = useTg();
+  const { openExternal, wallet: linked, phone } = useTg();
+  const { strategies, pandaOrders } = useFeatures();
+  const { connected, publicKey } = useWallet();
   const price = coin.livePriceUsd ?? null;
+  // Draw Your Trade, exactly the website's (buy, sell, stop, PANDA orders, its guide, the chart's zoom): the same rule
+  // for which coins have it, and — like trading — only for the wallet linked to this Telegram account.
+  const address = connected ? publicKey?.toBase58() ?? null : null;
+  const drawOn = (strategies || (pandaOrders && (coin.source === "pump-fun" || coin.source === "pumpswap"))) && (!address || address === linked);
   const stats: [DictKey, React.ReactNode][] = [
     ["tg.price", priceLabel(price)],
     ["tg.mcapLong", money(coin.marketCap)],
@@ -56,13 +63,14 @@ export default function TgCoin({ coin, holderCount }: { coin: Coin; holderCount:
       </dl>
 
       <div className="mt-4">
-        <PriceChart poolAddress={coin.poolAddress} initialCloses={coin.priceHistory} changePct={coin.changePct} marketCap={coin.marketCap} />
+        <PriceChart poolAddress={coin.poolAddress} initialCloses={coin.priceHistory} changePct={coin.changePct} marketCap={coin.marketCap} coin={drawOn ? coin : undefined} />
+        {drawOn && !phone && <p className="mt-2 text-[11px] leading-snug text-panda-grey">{t("tg.draw.desktop")}</p>}
       </div>
 
       <WatchAndAlert coin={coin} price={price} />
       <Trade coin={coin} />
 
-      <button type="button" onClick={() => openExternal(`${window.location.origin}/coin/${coin.mint}`)} className="mt-4 w-full rounded-xl border border-paper/15 py-3 text-sm font-semibold text-paper/80">
+      <button type="button" onClick={() => openExternal(`${window.location.origin}/coin/${coin.mint}?draw=1`)} className="mt-4 w-full rounded-xl border border-paper/15 py-3 text-sm font-semibold text-paper/80">
         {t("tg.openWeb")}
       </button>
       <p className="mt-3 text-center text-[11px] text-panda-grey">{t("tg.nfa")}</p>
@@ -200,36 +208,36 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
 /**
  * Trading, non-custodial: the user's own wallet app signs. Only the wallet this Telegram account linked with /link can
  * trade here; without one (or with another) the screen says what to do instead of offering a button that can't work.
+ * On a computer there is no wallet app to hand over to, so the only button is "Open in browser".
  */
 function Trade({ coin }: { coin: Coin }) {
   const { t } = useLanguage();
-  const { wallet: linked, botUsername, openExternal, refreshWallet } = useTg();
-  const { select, connect, disconnect, connected, connecting, publicKey, wallet } = useWallet();
+  const { wallet: linked, botUsername, phone, openExternal, refreshWallet } = useTg();
+  const { wallets, select, disconnect, connected, connecting, publicKey, wallet } = useWallet();
   const [error, setError] = useState<string | null>(null);
   const address = connected ? publicKey?.toBase58() ?? null : null;
 
-  async function start(p: DeepLinkProvider) {
+  function start(p: DeepLinkProvider) {
     setError(null);
     const name = DEEPLINK_WALLET_NAMES[p] as WalletName;
-    try {
-      // Selecting makes the provider connect; an already-selected wallet is connected directly.
-      if (wallet?.adapter.name === name) await connect();
-      else select(name);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    const adapter = wallets.find((w) => w.adapter.name === name)?.adapter;
+    // The wallet's link is opened by the adapter RIGHT NOW, inside this tap (Telegram allows it nowhere else); the
+    // wallet library is told which wallet it is straight after, and follows the same connection.
+    adapter?.connect().catch(() => undefined); // its failure reaches this card through the adapter's own error event
+    select(name);
   }
   useEffect(() => {
     const adapter = wallet?.adapter;
     if (!adapter) return;
-    const onError = (e: Error) => setError(e.message);
+    // The adapter keeps an English marker at the end of a refusal for the website's own panels; this card doesn't show it.
+    const onError = (e: Error) => setError(e.message.replace(/\s*\((?:cancelled|User rejected the request\.)\)$/, ""));
     adapter.on("error", onError);
     return () => {
       adapter.off("error", onError);
     };
   }, [wallet]);
 
-  const openWeb = () => openExternal(`${window.location.origin}/coin/${coin.mint}`);
+  const openWeb = () => openExternal(`${window.location.origin}/coin/${coin.mint}?draw=1`);
   const ghost = "w-full rounded-xl border border-paper/15 py-3 text-sm font-semibold text-paper/80";
 
   return (
@@ -238,57 +246,63 @@ function Trade({ coin }: { coin: Coin }) {
         <h2 className="text-sm font-bold">{t("tg.wallet.title")}</h2>
         <p className="mt-1 text-xs leading-snug text-panda-grey">{t("tg.wallet.body")}</p>
 
-        {!linked ? (
+        {!phone ? (
           <>
-            <p className="mt-3 text-xs leading-snug text-paper/80">{t("tg.wallet.notLinked")}</p>
-            <div className="mt-3 grid gap-2">
-              {botUsername && (
-                <a href={`https://t.me/${botUsername}?start=link`} className="block w-full rounded-xl bg-paper py-3 text-center text-sm font-bold text-ink">
-                  {t("tg.wallet.linkButton")}
-                </a>
-              )}
-              <button type="button" onClick={() => refreshWallet()} className={ghost}>
-                {t("tg.wallet.linkedCheck")}
-              </button>
-            </div>
-          </>
-        ) : !address ? (
-          <>
-            <p className="mt-3 text-xs text-paper/80">{t("tg.wallet.linked", { address: truncateAddress(linked) })}</p>
-            <div className="mt-3 grid gap-2">
-              {deepLinkProviders.map((p) => (
-                <button key={p} type="button" onClick={() => start(p)} disabled={connecting} className="w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink disabled:opacity-50">
-                  {t("tg.wallet.connect", { wallet: PROVIDERS[p].label })}
-                </button>
-              ))}
-            </div>
-            {connecting && (
-              <p className="mt-2 text-xs text-bamboo" role="status">
-                {t("tg.wallet.connecting")}
-              </p>
-            )}
+            <p className="mt-3 text-xs leading-snug text-paper/80">{t("tg.wallet.desktop")}</p>
+            <button type="button" onClick={openWeb} className="mt-3 w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink">
+              {t("tg.wallet.browser")}
+            </button>
           </>
         ) : (
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-            <span className="min-w-0 truncate text-paper/80">{t("tg.wallet.connected", { address: truncateAddress(address) })}</span>
-            <button type="button" onClick={() => disconnect().catch(() => {})} className="min-h-8 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
-              {t("tg.wallet.disconnect")}
+          <>
+            {!linked ? (
+              <>
+                <p className="mt-3 text-xs leading-snug text-paper/80">{t("tg.wallet.notLinked")}</p>
+                <div className="mt-3 grid gap-2">
+                  {botUsername && (
+                    <a href={`https://t.me/${botUsername}?start=link`} className="block w-full rounded-xl bg-paper py-3 text-center text-sm font-bold text-ink">
+                      {t("tg.wallet.linkButton")}
+                    </a>
+                  )}
+                  <button type="button" onClick={() => refreshWallet()} className={ghost}>
+                    {t("tg.wallet.linkedCheck")}
+                  </button>
+                </div>
+              </>
+            ) : !address ? (
+              <>
+                <p className="mt-3 text-xs text-paper/80">{t("tg.wallet.linked", { address: truncateAddress(linked) })}</p>
+                <div className="mt-3 grid gap-2">
+                  {deepLinkProviders.map((p) => (
+                    <button key={p} type="button" onClick={() => start(p)} disabled={connecting} className="w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink disabled:opacity-50">
+                      {t("tg.wallet.connect", { wallet: PROVIDERS[p].label })}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate text-paper/80">{t("tg.wallet.connected", { address: truncateAddress(address) })}</span>
+                <button type="button" onClick={() => disconnect().catch(() => {})} className="min-h-8 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
+                  {t("tg.wallet.disconnect")}
+                </button>
+              </div>
+            )}
+            {address && linked && address !== linked && <p className="mt-2 text-xs leading-snug text-clay-red">{t("tg.wallet.mismatch", { address: truncateAddress(linked) })}</p>}
+            {error && (
+              <p className="mt-2 text-xs leading-snug text-clay-red" role="alert">
+                {error}
+              </p>
+            )}
+            <button type="button" onClick={openWeb} className={`${ghost} mt-3`}>
+              {t("tg.wallet.browser")}
             </button>
-          </div>
+            <p className="mt-2 text-[11px] leading-snug text-panda-grey">{t("tg.wallet.browserNote")}</p>
+          </>
         )}
-        {address && linked && address !== linked && <p className="mt-2 text-xs leading-snug text-clay-red">{t("tg.wallet.mismatch", { address: truncateAddress(linked) })}</p>}
-        {error && (
-          <p className="mt-2 text-xs leading-snug text-clay-red" role="alert">
-            {error}
-          </p>
-        )}
-        <button type="button" onClick={openWeb} className={`${ghost} mt-3`}>
-          {t("tg.wallet.browser")}
-        </button>
-        <p className="mt-2 text-[11px] leading-snug text-panda-grey">{t("tg.wallet.browserNote")}</p>
       </div>
 
-      {address && linked && address === linked && (
+      {phone && address && linked && address === linked && (
         <div className="mt-4">
           <TradingPanel coin={coin} />
           <p className="mt-2 text-[11px] leading-snug text-panda-grey">{t("tg.wallet.signNote")}</p>

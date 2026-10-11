@@ -8,11 +8,12 @@ import { miniappEnabled, sessionOf, type AppDeps, type AppError } from "./miniap
  * The first lines of every Mini App route: the app must be on (otherwise the route does not exist: 404), the request
  * must carry a live session (401, and the app signs in again with Telegram's initData) and stay within a per-account rate.
  */
-export async function appGate(req: Request, perMinute = 120): Promise<{ telegramId: number } | NextResponse> {
+export async function appGate(req: Request, perMinute = 120, bucket = "api"): Promise<{ telegramId: number } | NextResponse> {
   if (!miniappEnabled()) return new NextResponse(null, { status: 404 });
   const session = sessionOf(req);
   if (!session) return NextResponse.json({ error: "Sign in again from Telegram.", code: "session" }, { status: 401 });
-  if (await rateLimited(`tg-app:${session.telegramId}`, perMinute, 60_000)) return NextResponse.json({ error: "Too many requests.", code: "rate" }, { status: 429 });
+  // Each kind of request has its own count: waiting for a wallet (a read every two seconds) must never use up the allowance of anything else.
+  if (await rateLimited(`tg-app:${bucket}:${session.telegramId}`, perMinute, 60_000)) return NextResponse.json({ error: "Too many requests.", code: "rate" }, { status: 429 });
   return session;
 }
 

@@ -19,7 +19,7 @@ export function proxy(request: NextRequest) {
   }
   // The Telegram Mini App's pages do not exist while its flag is off: a real 404, like any missing page.
   const miniAppOn = process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";
-  if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet")) hidden = true;
+  if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet" || path.startsWith("/telegram/wallet/"))) hidden = true;
   // The hidden 404 is a page like any other missing one, so it gets the same headers (an API path has none to give).
   const notFound = () => NextResponse.rewrite(new URL("/_hidden-404", request.url), { status: 404 });
   if (hidden && path.startsWith("/api/")) return notFound();

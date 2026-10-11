@@ -6,22 +6,25 @@ import { usePathname, useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import { setDeepLinkBridge } from "@/lib/wallet/deeplink/adapter";
+import { setDeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "@/lib/wallet/deeplink/adapter";
+import { PROVIDERS } from "@/lib/wallet/deeplink/protocol";
 
 /**
  * The Telegram Mini App's frame (docs/TELEGRAM.md §12): it loads Telegram's own script, signs in with Telegram's signed
  * `initData` (checked on the server — nothing here is trusted), takes Telegram's colours, and gives every screen the
- * same three things: who is signed in, a `fetch` that carries the session, and a way to open a link outside Telegram.
+ * same things: who is signed in, a `fetch` that carries the session, a way to open a link outside Telegram, and the
+ * sheet shown while the user's wallet app is asked to connect or sign.
  */
 
 type TgWebApp = {
   initData: string;
+  initDataUnsafe?: { start_param?: string };
+  platform?: string;
   colorScheme?: "light" | "dark";
   themeParams?: Record<string, string | undefined>;
   ready: () => void;
   expand: () => void;
   openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
-  openTelegramLink?: (url: string) => void;
   onEvent?: (event: string, cb: () => void) => void;
   offEvent?: (event: string, cb: () => void) => void;
   setHeaderColor?: (color: string) => void;
@@ -32,6 +35,11 @@ type TgWebApp = {
 const TG_SCRIPT = "https://telegram.org/js/telegram-web-app.js";
 const webApp = (): TgWebApp | null => (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp ?? null;
 
+/** Only Telegram's phone apps can hand over to a wallet app; on a computer (Telegram Desktop, Telegram Web) there is none to open. */
+export const isPhonePlatform = (platform: string | undefined | null) => /^(android|android_x|ios)$/.test(platform ?? "");
+/** "c_<coin address>": the coin the bot's link brings the user back to after the wallet. */
+export const coinOfStartParam = (v: string | undefined | null) => /^c_([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(v ?? "")?.[1] ?? null;
+
 type Status = "loading" | "ready" | "outside" | "expired" | "error";
 type Session = { token: string; wallet: string | null };
 
@@ -40,9 +48,11 @@ export type TgContext = {
   /** The wallet this Telegram account linked with /link (PANDA's own record), or null. */
   wallet: string | null;
   botUsername: string | null;
+  /** True on Telegram's phone apps: the only place a wallet app can be opened from. */
+  phone: boolean;
   /** fetch with the session; signs in again once if the session ran out. */
-  api: (path: string, init?: { method?: string; body?: unknown }) => Promise<Response>;
-  /** Opens a link in the phone's browser (outside Telegram's in-app one). */
+  api: (path: string, init?: { method?: string; body?: unknown; keepalive?: boolean }) => Promise<Response>;
+  /** Opens a link in the phone's browser (outside Telegram's in-app one). Call it from a tap. */
   openExternal: (url: string) => void;
   refreshWallet: () => Promise<void>;
 };
@@ -72,6 +82,14 @@ function applyTheme(tg: TgWebApp): () => void {
     set.push(name);
   }
   const scheme = tg.colorScheme === "light" ? "light" : "dark";
+  // The site's accents are made for a dark page: on Telegram's light theme the chart's line and the green and yellow
+  // texts would almost vanish, so they get darker versions of themselves.
+  if (scheme === "light") {
+    for (const [name, value] of [["--bamboo", "#4d7c0f"], ["--sun", "#a16207"], ["--clay-red", "#c2410c"], ["--meme-orange", "#c2410c"]] as const) {
+      root.style.setProperty(name, value);
+      set.push(name);
+    }
+  }
   root.style.colorScheme = scheme;
   root.dataset.tgScheme = scheme;
   if (p.bg_color && HEX.test(p.bg_color)) {
@@ -110,14 +128,31 @@ const NAV: { href: string; label: DictKey; icon: string }[] = [
   { href: "/tg/alerts", label: "tg.nav.alerts", icon: "M12 3a6 6 0 0 0-6 6v3.6L4.3 16a1 1 0 0 0 .9 1.5h13.6a1 1 0 0 0 .9-1.5L18 12.6V9a6 6 0 0 0-6-6Zm-2 16a2 2 0 0 0 4 0h-4Z" },
 ];
 
+const FLOW_TEXT: Record<FlowCode, DictKey> = { start: "tg.err.start", session: "tg.err.session", timeout: "tg.err.timeout", rejected: "tg.err.rejected", unreadable: "tg.err.unreadable", outside: "tg.err.outside" };
+
+/** The wallet step on screen: ask (its button opens the wallet), waiting, or given up after two minutes. */
+type Sheet = { step: WalletStep; phase: "ask" | "waiting" | "timeout"; open: () => void; cancel: () => void };
+
+/** The address of the page on the website that matches this screen of the Mini App (a coin opens with Draw Your Trade). */
+export const webAddressOf = (pathname: string) => (pathname.startsWith("/tg/coin/") ? `${pathname.slice(3)}?draw=1` : "/");
+
 export default function TgShell({ children, botUsername }: { children: React.ReactNode; botUsername: string | null }) {
   const { t, setLang } = useLanguage();
   const pathname = usePathname();
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [wallet, setWallet] = useState<string | null>(null);
+  const [phone, setPhone] = useState(false);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
   const session = useRef<Session | null>(null);
   const signingIn = useRef<Promise<boolean> | null>(null);
+  // The latest translator and path, for the wallet bridge (which lives outside React).
+  const tRef = useRef(t);
+  const pathRef = useRef(pathname);
+  useEffect(() => {
+    tRef.current = t;
+    pathRef.current = pathname;
+  }, [t, pathname]);
 
   const signIn = useCallback((): Promise<boolean> => {
     if (signingIn.current) return signingIn.current;
@@ -152,9 +187,10 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     return run;
   }, [setLang]);
 
+  /** Telegram's official way out of its own browser (Telegram.WebApp.openLink). It only works inside a tap. */
   const openExternal = useCallback((url: string) => {
     const tg = webApp();
-    if (tg?.openLink) tg.openLink(url);
+    if (tg?.openLink) tg.openLink(url, { try_instant_view: false });
     else window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
@@ -164,6 +200,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         fetch(path, {
           method: init?.method ?? "GET",
           cache: "no-store",
+          keepalive: init?.keepalive,
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.current?.token ?? ""}` },
           ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
         });
@@ -181,11 +218,52 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     setWallet(data?.wallet ?? null);
   }, [api]);
 
+  /** The sheet of a wallet step, as the wallet adapter drives it. */
+  const begin = useCallback(
+    (step: WalletStep): WalletStepUi => {
+      let cancelled = false;
+      let resolveReady: () => void = () => {};
+      let rejectReady: (e: Error) => void = () => {};
+      const ready = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+      });
+      if (step.opened) resolveReady();
+      // A rejection nobody is waiting for yet must not surface as an unhandled one.
+      ready.catch(() => undefined);
+      const open = () => {
+        openExternal(step.url); // inside the tap on the sheet's button
+        resolveReady();
+        setSheet((s) => (s && s.step === step ? { ...s, phase: "waiting" } : s));
+      };
+      const cancel = () => {
+        cancelled = true;
+        rejectReady(new Error(`${tRef.current("tg.err.rejected")} (cancelled)`));
+        setSheet((s) => (s && s.step === step ? null : s));
+      };
+      setSheet({ step, phase: step.opened ? "waiting" : "ask", open, cancel });
+      return {
+        ready,
+        cancelled: () => cancelled,
+        end: (outcome) => setSheet((s) => (s && s.step === step ? (outcome === "timeout" ? { ...s, phase: "timeout" } : null) : s)),
+      };
+    },
+    [openExternal]
+  );
+
   // Start: Telegram's script, its colours, then the sign-in. The wallet adapters get their bridge to the session here.
   useEffect(() => {
     let undoTheme: (() => void) | null = null;
     let cancelled = false;
-    setDeepLinkBridge({ token: () => session.current?.token ?? null, openLink: openExternal, siteUrl: window.location.origin });
+    setDeepLinkBridge({
+      api,
+      signedIn: () => !!session.current?.token,
+      openLink: openExternal,
+      siteUrl: window.location.origin,
+      text: (code) => tRef.current(FLOW_TEXT[code]),
+      begin,
+      back: () => /^\/tg\/coin\/([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(pathRef.current)?.[1] ?? null,
+    });
     loadScript().then(() => {
       if (cancelled) return;
       const tg = webApp();
@@ -194,6 +272,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
           tg.ready();
           tg.expand();
         } catch {}
+        setPhone(isPhonePlatform(tg.platform));
         undoTheme = applyTheme(tg);
         const onTheme = () => {
           undoTheme?.();
@@ -201,14 +280,18 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         };
         tg.onEvent?.("themeChanged", onTheme);
       }
-      signIn();
+      signIn().then((ok) => {
+        // Back from the wallet through the bot's link: straight to the coin the user was on.
+        const coin = ok && !cancelled ? coinOfStartParam(tg?.initDataUnsafe?.start_param) : null;
+        if (coin && pathRef.current === "/tg") router.replace(`/tg/coin/${coin}`);
+      });
     });
     return () => {
       cancelled = true;
       undoTheme?.();
       setDeepLinkBridge(null);
     };
-  }, [signIn, openExternal]);
+  }, [signIn, openExternal, api, begin, router]);
 
   // Telegram's own back arrow, on every screen below the first.
   const deep = pathname !== "/tg";
@@ -223,8 +306,10 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     return () => back.offClick(go);
   }, [deep, router, status]);
 
-  const value = useMemo<TgContext>(() => ({ status, wallet, botUsername, api, openExternal, refreshWallet }), [status, wallet, botUsername, api, openExternal, refreshWallet]);
+  const value = useMemo<TgContext>(() => ({ status, wallet, botUsername, phone, api, openExternal, refreshWallet }), [status, wallet, botUsername, phone, api, openExternal, refreshWallet]);
   const botUrl = botUsername ? `https://t.me/${botUsername}` : null;
+  const openWeb = () => openExternal(window.location.origin + webAddressOf(pathname));
+  const walletName = sheet ? PROVIDERS[sheet.step.provider].label : "";
 
   return (
     <Ctx.Provider value={value}>
@@ -237,7 +322,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
             </span>
             <span className="font-display text-base font-bold tracking-tight">PANDA</span>
           </Link>
-          <button type="button" onClick={() => openExternal(window.location.origin + (pathname.startsWith("/tg/coin/") ? pathname.slice(3) : "/"))} className="min-h-9 rounded-full border border-paper/15 px-3 text-xs font-semibold text-paper/80">
+          <button type="button" onClick={openWeb} className="min-h-9 rounded-full border border-paper/15 px-3 text-xs font-semibold text-paper/80">
             {t("tg.wallet.browser")}
           </button>
         </header>
@@ -294,6 +379,35 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
               })}
             </ul>
           </nav>
+        )}
+
+        {sheet && (
+          <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-3" role="dialog" aria-modal="true" aria-labelledby="tg-wallet-sheet">
+            <div className="w-full max-w-md rounded-3xl border border-paper/10 bg-ink-raised p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl">
+              <h2 id="tg-wallet-sheet" className="font-display text-lg font-bold">
+                {t(sheet.phase === "timeout" ? "tg.sheet.timeoutTitle" : sheet.step.kind === "connect" ? "tg.sheet.connectTitle" : "tg.sheet.signTitle", { wallet: walletName })}
+              </h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-paper/80" role="status">
+                {t(sheet.phase === "timeout" ? "tg.err.timeout" : sheet.phase === "ask" ? "tg.sheet.ask" : "tg.sheet.waiting", { wallet: walletName })}
+              </p>
+              <div className="mt-4 grid gap-2">
+                {sheet.phase !== "timeout" && (
+                  <button type="button" onClick={sheet.open} className={`w-full rounded-xl py-3 text-sm font-bold ${sheet.phase === "ask" ? "bg-bamboo text-ink" : "border border-paper/15 text-paper/80"}`}>
+                    {t(sheet.phase === "ask" ? "tg.sheet.open" : "tg.sheet.openAgain", { wallet: walletName })}
+                  </button>
+                )}
+                {sheet.phase === "timeout" && (
+                  <button type="button" onClick={openWeb} className="w-full rounded-xl bg-paper py-3 text-sm font-bold text-ink">
+                    {t("tg.wallet.browser")}
+                  </button>
+                )}
+                <button type="button" onClick={sheet.cancel} className="w-full rounded-xl py-2.5 text-sm font-semibold text-panda-grey">
+                  {t(sheet.phase === "timeout" ? "updates.close" : "tg.sheet.cancel")}
+                </button>
+              </div>
+              {sheet.phase !== "timeout" && <p className="mt-2 text-center text-[11px] leading-snug text-panda-grey">{t("tg.sheet.note")}</p>}
+            </div>
+          </div>
         )}
       </div>
     </Ctx.Provider>

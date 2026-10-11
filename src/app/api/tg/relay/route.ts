@@ -7,22 +7,27 @@ import { cleanRelayAnswer, isRelayId, miniappEnabled, relayKey, RELAY_TTL_MS, ty
 import { appGate, noStore } from "@/lib/telegram/miniapp-route";
 
 /**
- * The wallet relay (src/lib/telegram/miniapp.ts). POST opens a slot (signed-in Mini App), PUT fills it once (the page the
- * wallet app redirects to, in the phone's browser), GET reads it once (the same Telegram account that opened it). What
- * travels is the wallet's ENCRYPTED answer; the key to read it never leaves the Mini App.
+ * The wallet relay (src/lib/telegram/miniapp.ts). What travels is the wallet's ENCRYPTED answer; the key to read it never
+ * leaves the Mini App.
+ *   POST  the Mini App says "slot <id> is mine" (best effort: the phone may freeze it before this is sent).
+ *   PUT   the page the wallet app comes back to (in the phone's browser) leaves the answer — once. It is accepted even
+ *         if the POST never arrived: the id is a 192-bit secret that only the Mini App which made it knows.
+ *   GET   the Mini App collects the answer — once. A slot that belongs to another Telegram account is never given.
  */
 export async function POST(req: Request) {
-  const g = await appGate(req, 30);
+  const g = await appGate(req, 60, "relay-open");
   if (g instanceof NextResponse) return g;
   const body = (await req.json().catch(() => null)) as { id?: unknown } | null;
   const id = body?.id;
   if (!isRelayId(id)) return NextResponse.json({ error: "invalid", code: "invalid" }, { status: 400 });
   const db = getDb();
   const now = Date.now();
-  if (await tgGetState<RelaySlot>(db, relayKey(id))) return NextResponse.json({ error: "exists", code: "exists" }, { status: 409 });
-  const slot: RelaySlot = { telegramId: g.telegramId, expiresAt: now + RELAY_TTL_MS, answer: null };
-  await tgSetState(db, relayKey(id), slot, now);
-  return NextResponse.json({ ok: true, expiresAt: slot.expiresAt }, noStore);
+  const slot = await tgGetState<RelaySlot>(db, relayKey(id));
+  if (slot && slot.telegramId !== null && slot.telegramId !== g.telegramId) return NextResponse.json({ error: "exists", code: "exists" }, { status: 409 });
+  // New, already this account's, or left by the wallet before this arrived: in every case it is this account's now.
+  const mine: RelaySlot = { telegramId: g.telegramId, expiresAt: slot?.expiresAt ?? now + RELAY_TTL_MS, answer: slot?.answer ?? null };
+  await tgSetState(db, relayKey(id), mine, now);
+  return NextResponse.json({ ok: true, expiresAt: mine.expiresAt }, noStore);
 }
 
 export async function PUT(req: Request) {
@@ -36,23 +41,25 @@ export async function PUT(req: Request) {
   const db = getDb();
   const now = Date.now();
   const slot = await tgGetState<RelaySlot>(db, relayKey(id));
-  // Unknown, expired and already-filled slots all answer the same: nothing to learn by probing ids.
-  if (!slot || slot.expiresAt <= now || slot.answer) return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
-  await tgSetState(db, relayKey(id), { ...slot, answer }, now);
+  if (slot && (slot.expiresAt <= now || slot.answer)) return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
+  await tgSetState(db, relayKey(id), { telegramId: slot?.telegramId ?? null, expiresAt: slot?.expiresAt ?? now + RELAY_TTL_MS, answer } satisfies RelaySlot, now);
   return NextResponse.json({ ok: true }, noStore);
 }
 
 export async function GET(req: Request) {
-  const g = await appGate(req, 240);
+  // A read every two seconds while the user is in the wallet app: its own, generous count.
+  const g = await appGate(req, 120, "relay-read");
   if (g instanceof NextResponse) return g;
   const id = new URL(req.url).searchParams.get("id");
   if (!isRelayId(id)) return NextResponse.json({ error: "invalid", code: "invalid" }, { status: 400 });
   const db = getDb();
   const slot = await tgGetState<RelaySlot>(db, relayKey(id));
-  if (!slot || slot.telegramId !== g.telegramId) return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
+  // Nothing yet (the wallet hasn't answered, and the "it's mine" may not have arrived either): keep waiting.
+  if (!slot) return NextResponse.json({ pending: true }, noStore);
+  if (slot.telegramId !== null && slot.telegramId !== g.telegramId) return NextResponse.json({ pending: true }, noStore);
   if (slot.expiresAt <= Date.now()) {
     await tgDeleteState(db, relayKey(id));
-    return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
+    return NextResponse.json({ pending: true }, noStore);
   }
   if (!slot.answer) return NextResponse.json({ pending: true }, noStore);
   await tgDeleteState(db, relayKey(id));

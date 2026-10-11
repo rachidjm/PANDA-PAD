@@ -17,15 +17,48 @@ import { connectUrl, DeepLinkError, newDappKeys, newRelayId, PROVIDERS, readConn
 /**
  * A wallet adapter that talks to the user's own wallet APP through its official deep links (./protocol.ts), for the
  * Telegram Mini App — where no wallet extension exists. Because it is an ordinary adapter, everything the website
- * already does with a wallet (TradingPanel's buys and sells, with the same fees, recruiters, warnings and routes) works
- * unchanged on top of it: PANDA builds the same transaction, and the wallet app shows it, signs it and sends it.
+ * already does with a wallet (TradingPanel's buys and sells, Draw Your Trade and its orders — same fees, recruiters,
+ * warnings and routes) works unchanged on top of it: PANDA builds the same transaction, and the wallet app shows it,
+ * signs it and sends it.
  *
  * Non-custodial by construction: the only things kept in this browser are the connection's own encryption key and the
  * wallet's session id — neither can sign anything. Every signature is approved by the user inside the wallet app.
+ *
+ * Two facts of Telegram shape the flow:
+ *  - A link can only be opened OUTSIDE Telegram from inside a tap (Telegram.WebApp.openLink). Connecting opens it in the
+ *    tap on "Connect"; a signature — which is only ready after PANDA has built the transaction — first shows a sheet
+ *    whose button the user taps, and THAT tap opens the wallet.
+ *  - The moment the wallet opens, Telegram's browser may be frozen. So nothing the wallet's answer depends on may still
+ *    be "about to be sent": the answer is accepted by the relay whether or not its slot was opened in time, and is
+ *    simply collected when the user is back.
  */
 
-/** What the Mini App's shell provides: its session with PANDA, a way to open a link outside Telegram's browser, the site. */
-export type DeepLinkBridge = { token: () => string | null; openLink: (url: string) => void; siteUrl: string };
+/** Why a wallet step did not finish — the Mini App says each one in its own language. */
+export type FlowCode = "start" | "session" | "timeout" | "rejected" | "unreadable" | "outside";
+export class DeepLinkFlowError extends Error {
+  constructor(public code: FlowCode, message: string) {
+    super(message);
+  }
+}
+
+export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign"; url: string; opened: boolean };
+/** The sheet the Mini App shows during a wallet step. `ready` resolves once the wallet link has been opened by a tap. */
+export type WalletStepUi = { ready: Promise<void>; cancelled: () => boolean; end: (outcome: "ok" | "error" | "timeout") => void };
+
+/** What the Mini App's shell provides. */
+export type DeepLinkBridge = {
+  /** fetch with the Mini App's session (it signs in again by itself when the session ran out). */
+  api: (path: string, init?: { method?: string; body?: unknown; keepalive?: boolean }) => Promise<Response>;
+  signedIn: () => boolean;
+  /** Telegram's own way of opening a link outside its browser. Only works inside a tap. */
+  openLink: (url: string) => void;
+  siteUrl: string;
+  /** The message for a failure, in the app's language. */
+  text: (code: FlowCode) => string;
+  begin: (step: WalletStep) => WalletStepUi;
+  /** Where the wallet should bring the user back to (the coin being looked at), or null. */
+  back: () => string | null;
+};
 let bridge: DeepLinkBridge | null = null;
 export function setDeepLinkBridge(b: DeepLinkBridge | null): void {
   bridge = b;
@@ -43,7 +76,9 @@ function btoaSafe(s: string): string {
 const SESSION_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}`;
 const PENDING_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.pending`;
 const PENDING_MAX_AGE_MS = 10 * 60_000;
-export const RELAY_WAIT_MS = 4 * 60_000;
+/** How long the Mini App waits for the wallet's answer before it stops and says what to do. */
+export const RELAY_WAIT_MS = 2 * 60_000;
+export const RELAY_POLL_MS = 2_000;
 
 type PendingConnect = { relayId: string; dapp: DappKeys; at: number };
 
@@ -67,6 +102,8 @@ const store = {
     } catch {}
   },
 };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   name: WalletName;
@@ -103,47 +140,66 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
     this.emit("connect", this._publicKey);
   }
 
-  /** Silent: a connection approved earlier in this browser, or one whose answer arrived while the app was closed. */
+  /** A connection approved earlier in this browser: nothing to open, nothing to wait for. */
+  private restore(): boolean {
+    const saved = store.get<WalletSession>(SESSION_KEY(this.provider));
+    if (!saved?.publicKey || !saved.session || saved.provider !== this.provider) return false;
+    try {
+      this.adopt(saved);
+      return true;
+    } catch {
+      store.del(SESSION_KEY(this.provider));
+      return false;
+    }
+  }
+
+  /** Silent: a saved connection, or one whose answer arrived while the app was closed (it came back through the bot's link). */
   async autoConnect(): Promise<void> {
     if (this._publicKey || this._connecting) return;
-    const saved = store.get<WalletSession>(SESSION_KEY(this.provider));
-    if (saved?.publicKey && saved.session && saved.provider === this.provider) {
-      try {
-        this.adopt(saved);
-        return;
-      } catch {
-        store.del(SESSION_KEY(this.provider));
-      }
-    }
+    if (this.restore()) return;
     const pending = store.get<PendingConnect>(PENDING_KEY(this.provider));
     if (!pending) return;
     if (Date.now() - pending.at > PENDING_MAX_AGE_MS) return store.del(PENDING_KEY(this.provider));
     this._connecting = true;
     try {
-      const answer = await this.collect(pending.relayId, 20_000);
+      // The shell signs in a moment after the page opens: give it that moment.
+      for (let i = 0; i < 20 && !bridge?.signedIn(); i++) await sleep(500);
+      const answer = await this.collect(pending.relayId, 30_000, () => false);
       this.adopt(readConnect(this.provider, pending.dapp, answer));
     } catch {
       // Nothing arrived (or the user said no): the next tap on "Connect" starts again.
+      store.del(PENDING_KEY(this.provider));
     } finally {
       this._connecting = false;
     }
   }
 
+  /**
+   * MUST be called straight from a tap: the wallet's link is opened before anything is awaited, because Telegram only
+   * lets a link leave its browser from inside a tap.
+   */
   async connect(): Promise<void> {
     if (this._publicKey || this._connecting) return;
-    await this.autoConnect();
-    if (this._publicKey) return;
+    if (this.restore()) return;
     this._connecting = true;
+    let ui: WalletStepUi | null = null;
     try {
       const b = this.requireBridge();
       const dapp = newDappKeys();
-      const relayId = await this.openSlot();
+      const relayId = newRelayId();
       store.set(PENDING_KEY(this.provider), { relayId, dapp, at: Date.now() } satisfies PendingConnect);
-      b.openLink(connectUrl({ provider: this.provider, dappPublicKey: dapp.publicKey, redirect: redirectUrl(b.siteUrl, this.provider, relayId), appUrl: b.siteUrl }));
-      this.adopt(readConnect(this.provider, dapp, await this.collect(relayId, RELAY_WAIT_MS)));
+      const url = connectUrl({ provider: this.provider, dappPublicKey: dapp.publicKey, redirect: redirectUrl(b.siteUrl, this.provider, relayId, b.back()), appUrl: b.siteUrl });
+      b.openLink(url);
+      ui = b.begin({ provider: this.provider, kind: "connect", url, opened: true });
+      this.openSlot(relayId);
+      const answer = await this.collect(relayId, RELAY_WAIT_MS, ui.cancelled);
+      this.adopt(this.read(() => readConnect(this.provider, dapp, answer)));
+      ui.end("ok");
     } catch (err) {
       store.del(PENDING_KEY(this.provider));
-      const e = new WalletConnectionError(messageOf(err), err);
+      const flow = this.flowError(err);
+      ui?.end(flow.code === "timeout" ? "timeout" : "error");
+      const e = new WalletConnectionError(flow.message, flow);
       this.emit("error", e);
       throw e;
     } finally {
@@ -171,95 +227,125 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
         if (signers?.length) (tx as Transaction).partialSign(...signers);
       }
       const out = await this.request<{ signature?: unknown }>("signAndSendTransaction", { transaction: serialize(tx), sendOptions });
-      if (typeof out.signature !== "string" || !out.signature) throw new Error("The wallet did not return a signature.");
+      if (typeof out.signature !== "string" || !out.signature) throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
       return out.signature;
     } catch (err) {
-      const e = err instanceof WalletNotConnectedError ? err : new WalletSendTransactionError(messageOf(err), err);
-      this.emit("error", e);
-      throw e;
+      throw this.fail(err, (m, c) => new WalletSendTransactionError(m, c));
     }
   }
 
   async signTransaction<T extends Transaction | VersionedTransaction>(transaction: T): Promise<T> {
     try {
       const out = await this.request<{ transaction?: unknown }>("signTransaction", { transaction: serialize(transaction) });
-      if (typeof out.transaction !== "string") throw new Error("The wallet did not return the transaction.");
+      if (typeof out.transaction !== "string") throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
       return deserialize(out.transaction, transaction);
     } catch (err) {
-      const e = err instanceof WalletNotConnectedError ? err : new WalletSignTransactionError(messageOf(err), err);
-      this.emit("error", e);
-      throw e;
+      throw this.fail(err, (m, c) => new WalletSignTransactionError(m, c));
     }
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(transactions: T[]): Promise<T[]> {
     try {
       const out = await this.request<{ transactions?: unknown }>("signAllTransactions", { transactions: transactions.map(serialize) });
-      if (!Array.isArray(out.transactions) || out.transactions.length !== transactions.length) throw new Error("The wallet did not return the transactions.");
+      if (!Array.isArray(out.transactions) || out.transactions.length !== transactions.length) throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
       return out.transactions.map((raw, i) => deserialize(String(raw), transactions[i]));
     } catch (err) {
-      const e = err instanceof WalletNotConnectedError ? err : new WalletSignTransactionError(messageOf(err), err);
-      this.emit("error", e);
-      throw e;
+      throw this.fail(err, (m, c) => new WalletSignTransactionError(m, c));
     }
   }
 
   async signMessage(message: Uint8Array): Promise<Uint8Array> {
     try {
       const out = await this.request<{ signature?: unknown }>("signMessage", { message: bs58.encode(message), display: "utf8" });
-      if (typeof out.signature !== "string") throw new Error("The wallet did not return a signature.");
+      if (typeof out.signature !== "string") throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
       return bs58.decode(out.signature);
     } catch (err) {
-      const e = err instanceof WalletNotConnectedError ? err : new WalletSignMessageError(messageOf(err), err);
-      this.emit("error", e);
-      throw e;
+      throw this.fail(err, (m, c) => new WalletSignMessageError(m, c));
     }
   }
 
   // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
+  private say(code: FlowCode): string {
+    return bridge?.text(code) ?? code;
+  }
+
   private requireBridge(): DeepLinkBridge {
-    if (!bridge || !bridge.token()) throw new Error("Open PANDA from Telegram to use this wallet.");
+    if (!bridge || !bridge.signedIn()) throw new DeepLinkFlowError("outside", this.say("outside"));
     return bridge;
   }
 
+  /** Any failure, as one the Mini App can say in its own language. The words "rejected" stay in a refusal: the website's own panels look for them. */
+  private flowError(err: unknown): DeepLinkFlowError {
+    if (err instanceof DeepLinkFlowError) return err;
+    if (err instanceof DeepLinkError) return new DeepLinkFlowError(err.rejected ? "rejected" : "unreadable", err.rejected ? `${this.say("rejected")} (User rejected the request.)` : this.say("unreadable"));
+    return new DeepLinkFlowError("start", err instanceof Error && err.message ? err.message : this.say("start"));
+  }
+
+  private fail<E extends Error>(err: unknown, wrap: (message: string, cause: unknown) => E): Error {
+    if (err instanceof WalletNotConnectedError) return err;
+    const flow = this.flowError(err);
+    const e = wrap(flow.message, flow);
+    this.emit("error", e as never);
+    return e;
+  }
+
+  private read<T>(decode: () => T): T {
+    try {
+      return decode();
+    } catch (err) {
+      throw this.flowError(err instanceof DeepLinkError ? err : new DeepLinkError("unreadable", "unreadable"));
+    }
+  }
+
+  /** A signature: the sheet first (its button opens the wallet, inside that tap), then the wait for the answer. */
   private async request<T>(method: DeepLinkMethod, body: Record<string, unknown>): Promise<T> {
     const session = this._session;
     if (!session) throw new WalletNotConnectedError();
     const b = this.requireBridge();
-    const relayId = await this.openSlot();
-    b.openLink(requestUrl(session, method, body, redirectUrl(b.siteUrl, this.provider, relayId)));
-    return readResult<T>(session, await this.collect(relayId, RELAY_WAIT_MS));
+    const relayId = newRelayId();
+    const url = requestUrl(session, method, body, redirectUrl(b.siteUrl, this.provider, relayId, b.back()));
+    this.openSlot(relayId);
+    const ui = b.begin({ provider: this.provider, kind: "sign", url, opened: false });
+    try {
+      await ui.ready;
+      const answer = await this.collect(relayId, RELAY_WAIT_MS, ui.cancelled);
+      const out = this.read(() => readResult<T>(session, answer));
+      ui.end("ok");
+      return out;
+    } catch (err) {
+      const flow = this.flowError(err);
+      ui.end(flow.code === "timeout" ? "timeout" : "error");
+      throw flow;
+    }
   }
 
-  private async api(path: string, init?: RequestInit): Promise<Response> {
+  /**
+   * Tells the relay which Telegram account this slot belongs to. Best effort and never awaited: the wallet may open (and
+   * freeze this page) before it is sent, and the relay accepts the wallet's answer either way.
+   */
+  private openSlot(id: string): void {
+    bridge?.api("/api/tg/relay", { method: "POST", body: { id }, keepalive: true }).catch(() => undefined);
+  }
+
+  /** Asks the relay every couple of seconds until the wallet's answer is there (the user is in the wallet app meanwhile). */
+  private async collect(relayId: string, timeoutMs: number, cancelled: () => boolean): Promise<Record<string, string>> {
     const b = this.requireBridge();
-    return fetch(path, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", Authorization: `Bearer ${b.token()}` } });
-  }
-
-  private async openSlot(): Promise<string> {
-    const id = newRelayId();
-    const res = await this.api("/api/tg/relay", { method: "POST", body: JSON.stringify({ id }) });
-    if (!res.ok) throw new Error(res.status === 401 ? "Your Telegram session expired — reopen PANDA from Telegram." : "Could not start the wallet request — try again.");
-    return id;
-  }
-
-  /** Waits for the wallet's answer to reach the relay (the user is in the wallet app meanwhile). */
-  private async collect(relayId: string, timeoutMs: number): Promise<Record<string, string>> {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      await new Promise((r) => setTimeout(r, 1500));
+      await sleep(RELAY_POLL_MS);
+      if (cancelled()) throw new DeepLinkFlowError("rejected", `${this.say("rejected")} (cancelled)`);
       let res: Response;
       try {
-        res = await this.api(`/api/tg/relay?id=${relayId}`);
+        res = await b.api(`/api/tg/relay?id=${relayId}`);
       } catch {
         continue; // offline for a moment while the phone switches apps
       }
-      if (res.status === 410) throw new Error("The wallet request expired — try again.");
+      if (res.status === 401) throw new DeepLinkFlowError("session", this.say("session"));
       if (!res.ok) continue;
       const data = (await res.json().catch(() => null)) as { answer?: Record<string, string> } | null;
       if (data?.answer) return data.answer;
     }
-    throw new Error("No answer from the wallet in time — try again, or open PANDA in your browser.");
+    throw new DeepLinkFlowError("timeout", this.say("timeout"));
   }
 }
 
@@ -270,12 +356,6 @@ function serialize(tx: Transaction | VersionedTransaction): string {
 function deserialize<T extends Transaction | VersionedTransaction>(raw: string, like: T): T {
   const bytes = bs58.decode(raw);
   return (isVersionedTransaction(like) ? VersionedTransaction.deserialize(bytes) : Transaction.from(bytes)) as T;
-}
-
-/** The interface elsewhere tells a refusal apart by the words "rejected / cancelled": keep them when the wallet said no. */
-function messageOf(err: unknown): string {
-  if (err instanceof DeepLinkError && err.rejected) return "User rejected the request.";
-  return err instanceof Error ? err.message : String(err);
 }
 
 export const deepLinkProviders = Object.keys(PROVIDERS) as DeepLinkProvider[];

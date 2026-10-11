@@ -93,7 +93,34 @@ export function newRelayId(): string {
   return btoa(String.fromCharCode(...nacl.randomBytes(24))).replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-/** Where the wallet app comes back to: a PANDA page in the phone's browser that hands the answer to the relay. */
-export function redirectUrl(siteUrl: string, provider: DeepLinkProvider, relayId: string): string {
-  return `${siteUrl.replace(/\/+$/, "")}/telegram/wallet?w=${provider}&r=${relayId}`;
+/**
+ * Where the wallet app comes back to: a PANDA page in the phone's browser that hands the answer to the relay. Everything
+ * PANDA needs is in the PATH, with no query of its own: wallets add their answer as a query, and one that simply glues
+ * "?…" to the end must not break an address that already had one. `back` is the coin being looked at, so the page can
+ * send the user back to it inside Telegram.
+ */
+export function redirectUrl(siteUrl: string, provider: DeepLinkProvider, relayId: string, back?: string | null): string {
+  const coin = back && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(back) ? `/${back}` : "";
+  return `${siteUrl.replace(/\/+$/, "")}/telegram/wallet/${provider}/${relayId}${coin}`;
+}
+
+/** What a return address says: which wallet, which relay slot, which coin to go back to. Null when it isn't one. */
+export function parseReturnPath(pathname: string): { provider: DeepLinkProvider; relayId: string; back: string | null } | null {
+  const m = /^\/telegram\/wallet\/(phantom|solflare)\/([A-Za-z0-9_-]{32})(?:\/([1-9A-HJ-NP-Za-km-z]{32,44}))?\/?$/.exec(pathname);
+  return m ? { provider: m[1] as DeepLinkProvider, relayId: m[2], back: m[3] ?? null } : null;
+}
+
+const ANSWER_FIELDS = ["phantom_encryption_public_key", "solflare_encryption_public_key", "nonce", "data", "errorCode", "errorMessage"];
+/**
+ * The wallet's answer out of the return address, however it was attached: as a normal query, glued after an existing
+ * one with a second "?", or in the fragment.
+ */
+export function parseReturnAnswer(search: string, hash = ""): Record<string, string> {
+  const params = new URLSearchParams(`${search}&${hash}`.replace(/[?#]/g, "&"));
+  const out: Record<string, string> = {};
+  for (const k of ANSWER_FIELDS) {
+    const v = params.get(k);
+    if (v) out[k] = v;
+  }
+  return out;
 }

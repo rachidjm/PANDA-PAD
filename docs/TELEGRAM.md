@@ -404,11 +404,15 @@ La Fase 3 ya está implementada, detrás de su propio flag. Con el flag apagado 
 
 ### Cómo funciona la firma
 
-1. La app crea una clave de cifrado de un solo uso y abre el enlace oficial de la wallet (`phantom.app/ul/v1/...` o `solflare.com/ul/v1/...`).
-2. El usuario aprueba en su app de wallet. La wallet vuelve a `launchonpanda.app/telegram/wallet`, en el navegador del móvil.
-3. Esa página entrega la respuesta **cifrada** a un buzón temporal (`/api/tg/relay`, 10 minutos, un solo uso, solo lo lee la cuenta de Telegram que lo abrió).
-4. La Mini App recoge la respuesta y la descifra. El servidor no puede leerla.
-5. En una compra o venta, la wallet firma **y envía** la transacción que PANDA construyó.
+1. **Conectar:** al pulsar "Conectar Phantom" la app abre el enlace oficial de la wallet (`phantom.app/ul/v1/...` o `solflare.com/ul/v1/...`) **dentro del propio toque**, con `Telegram.WebApp.openLink`. Telegram solo deja salir de su navegador desde un toque del usuario.
+2. **Firmar una operación:** PANDA prepara la transacción y muestra una hoja con el botón "Abrir Phantom". Ese toque abre la wallet. Sirve para comprar, vender y para Draw Your Trade.
+3. El usuario aprueba en su wallet. La wallet vuelve a `launchonpanda.app/telegram/wallet/<wallet>/<buzón>/<moneda>`, en el navegador del móvil.
+4. Esa página entrega la respuesta **cifrada** a un buzón temporal (`/api/tg/relay`, 10 minutos, un solo uso). Se guarda aunque el móvil haya congelado la mini app antes de avisar al servidor.
+5. La mini app consulta el buzón cada 2 segundos y descifra la respuesta. El servidor no puede leerla.
+6. La página de vuelta tiene el botón "Volver a Telegram" (`t.me/<bot>?startapp=c_<moneda>`), que reabre la mini app en esa moneda con la wallet ya conectada.
+7. Si en 2 minutos no llega respuesta, la app deja de esperar, lo dice y ofrece "Abrir en el navegador".
+
+En Telegram de escritorio y Telegram Web no hay app de wallet: la mini app no muestra los botones de conectar, solo "Abrir en el navegador" (abre la moneda en la web con Draw Your Trade a la vista).
 
 Código: `src/lib/telegram/miniapp.ts` (firma, sesión, buzón), `src/lib/wallet/deeplink/` (protocolo y adaptador), `src/components/tg/` (pantallas), `src/app/tg/` y `src/app/api/tg/`.
 
@@ -440,5 +444,6 @@ No hace falta `/setdomain` (eso es para el inicio de sesión web, que no se usa)
 - **La firma con Phantom y Solflare no se ha probado en un teléfono real.** Está probada contra una wallet simulada que sigue el protocolo documentado. Haz la prueba de arriba antes de anunciarla.
 - **Telegram de escritorio y Telegram Web:** los enlaces de la wallet abren el navegador del ordenador, donde no hay app de wallet. Ahí hay que usar "Abrir en el navegador".
 - **Cada firma cambia de app.** El usuario va a la wallet y vuelve a Telegram a mano o con el botón "Volver a Telegram".
-- **Draw Your Trade, crear monedas y el resto de la web** no están en la Mini App: se abren en el navegador.
+- **Draw Your Trade está en la página de moneda de la Mini App** (compra, venta, stop, órdenes PANDA, guía y zoom), con las mismas reglas que en la web. Crear monedas y el resto de la web se abren en el navegador.
+- **Órdenes de Draw Your Trade:** cada paso que pide firma abre la wallet; crear órdenes por primera vez puede pedir hasta tres aprobaciones seguidas.
 - **Enlaces de reclutador:** la vinculación automática al conectar no se ejecuta dentro de la Mini App (pediría una firma extra por sorpresa). Quien ya tiene reclutador conserva su comisión reducida.

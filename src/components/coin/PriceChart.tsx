@@ -286,13 +286,15 @@ export default function PriceChart({
             </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-1 rounded-full bg-ink p-1">
+        {/* Narrow screens (a phone, Telegram's Mini App): one row of equal columns across the whole width — never wrapped
+            into two ragged lines. From the tablet up: a pill hugging its buttons, on the right. */}
+        <div className="grid w-full shrink-0 gap-0.5 rounded-full bg-ink p-1 sm:flex sm:w-auto sm:gap-1" style={{ gridTemplateColumns: `repeat(${timeframes.length}, minmax(0, 1fr))` }}>
           {timeframes.map((tfOption) => (
             <button
               key={tfOption}
               onClick={() => selectTimeframe(tfOption)}
               disabled={!poolAddress}
-              className={`min-h-11 min-w-[34px] rounded-full px-2.5 py-1 text-center text-xs font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:min-w-[38px] sm:px-3 sm:py-1.5 ${
+              className={`min-h-10 min-w-0 whitespace-nowrap rounded-full px-0 py-1 text-center text-xs font-semibold transition-colors disabled:opacity-40 sm:min-h-0 sm:min-w-[38px] sm:px-3 sm:py-1.5 ${
                 tf === tfOption ? "bg-paper text-ink" : "text-panda-grey hover:text-paper/80"
               }`}
             >
@@ -784,7 +786,7 @@ function AreaChart({
           <button
             type="button"
             onClick={() => setViewOf({ tf, view: DEFAULT_VIEW })}
-            className="absolute left-1/2 top-1 inline-flex min-h-7 -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-paper/15 bg-ink/85 px-2.5 text-[11px] font-semibold text-paper/90 backdrop-blur transition-colors hover:bg-ink hover:text-paper"
+            className="absolute right-1.5 top-1 inline-flex min-h-7 items-center gap-1 whitespace-nowrap rounded-full border border-paper/15 bg-ink/85 px-2.5 text-[11px] font-semibold text-paper/90 backdrop-blur transition-colors hover:bg-ink hover:text-paper"
           >
             <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M2.2 6a3.8 3.8 0 1 0 1.2-2.8M2 1.8v2h2" />

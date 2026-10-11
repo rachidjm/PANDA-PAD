@@ -1,7 +1,7 @@
 "use client";
 
 import { sanitizeDecimalInput } from "@/lib/trading/input";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import DrawTutorial, { TUTORIAL_SLOT_ID } from "./DrawTutorial";
 import { shouldAutoShow, TUTORIAL_SEEN_KEY } from "@/lib/draw-tutorial";
 import { formatPct, formatPrice, formatRelativeTime, formatUsd } from "@/lib/format";
@@ -146,6 +146,14 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   // On a phone this section starts folded, so the chart and the buy box sit close together; it opens with a tap (and stays open while a line is being drawn).
   const isDesktop = useIsDesktop();
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  // "?draw=1" (the Telegram Mini App's "Open in browser"): the panel is open and in view, on a phone too.
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("draw") !== "1") return;
+    Promise.resolve().then(() => setUserOpen(true));
+    const id = setTimeout(() => sectionRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 600);
+    return () => clearTimeout(id);
+  }, []);
   const open = !!target || (userOpen ?? isDesktop);
   // The four-step tutorial opens by itself the first time this panel is open in this browser; afterwards only from its
   // own button. Closing it (any way) is what marks it as seen.
@@ -181,7 +189,7 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   const showPct = !showBuy && draw.pandaMode && (draw.heldStatus === "has" || heldLines);
 
   return (
-    <section className="mt-4 border-t border-paper/10 pt-2 sm:mt-5 sm:pt-3" aria-labelledby="draw-title">
+    <section ref={sectionRef} className="mt-4 border-t border-paper/10 pt-2 sm:mt-5 sm:pt-3" aria-labelledby="draw-title">
       {/* "? Cómo funciona" sits right above the title, on the left: between the chart's Mínimo / Máximo line and the title. */}
       <button
         type="button"

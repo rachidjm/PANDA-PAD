@@ -116,7 +116,7 @@ test("with the flag off the Mini App does not exist: every /api/tg route answers
     }
   }
   assert.match(readFileSync("src/app/tg/layout.tsx", "utf8"), /if \(!miniappEnabled\(\)\) notFound\(\);/);
-  assert.match(readFileSync("src/app/telegram/wallet/page.tsx", "utf8"), /if \(!miniappEnabled\(\)\) notFound\(\);/);
+  assert.match(readFileSync("src/app/telegram/wallet/[[...slug]]/page.tsx", "utf8"), /if \(!miniappEnabled\(\)\) notFound\(\);/);
 });
 
 let db: Db;
@@ -192,10 +192,95 @@ test("the wallet relay only ever stores what a wallet's redirect carries — sho
   const slot: RelaySlot = { telegramId: 5, expiresAt: NOW + 1000, answer: null };
   await tgSetState(db, relayKey("b".repeat(32)), slot, NOW);
   assert.deepEqual(await tgGetState<RelaySlot>(db, relayKey("b".repeat(32))), slot);
-  // The route: opened by a signed-in app, filled once, read once by the same Telegram account — and nothing readable in it.
+});
+
+test("the relay, end to end: the wallet's answer is kept even if it arrives BEFORE the Mini App could claim the slot, and is read once, by one account", async () => {
+  const { setDbForTests } = await import("@/lib/db/client");
+  const saved = { ...process.env };
+  Object.assign(process.env, ON);
+  setDbForTests(db);
+  try {
+    const route = (await import("@/app/api/tg/relay/route")) as Record<"GET" | "POST" | "PUT", (req: Request) => Promise<Response>>;
+    const auth = (telegramId: number) => ({ Authorization: `Bearer ${issueSession(telegramId, TOKEN, Date.now()).token}`, "Content-Type": "application/json" });
+    const post = (id: string, who: number) => route.POST(new Request("https://launchonpanda.app/api/tg/relay", { method: "POST", headers: auth(who), body: JSON.stringify({ id }) }));
+    const put = (id: string, answer: unknown) => route.PUT(new Request("https://launchonpanda.app/api/tg/relay", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, answer }) }));
+    const get = async (id: string, who: number) => (await route.GET(new Request(`https://launchonpanda.app/api/tg/relay?id=${id}`, { headers: auth(who) }))).json() as Promise<{ pending?: boolean; answer?: Record<string, string> }>;
+    const answer = { phantom_encryption_public_key: "WalletKey1", nonce: "Nonce1", data: "Data1" };
+    const ana = 880001;
+    const eve = 880002;
+
+    // 1) The normal order: claimed, answered, collected.
+    const a = "c".repeat(32);
+    assert.equal((await post(a, ana)).status, 200);
+    assert.equal((await post(a, ana)).status, 200, "saying it twice is fine");
+    assert.equal((await post(a, eve)).status, 409, "another account can't take a slot that has an owner");
+    assert.deepEqual(await get(a, ana), { pending: true });
+    assert.equal((await put(a, answer)).status, 200);
+    assert.equal((await put(a, answer)).status, 410, "filled once");
+    assert.deepEqual(await get(a, eve), { pending: true }, "nothing for anyone else");
+    assert.deepEqual(await get(a, ana), { answer });
+    assert.deepEqual(await get(a, ana), { pending: true }, "read once");
+
+    // 2) The phone froze the Mini App before it could claim the slot: the wallet's answer is still kept…
+    const b = "d".repeat(32);
+    assert.deepEqual(await get(b, ana), { pending: true }, "nothing there yet is 'keep waiting', not an error");
+    assert.equal((await put(b, answer)).status, 200);
+    // …and whoever comes back knowing the id (only the Mini App that made it does) collects it.
+    assert.deepEqual(await get(b, ana), { answer });
+
+    // 3) Claimed AFTER the answer arrived: the claim keeps the answer.
+    const c = "e".repeat(32);
+    assert.equal((await put(c, { errorCode: "4001", errorMessage: "User rejected the request." })).status, 200);
+    assert.equal((await post(c, ana)).status, 200);
+    assert.deepEqual(await get(c, eve), { pending: true });
+    assert.deepEqual(await get(c, ana), { answer: { errorCode: "4001", errorMessage: "User rejected the request." } });
+
+    // Junk is refused, and reading needs a session.
+    assert.equal((await put("f".repeat(32), { data: "<script>" })).status, 400);
+    assert.equal((await put("short", answer)).status, 400);
+    assert.equal((await route.GET(new Request(`https://launchonpanda.app/api/tg/relay?id=${a}`))).status, 401);
+  } finally {
+    setDbForTests(null);
+    for (const k of Object.keys(ON)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+});
+
+test("waiting for a wallet never uses up the allowance of anything else: each kind of request has its own count", () => {
+  const gate = readFileSync("src/lib/telegram/miniapp-route.ts", "utf8");
+  assert.ok(gate.includes("rateLimited(`tg-app:${bucket}:${session.telegramId}`, perMinute, 60_000)"));
   const route = readFileSync("src/app/api/tg/relay/route.ts", "utf8");
-  assert.ok(route.includes("slot.telegramId !== g.telegramId") && route.includes("slot.answer) return NextResponse.json({ error: \"gone\""));
-  assert.ok(route.indexOf("await tgDeleteState(db, relayKey(id));\n  return NextResponse.json({ answer: slot.answer }") > 0, "read once");
+  assert.ok(route.includes('appGate(req, 60, "relay-open")') && route.includes('appGate(req, 120, "relay-read")'));
+});
+
+test("the wallet link is opened INSIDE the tap, and a signature waits for the user's own tap on the sheet", () => {
+  const adapter = readFileSync("src/lib/wallet/deeplink/adapter.ts", "utf8");
+  const connect = adapter.slice(adapter.indexOf("  async connect(): Promise<void> {"), adapter.indexOf("  async disconnect()"));
+  // Nothing is awaited before the link is opened: Telegram.WebApp.openLink only works inside a tap.
+  assert.ok(connect.indexOf("b.openLink(url);") > 0 && !connect.slice(0, connect.indexOf("b.openLink(url);")).includes("await "));
+  const request = adapter.slice(adapter.indexOf("  private async request<T>"), adapter.indexOf("  private openSlot"));
+  assert.ok(request.includes('b.begin({ provider: this.provider, kind: "sign", url, opened: false })') && request.includes("await ui.ready;"));
+  assert.ok(!request.includes("b.openLink("), "a signature's link is opened by the sheet's button, not by code running after a fetch");
+  assert.match(adapter, /export const RELAY_WAIT_MS = 2 \* 60_000;/);
+  const shell = readFileSync("src/components/tg/TgShell.tsx", "utf8");
+  assert.ok(shell.includes("tg.openLink(url, { try_instant_view: false })"), "Telegram's official method");
+  assert.ok(shell.includes("openExternal(step.url); // inside the tap on the sheet's button"));
+  assert.ok(shell.includes('sheet.phase === "timeout"') && shell.includes('t("tg.wallet.browser")'), "after two minutes: what happened and 'Open in browser'");
+  // The page keeps trading on the same panel, and a computer gets no button that can't work.
+  const coinScreen = readFileSync("src/components/tg/TgCoin.tsx", "utf8");
+  assert.ok(coinScreen.includes("adapter?.connect()") && coinScreen.indexOf("adapter?.connect()") < coinScreen.indexOf("select(name);"));
+  assert.ok(coinScreen.includes("{!phone ? (") && coinScreen.includes('t("tg.wallet.desktop")'));
+  assert.ok(coinScreen.includes("coin={drawOn ? coin : undefined}"), "Draw Your Trade is the website's own, on the same chart");
+});
+
+test("phone or computer, and the way back to a coin", async () => {
+  const { coinOfStartParam, isPhonePlatform, webAddressOf } = await import("@/components/tg/TgShell");
+  for (const p of ["android", "ios", "android_x"]) assert.equal(isPhonePlatform(p), true, p);
+  for (const p of ["tdesktop", "macos", "weba", "webk", "web", "unigram", "unknown", "", undefined, null]) assert.equal(isPhonePlatform(p), false, String(p));
+  assert.equal(coinOfStartParam(`c_${PANDA}`), PANDA);
+  for (const bad of ["back", "c_", "c_../../admin", `x_${PANDA}`, undefined, null]) assert.equal(coinOfStartParam(bad), null, String(bad));
+  assert.equal(webAddressOf(`/tg/coin/${PANDA}`), `/coin/${PANDA}?draw=1`, "the same coin, with Draw Your Trade open");
+  assert.equal(webAddressOf("/tg/alerts"), "/");
 });
 
 test("the bot's 'Open PANDA app' button exists only with the flag on, and only in a private chat", () => {
@@ -219,7 +304,7 @@ test("only the Mini App's pages may be framed by Telegram and load Telegram's sc
   assert.ok(!/script-src[^;]*'unsafe-inline'/.test(app));
   const proxy = readFileSync("src/proxy.ts", "utf8");
   assert.ok(proxy.includes('const miniAppOn = process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";') && proxy.includes("const telegram = isMiniAppPath(path) && miniAppOn;"));
-  assert.ok(proxy.includes('if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet")) hidden = true;'), "flag off: the pages answer a real 404");
+  assert.ok(proxy.includes('if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet" || path.startsWith("/telegram/wallet/"))) hidden = true;'), "flag off: the pages answer a real 404");
   const next = readFileSync("next.config.ts", "utf8");
   assert.ok(next.includes('if (!MINIAPP_ON) return [{ source: "/:path*", headers: securityHeaders }];'), "flag off: every page keeps X-Frame-Options: DENY");
 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { Keypair } from "@solana/web3.js";
-import { connectUrl, DeepLinkError, decryptPayload, encryptPayload, newDappKeys, newRelayId, PROVIDERS, readConnect, readResult, redirectUrl, requestUrl, type DeepLinkProvider } from "./protocol";
+import { connectUrl, DeepLinkError, decryptPayload, encryptPayload, newDappKeys, newRelayId, parseReturnAnswer, parseReturnPath, PROVIDERS, readConnect, readResult, redirectUrl, requestUrl, type DeepLinkProvider } from "./protocol";
 
 /**
  * The wallets' deep-link protocol, exercised against a SIMULATED wallet app: it holds its own encryption key and the
@@ -45,7 +45,7 @@ test("connect: the link is the wallet's official one, and only the wallet's answ
     const u = new URL(url);
     assert.equal(u.origin + u.pathname, provider === "phantom" ? "https://phantom.app/ul/v1/connect" : "https://solflare.com/ul/v1/connect");
     assert.equal(u.searchParams.get("cluster"), "mainnet-beta");
-    assert.equal(u.searchParams.get("redirect_link"), `https://launchonpanda.app/telegram/wallet?w=${provider}&r=${"r".repeat(32)}`);
+    assert.equal(u.searchParams.get("redirect_link"), `https://launchonpanda.app/telegram/wallet/${provider}/${"r".repeat(32)}`, "no query of its own: the wallet adds its answer as one");
     assert.ok(!url.includes(dapp.secretKey), "the connection's private key never leaves the page");
 
     const session = readConnect(provider, dapp, wallet.connect(url));
@@ -104,4 +104,21 @@ test("relay ids are 32 URL-safe characters of fresh randomness", () => {
   const ids = new Set(Array.from({ length: 200 }, newRelayId));
   assert.equal(ids.size, 200);
   for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{32}$/);
+});
+
+test("the way back: the slot and the coin travel in the PATH, and the wallet's answer is read however it was attached", () => {
+  const mint = "zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda";
+  const id = "A".repeat(32);
+  assert.equal(redirectUrl("https://launchonpanda.app", "solflare", id, mint), `https://launchonpanda.app/telegram/wallet/solflare/${id}/${mint}`);
+  assert.equal(redirectUrl("https://launchonpanda.app/", "phantom", id, "../../admin"), `https://launchonpanda.app/telegram/wallet/phantom/${id}`, "only a coin address goes in");
+  assert.deepEqual(parseReturnPath(`/telegram/wallet/solflare/${id}/${mint}`), { provider: "solflare", relayId: id, back: mint });
+  assert.deepEqual(parseReturnPath(`/telegram/wallet/phantom/${id}`), { provider: "phantom", relayId: id, back: null });
+  for (const bad of ["/telegram/wallet", `/telegram/wallet/metamask/${id}`, "/telegram/wallet/phantom/short", `/telegram/wallet/phantom/${id}/not a coin`, `/admin/${id}`]) assert.equal(parseReturnPath(bad), null, bad);
+
+  const want = { phantom_encryption_public_key: "PK", nonce: "N", data: "D" };
+  assert.deepEqual(parseReturnAnswer("?phantom_encryption_public_key=PK&nonce=N&data=D"), want, "a normal query");
+  assert.deepEqual(parseReturnAnswer("?w=phantom&r=xyz?phantom_encryption_public_key=PK&nonce=N&data=D"), want, "glued after an existing query with a second '?'");
+  assert.deepEqual(parseReturnAnswer("", "#phantom_encryption_public_key=PK&nonce=N&data=D"), want, "in the fragment");
+  assert.deepEqual(parseReturnAnswer("?errorCode=4001&errorMessage=User%20rejected%20the%20request.&other=dropped"), { errorCode: "4001", errorMessage: "User rejected the request." });
+  assert.deepEqual(parseReturnAnswer(""), {});
 });
