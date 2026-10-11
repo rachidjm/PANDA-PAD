@@ -23,6 +23,9 @@
  *   "pad": 12,                         extra pixels around the element (default 12)
  *   "maxHeight": 900,                  cuts a very tall element (default 900)
  *   "hide": ["css", …]                 elements to hide first (a sticky bar over the area, say)
+ *   "mock": { "/api/x": {…} }          sample answers for the page's own data requests whose address contains the key
+ *                                      (first match wins; "{lang}" in a text becomes the shot's language). For screens
+ *                                      that need a session — the Telegram Mini App — so no real account is ever used.
  * } ], "hide": ["css", …] }            …and elements to hide in every shot
  *
  * `steps` may also choose the area itself, by setting `window.__clip = { x, y, w, h }` (page coordinates).
@@ -48,6 +51,7 @@ type Shot = {
   pad?: number;
   maxHeight?: number;
   hide?: string[];
+  mock?: Record<string, unknown>;
 };
 
 const CHROME_PATHS = [
@@ -70,10 +74,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 class Page {
   private id = 0;
   private waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  /** Answers the page's paused data requests (Shot.mock); null lets none be paused. */
+  onPaused: ((requestId: string, url: string) => void) | null = null;
   constructor(private ws: WebSocket) {
     ws.on("message", (raw) => {
-      const m = JSON.parse(String(raw)) as { id?: number; result?: unknown; error?: { message: string } };
-      if (m.id === undefined) return;
+      const m = JSON.parse(String(raw)) as { id?: number; method?: string; params?: { requestId: string; request: { url: string } }; result?: unknown; error?: { message: string } };
+      if (m.id === undefined) {
+        if (m.method === "Fetch.requestPaused" && m.params) this.onPaused?.(m.params.requestId, m.params.request.url);
+        return;
+      }
       const w = this.waiting.get(m.id);
       if (!w) return;
       this.waiting.delete(m.id);
@@ -127,6 +136,18 @@ async function take(page: Page, base: string, shot: Shot, lang: "en" | "es" | nu
   // Before any of the site's own code runs: its language, and the first-visit guide already seen.
   const boot = `try { localStorage.setItem("panda-lang", ${JSON.stringify(lang ?? "en")}); localStorage.setItem("panda.draw.tutorial.seen", "1"); } catch {}`;
   const { identifier } = await page.send<{ identifier: string }>("Page.addScriptToEvaluateOnNewDocument", { source: boot });
+  const mocks = Object.entries(shot.mock ?? {});
+  page.onPaused = (requestId, url) => {
+    const hit = mocks.find(([key]) => url.includes(key));
+    if (!hit) return void page.send("Fetch.continueRequest", { requestId }).catch(() => undefined);
+    const body = JSON.stringify(hit[1]).replaceAll("{lang}", lang ?? "en");
+    page.send("Fetch.fulfillRequest", { requestId, responseCode: 200, responseHeaders: [{ name: "Content-Type", value: "application/json" }], body: Buffer.from(body).toString("base64") }).catch(() => undefined);
+  };
+  if (mocks.length) await page.send("Fetch.enable", { patterns: mocks.map(([key]) => ({ urlPattern: `*${key}*` })) });
+  else await page.send("Fetch.disable").catch(() => undefined);
+  // From a blank page: an address that only differs from the last one after "#" would not load again.
+  await page.send("Page.navigate", { url: "about:blank" });
+  await sleep(200);
   await page.send("Page.navigate", { url: new URL(shot.url, base).toString() });
   for (let i = 0; i < 80; i++) {
     await sleep(250);

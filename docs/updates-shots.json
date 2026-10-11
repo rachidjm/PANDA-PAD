@@ -240,6 +240,35 @@
       ],
       "wait": 6000,
       "steps": "const address='8fABPE3DrvQpB7FTjsBAP7ZJtPATTgj6UipqXdJnL1hw';const publicKey=new Uint8Array([113,200,66,11,8,30,44,214,122,84,51,101,213,221,242,71,244,143,166,121,195,168,154,173,105,184,151,69,62,62,83,174]);const account={address,publicKey,chains:['solana:mainnet'],features:['solana:signTransaction','solana:signMessage','solana:signAndSendTransaction']};let accounts=[];const ls=new Set();const no=async()=>{throw new Error('test wallet')};const wallet={version:'1.0.0',name:'Phantom',icon:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=',chains:['solana:mainnet'],get accounts(){return accounts},features:{'standard:connect':{version:'1.0.0',connect:async()=>{accounts=[account];ls.forEach(l=>l({accounts}));return{accounts}}},'standard:disconnect':{version:'1.0.0',disconnect:async()=>{accounts=[];ls.forEach(l=>l({accounts}))}},'standard:events':{version:'1.0.0',on:(e,l)=>{ls.add(l);return()=>ls.delete(l)}},'solana:signTransaction':{version:'1.0.0',supportedTransactionVersions:['legacy',0],signTransaction:no},'solana:signMessage':{version:'1.0.0',signMessage:no},'solana:signAndSendTransaction':{version:'1.0.0',supportedTransactionVersions:['legacy',0],signAndSendTransaction:no}}};window.dispatchEvent(Object.assign(new Event('wallet-standard:register-wallet'),{detail:(api)=>api.register(wallet)}));await sleep(500);[...document.querySelectorAll('button')].find((b)=>/^(Connect wallet|Conectar wallet)$/.test(b.textContent.trim()))?.click();await sleep(1500);[...document.querySelectorAll('button')].find((b)=>/Phantom/.test(b.textContent))?.click();await sleep(400);[...document.querySelectorAll('button')].find((b)=>/have a code|No tengo/.test(b.textContent))?.click();await sleep(1200);[...document.querySelectorAll('button')].find((b)=>/Phantom/.test(b.textContent))?.click();for(let n=0;n<40&&![...document.querySelectorAll('input')].some((x)=>/Burn/.test(x.getAttribute('aria-label')||''));n++)await sleep(250);if(![...document.querySelectorAll('input')].some((x)=>/Burn/.test(x.getAttribute('aria-label')||'')))throw new Error('no burn input: '+[...document.querySelectorAll('button')].map((b)=>b.textContent.trim().slice(0,24)).join(' | '));const set=(re,v)=>{const i=[...document.querySelectorAll('input')].find((x)=>re.test(x.getAttribute('aria-label')||''));Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,v);i.dispatchEvent(new Event('input',{bubbles:true}));return i};set(/^(Creator|Creador)/,'60');set(/^Holders/,'20');const b=set(/Burn/,'15');await sleep(600);let el=b;while(el&&!/PANDA/.test(el.textContent))el=el.parentElement;el.scrollIntoView({block:'center'});await sleep(700);const r=el.getBoundingClientRect();window.__clip={x:Math.max(0,r.left-14),y:r.top+scrollY-14,w:r.width+28,h:r.height+28};"
+    },
+    {
+      "name": "miniapp-coin",
+      "url": "/tg/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda#tgWebAppData=user%3D%257B%2522id%2522%253A%252042%252C%2520%2522first_name%2522%253A%2520%2522Sample%2522%252C%2520%2522language_code%2522%253A%2520%2522en%2522%257D%26auth_date%3D1790000000%26hash%3D0000000000000000000000000000000000000000000000000000000000000000&tgWebAppVersion=8.0&tgWebAppPlatform=ios",
+      "langs": [
+        "en",
+        "es"
+      ],
+      "mobile": true,
+      "wait": 6000,
+      "mock": {
+        "/api/tg/session": {
+          "token": "sample",
+          "expiresAt": 4102444800000,
+          "lang": "{lang}",
+          "firstName": "Sample",
+          "wallet": null
+        },
+        "/api/tg/watchlist": {
+          "items": []
+        },
+        "/api/tg/alerts": {
+          "alerts": []
+        },
+        "/api/tg/": {
+          "ok": true
+        }
+      },
+      "steps": "[...document.querySelectorAll('button')].find((b) => /Just looking|Solo mirar|mirando/i.test(b.textContent))?.click(); await sleep(5000); scrollTo(0, 0); await sleep(500); window.__dbg = document.body.innerText.slice(0, 400); window.__clip = { x: 0, y: 0, w: 390, h: 844 };"
     }
   ]
 }
