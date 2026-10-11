@@ -1,4 +1,5 @@
 import type { Db } from "@/lib/db/client";
+import { pgBurnsToPost, pgMarkBurnsPosted } from "@/lib/db/burn";
 import { tgEnqueue, tgGetState, tgLastLaunchAt, tgLaunchesSince, tgPayoutRunsSince, tgSetState, type Lang, type OutMessage } from "@/lib/db/telegram";
 import type { TelegramConfig } from "./config";
 import type { Market } from "./market";
@@ -27,17 +28,19 @@ export type FeedDeps = {
   trades: (pool: string) => Promise<BuyTrade[]>;
   treasury: string;
   rewardsPool: string | null;
+  /** PANDA's burn wallet (the "Burn" share of a split), or null when not configured. */
+  burnWallet?: string | null;
 };
 
 const LANG: Lang = "en";
 const thread = (id: number | null) => (id ? { message_thread_id: id } : {});
 const pctOf = (bps: number) => `${(bps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
 
-export function describeSplit(split: { address: string; shareBps: number }[] | null, who: { treasury: string; rewardsPool: string | null; creator: string }): string {
+export function describeSplit(split: { address: string; shareBps: number }[] | null, who: { treasury: string; rewardsPool: string | null; creator: string; burnWallet?: string | null }): string {
   if (!split || split.length === 0) return tt(LANG, "splitUnknown");
   return split
     .map((s) => {
-      const label = s.address === who.treasury ? tt(LANG, "splitPanda") : who.rewardsPool && s.address === who.rewardsPool ? tt(LANG, "splitHolders") : s.address === who.creator ? tt(LANG, "splitCreator") : tt(LANG, "splitPartner");
+      const label = s.address === who.treasury ? tt(LANG, "splitPanda") : who.rewardsPool && s.address === who.rewardsPool ? tt(LANG, "splitHolders") : who.burnWallet && s.address === who.burnWallet ? tt(LANG, "splitBurn") : s.address === who.creator ? tt(LANG, "splitCreator") : tt(LANG, "splitPartner");
       return `${label} ${pctOf(s.shareBps)}`;
     })
     .join(" · ");
@@ -64,7 +67,7 @@ export async function postNewLaunches(d: FeedDeps): Promise<number> {
     const coin = await d.market.coin(r.mint).catch(() => null);
     if (!coin && now - r.launchedAt < 30 * 60_000) break; // not indexed yet: try again next minute
     if (d.cfg.groupId) {
-      const split = describeSplit(await d.feeSplit(r.mint).catch(() => null), { treasury: d.treasury, rewardsPool: d.rewardsPool, creator: r.creator });
+      const split = describeSplit(await d.feeSplit(r.mint).catch(() => null), { treasury: d.treasury, rewardsPool: d.rewardsPool, creator: r.creator, burnWallet: d.burnWallet ?? null });
       const text = tt(LANG, "launchPost", { name: esc(coin?.name ?? "?"), ticker: esc(coin?.ticker ?? "?"), split: esc(split), mint: r.mint, nfa: tt(LANG, "nfa") });
       const button = { reply_markup: { inline_keyboard: [[{ text: tt(LANG, "viewOnPanda"), url: `${d.cfg.siteUrl}/coin/${r.mint}` }]] } };
       const image = coin?.image && /^https:\/\//.test(coin.image) ? coin.image : null;
@@ -153,6 +156,61 @@ export async function postPayoutDigest(d: FeedDeps): Promise<number> {
     await tgEnqueue(d.db, { chatId: d.cfg.groupId, method: "sendMessage", dedupeKey: `payouts:${last}`, payload: { text: [tt(LANG, "payoutsTitle"), ...lines].join("\n"), parse_mode: "HTML", ...thread(d.cfg.topics.payouts) } }, now);
   }
   await tgSetState(d.db, "payouts.digestAt", now, now);
+  return byMint.size;
+}
+
+// ── burns → group, "🔥 Burns" topic: ONE digest per hour (each coin at most once in it) ────────────────────────────────────
+/** A raw token amount as a plain figure ("1,234,567.89"), from its decimals. Whole numbers only above a thousand. */
+export function tokensText(raw: string, decimals: number): string {
+  const n = Number(BigInt(raw)) / 10 ** decimals;
+  return n.toLocaleString("en-US", { maximumFractionDigits: n >= 1000 ? 0 : 2 });
+}
+
+/**
+ * What was really bought and burned since the last digest, per coin: the tokens burned, the SOL those buys cost and the
+ * burn's own transaction. Facts only — nothing about price, nothing about what comes next. Confirmed transactions only,
+ * and each is reported once.
+ */
+export async function postBurnDigest(d: FeedDeps): Promise<number> {
+  if (!d.cfg.groupId) return 0;
+  const now = d.now();
+  const last = await tgGetState<number>(d.db, "burns.digestAt");
+  if (last === null) {
+    await tgSetState(d.db, "burns.digestAt", now, now);
+    return 0;
+  }
+  if (now - last < 3_600_000) return 0;
+  const { burns, buys } = await pgBurnsToPost(d.db);
+  const byMint = new Map<string, { tokens: bigint; decimals: number; lamports: number; tx: string; sigs: string[] }>();
+  for (const b of burns) {
+    if (!b.tokens || b.decimals === null) continue;
+    const cur = byMint.get(b.mint) ?? { tokens: BigInt(0), decimals: b.decimals, lamports: 0, tx: b.signature, sigs: [] };
+    byMint.set(b.mint, { ...cur, tokens: cur.tokens + BigInt(b.tokens), tx: b.signature, sigs: [...cur.sigs, b.signature] });
+  }
+  // The SOL of a coin's buys is reported with the burn of what they bought (a buy with no burn yet waits for it).
+  for (const buy of buys) {
+    const cur = byMint.get(buy.mint);
+    if (cur) byMint.set(buy.mint, { ...cur, lamports: cur.lamports + buy.lamports, sigs: [...cur.sigs, buy.signature] });
+  }
+  if (byMint.size > 0) {
+    const lines: string[] = [];
+    const reported: string[] = [];
+    for (const [mint, v] of [...byMint].slice(0, 20)) {
+      const coin = await d.market.coin(mint).catch(() => null);
+      lines.push(
+        tt(LANG, "burnLine", {
+          ticker: coin ? `$${esc(coin.ticker)}` : shortAddr(mint),
+          tokens: tokensText(v.tokens.toString(), v.decimals),
+          sol: (v.lamports / 1e9).toLocaleString("en-US", { maximumFractionDigits: 4 }),
+          tx: `https://solscan.io/tx/${v.tx}`,
+        })
+      );
+      reported.push(...v.sigs);
+    }
+    await tgEnqueue(d.db, { chatId: d.cfg.groupId, method: "sendMessage", dedupeKey: `burns:${last}`, payload: { text: [tt(LANG, "burnsTitle"), ...lines].join("\n"), parse_mode: "HTML", link_preview_options: { is_disabled: true }, ...thread(d.cfg.topics.burns) } }, now);
+    await pgMarkBurnsPosted(d.db, reported, now);
+  }
+  await tgSetState(d.db, "burns.digestAt", now, now);
   return byMint.size;
 }
 

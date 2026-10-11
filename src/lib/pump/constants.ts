@@ -77,3 +77,18 @@ export const PANDA_REWARDS_POOL = (() => {
     return null; // invalid: treated as "not configured" (and reported as invalid by src/lib/config/env.ts)
   }
 })();
+
+/**
+ * The Burn wallet: where a coin's "Burn" share of its creator fees is paid. A dedicated server wallet, separate from the
+ * Rewards Pool (holders' money never mixes with it): it only ever buys the coin that paid it and burns what it bought
+ * (src/lib/burn). Public address here; its key is the server-only PANDA_BURN_WALLET_SECRET_KEY. Null = not configured:
+ * the Burn option is not offered and the server refuses a split that includes it.
+ */
+export const PANDA_BURN_WALLET = (() => {
+  if (!process.env.NEXT_PUBLIC_PANDA_BURN_WALLET) return null;
+  try {
+    return new PublicKey(process.env.NEXT_PUBLIC_PANDA_BURN_WALLET);
+  } catch {
+    return null;
+  }
+})();

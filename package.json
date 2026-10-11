@@ -29,6 +29,7 @@
     "migrate-founder-slots": "tsx --env-file-if-exists=.env.local scripts/migrate-founder-slots-to-new-rule.ts",
     "changelog": "tsx --env-file-if-exists=.env.local scripts/changelog.ts",
     "x:check": "tsx --env-file-if-exists=.env.local scripts/x-check.ts",
+    "burn:simulate": "tsx --env-file-if-exists=.env.local scripts/burn-simulate.ts",
     "shot": "tsx scripts/updates-shot.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },

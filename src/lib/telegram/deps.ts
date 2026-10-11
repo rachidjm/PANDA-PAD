@@ -9,7 +9,7 @@ import { fetchDexTokensBatch, type DexPair } from "@/lib/dexscreener/client";
 import { fetchPoolTradesStrict } from "@/lib/gecko/client";
 import { getFeeSharingConfig } from "@/lib/pump/fee-sharing";
 import { getPendingFeeLocks } from "@/lib/pump/fee-lock";
-import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
+import { PANDA_BURN_WALLET, PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 import { serverRpcUrl } from "@/lib/solana/rpc";
 import { rateLimited } from "@/lib/rate-limit";
 import { recordAudit } from "@/lib/audit/log";
@@ -129,5 +129,6 @@ export function realFeedDeps(): FeedDeps {
       })),
     treasury: PANDA_TREASURY.toBase58(),
     rewardsPool: PANDA_REWARDS_POOL?.toBase58() ?? null,
+    burnWallet: PANDA_BURN_WALLET?.toBase58() ?? null,
   };
 }

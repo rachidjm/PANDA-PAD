@@ -742,3 +742,40 @@ export const schema = {
   legacyFeeWallets, recruiterCodes, reservedMintKeys, pandaNonceAccounts, pandaOrders,
   telegramUsers, telegramLinkCodes, telegramWatchlist, telegramAlerts, telegramOutbox, telegramUpdates, telegramState, telegramSuggestions, telegramChangelogs, siteUpdates,
 };
+
+// ── Burn (src/lib/burn): a coin's "Burn" share of its creator fees buys the coin and burns it ─────────────────────────────
+/** What the burn wallet received for a coin, one row per fee distribution (the transaction is the idempotency anchor). */
+export const burnAccruals = pgTable(
+  "burn_accruals",
+  {
+    sourceSig: text("source_sig").primaryKey(),
+    mint: text("mint").notNull(),
+    lamports: lamports("lamports").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("burn_accruals_positive", sql`${t.lamports} > 0`), index("burn_accruals_mint").on(t.mint)]
+);
+
+/**
+ * Every transaction the burn wallet sent for a coin: a "buy" (SOL out, the coin in) or a "burn" (the coin destroyed with
+ * the token program's own burn instruction). `lamports` is what the transaction really cost the wallet, read from the
+ * chain once confirmed (for a buy: the SOL spent plus fees and rent; for a burn: its fee, minus any rent returned).
+ * While "sent" it holds the most the transaction can cost, so the same SOL is never spent twice. `tokens` is the raw
+ * amount burned (a string: it doesn't fit a number). `posted_at`: when it was included in a Telegram digest.
+ */
+export const burnTransactions = pgTable(
+  "burn_transactions",
+  {
+    signature: text("signature").primaryKey(),
+    mint: text("mint").notNull(),
+    kind: text("kind").notNull(), // buy | burn
+    status: text("status").notNull(), // sent | confirmed | failed
+    lamports: lamports("lamports").notNull().default(0),
+    tokens: text("tokens"),
+    decimals: smallint("decimals"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+  },
+  (t) => [check("burn_transactions_kind", sql`${t.kind} IN ('buy','burn') AND ${t.status} IN ('sent','confirmed','failed')`), index("burn_transactions_mint").on(t.mint, t.kind, t.status)]
+);

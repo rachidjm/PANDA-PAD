@@ -5,6 +5,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/burn",
+      "schedule": "2-59/5 * * * *"
+    },
+    {
       "path": "/api/cron/cleanup-auth",
       "schedule": "30 12 * * *"
     },

@@ -4,7 +4,7 @@ import { checkActive } from "@/lib/protocol/pause-store";
 import { tgCleanup, tgGetState, tgSetState } from "@/lib/db/telegram";
 import { telegramConfig } from "@/lib/telegram/config";
 import { evaluateAlerts } from "@/lib/telegram/alerts";
-import { postNewLaunches, postPandaBuys, postPayoutDigest } from "@/lib/telegram/feeds";
+import { postBurnDigest, postNewLaunches, postPandaBuys, postPayoutDigest } from "@/lib/telegram/feeds";
 import { realFeedDeps, realMarket, realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
 import { runWeekly } from "@/lib/telegram/changelog";
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   await step("launches", () => postNewLaunches(feeds));
   await step("buys", () => postPandaBuys(feeds));
   await step("payouts", () => postPayoutDigest(feeds));
+  await step("burns", () => postBurnDigest(feeds));
   await step("alerts", () => evaluateAlerts({ db: getDb(), market: realMarket, now: Date.now }));
   // Monday: the week's small updates become one draft for Telegram and one for X (sent to the admins, never published).
   await step("weekly", () => runWeekly({ db: getDb(), now: Date.now, cfg, x: { config: xConfig() } }));

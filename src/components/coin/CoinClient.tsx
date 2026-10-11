@@ -1,6 +1,7 @@
 "use client";
 
 import RugBadge from "@/components/RugBadge";
+import BurnedLine from "@/components/coin/BurnedLine";
 import CopyCa from "@/components/CopyCa";
 import LaunchedOnPandaBadge from "@/components/LaunchedOnPandaBadge";
 import { useEffect, useState } from "react";
@@ -88,6 +89,7 @@ export default function CoinClient({ coin, trades, live, tradesLive, holderCount
             {coin.twitter && <IconLink href={`https://x.com/${coin.twitter}`} label="X" icon="x" />}
             {coin.telegram && <IconLink href={`https://t.me/${coin.telegram}`} label="Telegram" icon="telegram" />}
             <RugBadge mint={coin.mint} variant="pill" className="ml-1" />
+            <BurnedLine mint={coin.mint} className="ml-1" />
             {coin.launchedOnPanda && <LaunchedOnPandaBadge />}
             {!live && <span className="text-xs text-panda-grey">{t("live.demo")}</span>}
           </div>

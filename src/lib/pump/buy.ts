@@ -25,6 +25,7 @@ export async function buildBuyTransaction({
   solAmount,
   poolAddress,
   slippagePct = DEFAULT_SLIPPAGE_PCT,
+  platformFee = true,
 }: {
   connection: Connection;
   mint: PublicKey;
@@ -32,9 +33,11 @@ export async function buildBuyTransaction({
   solAmount: number;
   poolAddress?: PublicKey;
   slippagePct?: number;
+  /** False only for PANDA's own burn wallet (src/lib/burn): its buys carry no PANDA trade fee. Every user's buy has it. */
+  platformFee?: boolean;
 }): Promise<Transaction> {
   if (poolAddress) {
-    return buildAmmBuyTransaction({ connection, mint, user, poolAddress, solAmount, slippagePct });
+    return buildAmmBuyTransaction({ connection, mint, user, poolAddress, solAmount, slippagePct, platformFee });
   }
 
   const online = getOnlinePumpSdk(connection);
@@ -52,7 +55,7 @@ export async function buildBuyTransaction({
   // A coin that has finished its bonding curve can't be bought there any more ("BondingCurveComplete"): it trades on its PumpSwap pool.
   // The coin lists lag behind this, so the curve itself decides.
   if (bondingCurve.complete) {
-    return buildAmmBuyTransaction({ connection, mint, user, poolAddress: graduatedPoolFor(mint), solAmount, slippagePct });
+    return buildAmmBuyTransaction({ connection, mint, user, poolAddress: graduatedPoolFor(mint), solAmount, slippagePct, platformFee });
   }
 
   const solAmountLamports = new BN(Math.round(solAmount * 1e9));
@@ -84,8 +87,7 @@ export async function buildBuyTransaction({
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
   tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
-  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
-  tx.add(...feeIxs);
+  if (platformFee) tx.add(...(await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()))));
   tx.add(...instructions);
   return tx;
 }

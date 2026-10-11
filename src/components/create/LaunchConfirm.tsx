@@ -44,7 +44,7 @@ export default function LaunchConfirm({
   }, [onBack]);
 
   const label = (kind: FeeLine["kind"]) =>
-    kind === "panda" ? t("fd.protocol") : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
+    kind === "panda" ? t("fd.protocol") : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : kind === "burn" ? t("fd.burn") : t("fd.partner");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/80 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-labelledby="launch-confirm-title">

@@ -18,6 +18,7 @@ export const SUBSYSTEMS = [
   "panda_orders",
   "telegram",
   "x_posting",
+  "burns",
 ] as const;
 
 export type Subsystem = (typeof SUBSYSTEMS)[number];

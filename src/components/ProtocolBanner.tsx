@@ -17,6 +17,7 @@ const LABEL_KEYS: Record<string, DictKey> = {
   fee_processing: "pause.fee_processing",
   panda_orders: "pause.panda_orders",
   telegram: "pause.telegram",
+  burns: "pause.burns",
 };
 
 const NET_KEYS: Record<string, DictKey> = {

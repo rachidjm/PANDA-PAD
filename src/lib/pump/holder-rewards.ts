@@ -11,3 +11,14 @@ export function holderShareIssue(
   if (opts.enabled || !opts.pool) return null;
   return shareholders.some((s) => s.address === opts.pool) ? "Holder rewards are not enabled on this deployment: that split includes the Holders share." : null;
 }
+
+/**
+ * The same control for the Burn share (FEATURE_BURN): with the flag off — or with no burn wallet configured — the server
+ * refuses any split that pays the burn wallet. The creator's own wallet can never be the burn wallet either: that share
+ * is bought and burned by PANDA's server, not by whoever names an address.
+ */
+export function burnShareIssue(shareholders: { address: string }[], opts: { enabled: boolean; wallet: string | null }): string | null {
+  if (!opts.wallet) return null; // nothing to recognise it by: no split can include it
+  if (opts.enabled) return null;
+  return shareholders.some((s) => s.address === opts.wallet) ? "Burn is not enabled on this deployment: that split includes the Burn share." : null;
+}

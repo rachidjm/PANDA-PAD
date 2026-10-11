@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
+import { PANDA_BURN_WALLET, PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 import { CREATOR_CONFIGURABLE_MAX_BPS, PANDA_SHARE_BPS } from "@/lib/config/protocol";
 import { FeeLine, PlanIssue, formatBps, parsePercentToBps, planIssue, planLines } from "@/lib/pump/fee-plan";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
@@ -10,13 +10,15 @@ import InfoTooltip from "./InfoTooltip";
 
 const REWARDS_POOL = PANDA_REWARDS_POOL?.toBase58() || null;
 const TREASURY = PANDA_TREASURY.toBase58();
+const BURN_WALLET = PANDA_BURN_WALLET?.toBase58() || null;
 
 export type FeeDistributionResult = { lines: FeeLine[]; issue: PlanIssue | null; invalidNumber: boolean };
 
 /**
  * The always-on part of the Create form. PANDA's 5% is locked (see
  * PANDA_SHARE_BPS) and shown as such; the creator splits the other 95%
- * between themselves, PANDA's Holders pool and an optional partner wallet.
+ * between themselves, PANDA's Holders pool, Burn (that share buys the coin
+ * and burns it — FEATURE_BURN) and an optional partner wallet.
  * Everything is integer basis points; the plan is pre-checked here for instant
  * feedback, and the server re-validates the final list on its own — this
  * component is never the thing that enforces PANDA's share.
@@ -30,8 +32,11 @@ export default function FeeDistributionStep({
 }) {
   const { t } = useLanguage();
   // The Holders band exists only while FEATURE_HOLDER_REWARDS is on (and the pool is configured); otherwise the split is PANDA 5% + Creator + optional partner.
-  const { holderRewards } = useFeatures();
+  const { holderRewards, burn } = useFeatures();
   const holdersPool = holderRewards ? REWARDS_POOL : null;
+  // The Burn band exists only while FEATURE_BURN is on and PANDA's burn wallet is configured.
+  const burnWallet = burn ? BURN_WALLET : null;
+  const [burnPct, setBurnPct] = useState("0");
   const [creatorPct, setCreatorPct] = useState("95");
   const [holdersPct, setHoldersPct] = useState("0");
   const [partnerPct, setPartnerPct] = useState("0");
@@ -42,15 +47,17 @@ export default function FeeDistributionStep({
     const c = parsePercentToBps(creatorPct);
     const h = parsePercentToBps(holdersPct);
     const p = partnerOn ? parsePercentToBps(partnerPct) : 0;
-    return { c, h, p, invalidNumber: c === null || h === null || p === null };
-  }, [creatorPct, holdersPct, partnerPct, partnerOn]);
+    const b = burnWallet ? parsePercentToBps(burnPct) : 0;
+    return { c, h, p, b, invalidNumber: c === null || h === null || p === null || b === null };
+  }, [creatorPct, holdersPct, partnerPct, partnerOn, burnPct, burnWallet]);
 
-  const ctx = useMemo(() => ({ creator, treasury: TREASURY, rewardsPool: holdersPool }), [creator, holdersPool]);
+  const ctx = useMemo(() => ({ creator, treasury: TREASURY, rewardsPool: holdersPool, burnWallet }), [creator, holdersPool, burnWallet]);
 
   const { lines, issue } = useMemo(() => {
     const plan = {
       creatorBps: parsed.c ?? 0,
       holdersBps: parsed.h ?? 0,
+      burnBps: parsed.b ?? 0,
       partnerBps: parsed.p ?? 0,
       partnerAddress,
     };
@@ -65,14 +72,17 @@ export default function FeeDistributionStep({
   function preset(creatorBps: number, holdersBps: number) {
     setCreatorPct(formatBps(creatorBps));
     setHoldersPct(formatBps(holdersBps));
+    setBurnPct("0");
     setPartnerPct("0");
     setPartnerOn(false);
   }
 
+  // Three across (Creator, Holders, Burn): each name always sits above its box, so none is cut short.
+  const three = holderRewards && !!burnWallet;
   const problem = parsed.invalidNumber ? t("fd.err.number") : issueMessage(issue, t);
 
   const label = (kind: FeeLine["kind"]) =>
-    kind === "panda" ? t("fd.protocol") : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
+    kind === "panda" ? t("fd.protocol") : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : kind === "burn" ? t("fd.burn") : t("fd.partner");
   const legend = lines.map((l) => `${label(l.kind)} ${formatBps(l.bps)}%`).join(" · ");
 
   // Which bar segment shows its tooltip — hover on desktop, tap to toggle (and tap outside to close) on mobile.
@@ -147,8 +157,9 @@ export default function FeeDistributionStep({
       <p className="mt-2 text-xs text-panda-grey">{legend}</p>
 
       <div className="mt-3 space-y-1.5">
-        <div className={holderRewards ? "grid grid-cols-2 gap-1.5" : ""}>
-          <Row dot={BAR_COLOR.creator} icon={<CrownIcon />} label={t("fd.creator")} value={creatorPct} onChange={setCreatorPct} compact={holderRewards} />
+        {/* Creator, Holders and Burn side by side (two or three across): on a phone each name sits above its box. */}
+        <div className={three ? "grid grid-cols-3 gap-1.5" : holderRewards || burnWallet ? "grid grid-cols-2 gap-1.5" : ""}>
+          <Row dot={BAR_COLOR.creator} icon={<CrownIcon />} label={t("fd.creator")} value={creatorPct} onChange={setCreatorPct} compact={holderRewards || !!burnWallet} stacked={three} />
           {holderRewards && (
             <Row
               dot={BAR_COLOR.holders}
@@ -159,8 +170,10 @@ export default function FeeDistributionStep({
               onChange={setHoldersPct}
               disabled={!REWARDS_POOL}
               compact
+              stacked={three}
             />
           )}
+          {burnWallet && <Row dot={BAR_COLOR.burn} icon={null} label={t("fd.burn")} tooltip={t("fd.burnInfo")} value={burnPct} onChange={setBurnPct} compact stacked={three} />}
         </div>
         {partnerOn ? (
           <div className="rounded-xl bg-ink px-3.5 py-2.5">
@@ -219,6 +232,7 @@ export const BAR_COLOR: Record<FeeLine["kind"], string> = {
   panda: "bg-paper/40",
   creator: "bg-bamboo",
   holders: "bg-meme-orange",
+  burn: "bg-clay-red",
   partner: "bg-panda-grey",
 };
 
@@ -229,6 +243,8 @@ function issueMessage(issue: PlanIssue | null, t: ReturnType<typeof useLanguage>
       return t("fd.err.totalMismatch");
     case "HOLDERS_UNAVAILABLE":
       return t("fd.notConfigured");
+    case "BURN_UNAVAILABLE":
+      return t("fd.burnNotConfigured");
     case "PARTNER_ADDRESS_INVALID":
       return t("fd.err.partnerInvalid");
     case "PARTNER_ADDRESS_DUPLICATE":
@@ -245,6 +261,7 @@ function Row({
   onChange,
   disabled,
   compact,
+  stacked,
 }: {
   dot: string;
   icon: React.ReactNode;
@@ -256,16 +273,18 @@ function Row({
   disabled?: boolean;
   /** Half a row (Creator and Holders side by side): on a phone the name sits above its box; the icon only from sm up. */
   compact?: boolean;
+  /** A third of a row (Creator, Holders and Burn side by side): the name above its box at every width, no icon. */
+  stacked?: boolean;
 }) {
   return (
-    <div className={`flex rounded-xl bg-ink py-2.5 ${compact ? "flex-col gap-2 px-3 sm:flex-row sm:items-center sm:gap-3 sm:px-3.5" : "items-center gap-3 px-3.5"} ${disabled ? "opacity-40" : ""}`}>
+    <div className={`flex rounded-xl bg-ink py-2.5 ${stacked ? "flex-col gap-2 px-2.5 sm:px-3" : compact ? "flex-col gap-2 px-3 sm:flex-row sm:items-center sm:gap-3 sm:px-3.5" : "items-center gap-3 px-3.5"} ${disabled ? "opacity-40" : ""}`}>
       <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
-        <span className={`mr-1 h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-        <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}>{icon}</span>
+        <span className={`${stacked ? "" : "mr-1"} h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        {icon && <span className={stacked ? "hidden" : compact ? "hidden sm:inline-flex" : "inline-flex"}>{icon}</span>}
         <span className="truncate">{label}</span>
         {tooltip && <InfoTooltip text={tooltip} align="end" />}
       </span>
-      <PercentInput value={value} onChange={onChange} label={label} disabled={disabled} compact={compact} />
+      <PercentInput value={value} onChange={onChange} label={label} disabled={disabled} compact={compact} stacked={stacked} />
     </div>
   );
 }
@@ -276,22 +295,24 @@ function PercentInput({
   label,
   disabled,
   compact,
+  stacked,
 }: {
   value: string;
   onChange: (v: string) => void;
   label: string;
   disabled?: boolean;
   compact?: boolean;
+  stacked?: boolean;
 }) {
   return (
-    <span className={`flex shrink-0 items-center gap-1 ${compact ? "w-full sm:w-auto" : ""}`}>
+    <span className={`flex shrink-0 items-center gap-1 ${stacked ? "w-full" : compact ? "w-full sm:w-auto" : ""}`}>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         inputMode="decimal"
         aria-label={`${label} %`}
-        className={`${compact ? "w-full sm:w-16" : "w-16"} rounded-lg bg-ink-raised px-2 py-1.5 text-right text-sm font-semibold outline-none focus:ring-1 focus:ring-paper/30 disabled:cursor-not-allowed`}
+        className={`${stacked ? "w-full min-w-0" : compact ? "w-full sm:w-16" : "w-16"} rounded-lg bg-ink-raised px-2 py-1.5 text-right text-sm font-semibold outline-none focus:ring-1 focus:ring-paper/30 disabled:cursor-not-allowed`}
       />
       <span className="text-xs text-panda-grey">%</span>
     </span>

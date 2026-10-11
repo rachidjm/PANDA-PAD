@@ -48,7 +48,7 @@ export function testConfig(over: Partial<TelegramConfig> = {}): TelegramConfig {
     adminIds: new Set([ADMIN_TG]),
     channelId: "-1001",
     groupId: "-1002",
-    topics: { newCoins: 11, buys: 12, payouts: 13, suggestions: 14 },
+    topics: { newCoins: 11, buys: 12, payouts: 13, suggestions: 14, burns: 15 },
     minBuyUsd: 20,
     groupUrl: "https://t.me/pandacommunity",
     channelUrl: "https://t.me/pandaupdates",

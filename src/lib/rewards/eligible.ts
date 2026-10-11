@@ -1,6 +1,6 @@
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import { getRawSharingConfig } from "@/lib/pump/fee-sharing";
-import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
+import { PANDA_BURN_WALLET, PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 
 /**
  * Who is NOT a holder for rewards, decided in one place and used both when a distribution is split and when it is paid:
@@ -28,6 +28,7 @@ export async function ineligibleHolders(connection: Connection, mint: string, wa
     ...(raw ? raw.config.shareholders.map((s) => s.address.toBase58()) : []),
     PANDA_TREASURY.toBase58(),
     ...(PANDA_REWARDS_POOL ? [PANDA_REWARDS_POOL.toBase58()] : []),
+    ...(PANDA_BURN_WALLET ? [PANDA_BURN_WALLET.toBase58()] : []),
   ]);
   const candidates = wallets.filter((w) => !exclude.has(w));
   for (let i = 0; i < candidates.length; i += ACCOUNTS_PER_CALL) {

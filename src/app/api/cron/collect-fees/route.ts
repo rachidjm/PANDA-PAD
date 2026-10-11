@@ -16,6 +16,9 @@ import { recordActivity } from "@/lib/activity/record";
 import { breakdown } from "@/lib/economy/shares";
 import { PANDA_REWARDS_POOL, PANDA_TREASURY } from "@/lib/pump/constants";
 import { resolveAllPending } from "@/lib/pump/fee-lock";
+import { getDb } from "@/lib/db/client";
+import { accrueFromDistribution } from "@/lib/burn/accrue";
+import { burnWalletAddress } from "@/lib/burn/config";
 
 // Runs every 5 minutes now (Vercel Pro) — a wide margin under maxDuration below, so a slow mint mid-batch
 // can't blow past it; an unstarted mint just waits for the next run (5 minutes away) instead of failing the
@@ -64,6 +67,7 @@ export async function GET(req: Request) {
     // payout immediately — resolveOpenClaims above still runs regardless, since it only confirms/releases what
     // already happened on-chain, it never sends anything new.
     const payoutsPaused = (await checkActive("holder_payouts")).paused;
+    const burnWallet = burnWalletAddress();
 
     // Pays out a mint's Holders pool automatically if it's grown past the threshold — called at every exit
     // point below, whether or not THIS round collected anything new (a prior round's leftovers can cross the
@@ -100,6 +104,10 @@ export async function GET(req: Request) {
         // shared across every mint, so measuring one mint's real contribution
         // requires nothing else touching that balance while it's in flight.
         const distributed = await collectFeesForMint(connection, mint, { minLamports: CREATOR_FEE_DISTRIBUTE_MIN_LAMPORTS });
+        // The coin's Burn share, if it has one: what this very transaction paid the burn wallet — booked before anything
+        // else, because a coin with a Burn share and no Holders share pays the pool nothing and stops just below (src/lib/burn). Booked
+        // once; buying and burning is the burn cron's job. A failure here is caught up later from the chain.
+        if (distributed && burnWallet) await accrueFromDistribution(getDb(), burnWallet, { mint, signature: distributed.signature, shares: distributed.shares }).catch((err) => console.error("[PANDA burn] booking a Burn share failed", err));
         if (!distributed || distributed.lamports <= 0) {
           results.push({ mint, distributedLamports: null, holdersCredited: 0, payout: await tryPayout(mint) });
           continue;
@@ -129,7 +137,8 @@ export async function GET(req: Request) {
         // nobody to credit yet, or if this fails, the distribution stays pending and the catch-up above books it later.
         let holdersCredited = 0;
         try {
-          holdersCredited = (await creditDistribution(connection, mint, distributed.lamports, distributed.signature)).holdersCredited;
+          // A coin with no Holders share paid the pool nothing: there is nothing to credit.
+          if (distributed.lamports > 0) holdersCredited = (await creditDistribution(connection, mint, distributed.lamports, distributed.signature)).holdersCredited;
         } catch (err) {
           await alertOps("A fee distribution was collected but its holders couldn't be credited yet — it will be retried", { mint, signature: distributed.signature, error: err instanceof Error ? err.message : String(err) });
         }

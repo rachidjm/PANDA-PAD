@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useWallet } from "@solana/wallet-adapter-react";
 import CoinAvatar from "@/components/CoinAvatar";
 import RugBadge from "@/components/RugBadge";
+import BurnedLine from "@/components/coin/BurnedLine";
 import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
@@ -57,6 +58,8 @@ export default function TgCoin({ coin, holderCount }: { coin: Coin; holderCount:
         </div>
         <RugBadge mint={coin.mint} variant="pill" />
       </div>
+
+      <BurnedLine mint={coin.mint} className="mt-3" />
 
       <dl className="mt-4 grid grid-cols-3 gap-x-3 gap-y-3">
         {stats.map(([label, value]) => (

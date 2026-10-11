@@ -9,21 +9,24 @@ import { BPS_TOTAL } from "@/lib/money/bps";
  * re-validates the final list independently (see fee-shares-validation.ts).
  */
 
-export type FeeKind = "panda" | "creator" | "holders" | "partner";
+export type FeeKind = "panda" | "creator" | "holders" | "burn" | "partner";
 export type FeeLine = { kind: FeeKind; address: string; bps: number };
 
 export type FeePlan = {
   creatorBps: number;
   holdersBps: number;
+  /** The share that buys the coin and burns it (paid to PANDA's burn wallet). Optional: 0 when the plan has none. */
+  burnBps?: number;
   partnerBps: number;
   partnerAddress: string;
 };
 
-export type PlanContext = { creator: string; treasury: string; rewardsPool: string | null };
+export type PlanContext = { creator: string; treasury: string; rewardsPool: string | null; burnWallet?: string | null };
 
 export type PlanIssue =
   | { code: "TOTAL_MISMATCH"; deltaBps: number } // positive = still unassigned, negative = over
   | { code: "HOLDERS_UNAVAILABLE" }
+  | { code: "BURN_UNAVAILABLE" }
   | { code: "PARTNER_ADDRESS_INVALID" }
   | { code: "PARTNER_ADDRESS_DUPLICATE" };
 
@@ -47,16 +50,18 @@ export function planLines(plan: FeePlan, ctx: PlanContext): FeeLine[] {
   const lines: FeeLine[] = [{ kind: "panda", address: ctx.treasury, bps: PANDA_SHARE_BPS }];
   if (plan.creatorBps > 0) lines.push({ kind: "creator", address: ctx.creator, bps: plan.creatorBps });
   if (plan.holdersBps > 0 && ctx.rewardsPool) lines.push({ kind: "holders", address: ctx.rewardsPool, bps: plan.holdersBps });
+  if ((plan.burnBps ?? 0) > 0 && ctx.burnWallet) lines.push({ kind: "burn", address: ctx.burnWallet, bps: plan.burnBps! });
   if (plan.partnerBps > 0) lines.push({ kind: "partner", address: plan.partnerAddress.trim(), bps: plan.partnerBps });
   return lines;
 }
 
 /** The first problem with this plan, or null if it can be sent. */
 export function planIssue(plan: FeePlan, ctx: PlanContext): PlanIssue | null {
-  const parts = [plan.creatorBps, plan.holdersBps, plan.partnerBps];
+  const parts = [plan.creatorBps, plan.holdersBps, plan.burnBps ?? 0, plan.partnerBps];
   if (parts.some((p) => !Number.isSafeInteger(p) || p < 0)) return { code: "TOTAL_MISMATCH", deltaBps: 0 };
 
   if (plan.holdersBps > 0 && !ctx.rewardsPool) return { code: "HOLDERS_UNAVAILABLE" };
+  if ((plan.burnBps ?? 0) > 0 && !ctx.burnWallet) return { code: "BURN_UNAVAILABLE" };
 
   if (plan.partnerBps > 0) {
     let key: string;
@@ -65,7 +70,7 @@ export function planIssue(plan: FeePlan, ctx: PlanContext): PlanIssue | null {
     } catch {
       return { code: "PARTNER_ADDRESS_INVALID" };
     }
-    if (key === ctx.creator || key === ctx.treasury || key === ctx.rewardsPool) return { code: "PARTNER_ADDRESS_DUPLICATE" };
+    if (key === ctx.creator || key === ctx.treasury || key === ctx.rewardsPool || key === ctx.burnWallet) return { code: "PARTNER_ADDRESS_DUPLICATE" };
   }
 
   const delta = CREATOR_CONFIGURABLE_MAX_BPS - parts.reduce((a, b) => a + b, 0);

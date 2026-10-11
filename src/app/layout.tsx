@@ -57,6 +57,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 strategies: isEnabled("STRATEGIES"),
                 otcRewards: isEnabled("OTC_REWARDS"),
                 holderRewards: isEnabled("HOLDER_REWARDS"),
+                burn: isEnabled("BURN") && !!process.env.NEXT_PUBLIC_PANDA_BURN_WALLET,
                 referrals: isEnabled("REFERRALS"),
                 founderNft: isEnabled("FOUNDER_NFT"),
                 aiAssistant: isEnabled("AI_ASSISTANT"),

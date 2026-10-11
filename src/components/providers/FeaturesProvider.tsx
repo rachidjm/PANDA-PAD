@@ -17,6 +17,8 @@ export type Features = {
   strategies: boolean;
   otcRewards: boolean;
   holderRewards: boolean;
+  /** The "Burn" share at launch and the burned-tokens line on a coin (FEATURE_BURN, and a burn wallet configured). */
+  burn: boolean;
   referrals: boolean;
   founderNft: boolean;
   aiAssistant: boolean;
@@ -35,6 +37,7 @@ const OFF: Features = {
   strategies: false,
   otcRewards: false,
   holderRewards: false,
+  burn: false,
   referrals: false,
   founderNft: false,
   aiAssistant: false,

@@ -113,8 +113,8 @@ export default function CreateClient({
   // The first buy is mandatory now, not optional — it must clear the configured minimum before Launch unlocks.
   const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked && !firstBuy.noRate && firstBuy.sol >= minFirstBuySol;
 
-  const kindLabel = (kind: "panda" | "creator" | "holders" | "partner") =>
-    kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : t("fd.partner");
+  const kindLabel = (kind: "panda" | "creator" | "holders" | "burn" | "partner") =>
+    kind === "panda" ? "PANDA" : kind === "creator" ? t("fd.creator") : kind === "holders" ? t("fd.holders") : kind === "burn" ? t("fd.burn") : t("fd.partner");
 
   // Buys the just-created coin as a second, separate transaction — the
   // bonding curve doesn't exist until the create transaction has confirmed,

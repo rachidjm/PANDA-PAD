@@ -56,6 +56,7 @@ export async function buildAmmBuyTransaction({
   poolAddress,
   solAmount,
   slippagePct = DEFAULT_SLIPPAGE_PCT,
+  platformFee = true,
 }: {
   connection: Connection;
   mint: PublicKey;
@@ -63,6 +64,8 @@ export async function buildAmmBuyTransaction({
   poolAddress: PublicKey;
   solAmount: number;
   slippagePct?: number;
+  /** False only for PANDA's own burn wallet (src/lib/burn). */
+  platformFee?: boolean;
 }): Promise<Transaction> {
   await assertRealPumpAmmPool(connection, poolAddress);
 
@@ -86,8 +89,7 @@ export async function buildAmmBuyTransaction({
   const tx = new Transaction();
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
   tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICRO_LAMPORTS }));
-  const feeIxs = await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()));
-  tx.add(...feeIxs);
+  if (platformFee) tx.add(...(await feeTransferInstructions(connection, user, BigInt(feeLamports.toString()))));
   tx.add(...instructions);
   return tx;
 }

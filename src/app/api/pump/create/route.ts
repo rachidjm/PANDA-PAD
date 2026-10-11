@@ -9,8 +9,8 @@ import { registerPendingFeeLock } from "@/lib/pump/fee-lock";
 import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
 import { pausedResponse } from "@/lib/protocol/guard";
 import { isEnabled } from "@/lib/config/flags";
-import { PANDA_REWARDS_POOL } from "@/lib/pump/constants";
-import { holderShareIssue } from "@/lib/pump/holder-rewards";
+import { PANDA_BURN_WALLET, PANDA_REWARDS_POOL } from "@/lib/pump/constants";
+import { burnShareIssue, holderShareIssue } from "@/lib/pump/holder-rewards";
 import { recordAudit } from "@/lib/audit/log";
 import { claimLaunchMintKeypair } from "@/lib/reserved-mint/stock";
 import { createMinFirstBuySol } from "@/lib/config/create-limits";
@@ -69,6 +69,8 @@ export async function POST(req: Request) {
       if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
       const holderIssue = holderShareIssue(shareholders as FeeShareholderInput[], { enabled: isEnabled("HOLDER_REWARDS"), pool: PANDA_REWARDS_POOL?.toBase58() ?? null });
       if (holderIssue) return NextResponse.json({ error: holderIssue, code: "FEATURE_DISABLED", feature: "HOLDER_REWARDS" }, { status: 403 });
+      const burnIssue = burnShareIssue(shareholders as FeeShareholderInput[], { enabled: isEnabled("BURN"), wallet: PANDA_BURN_WALLET?.toBase58() ?? null });
+      if (burnIssue) return NextResponse.json({ error: burnIssue, code: "FEATURE_DISABLED", feature: "BURN" }, { status: 403 });
     }
 
     const connection = new Connection(serverRpcUrl(), "confirmed");

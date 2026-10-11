@@ -502,6 +502,10 @@ reglas, mismo reparto de comisiones, mismas firmas, y si crear está en pausa en
 Telegram reinicia la app durante el lanzamiento, al volver a abrirla se comprueba si la moneda existe
 (`GET /api/tg/launch`), se completan sus registros por las rutas de la web y se abre su página.
 
+**Tema 🔥 Burns.** Con `FEATURE_BURN`, cada hora se publica un resumen de lo comprado y quemado (cada moneda una vez:
+tokens, SOL y transacción) en el tema `TELEGRAM_TOPIC_BURNS`. Para crearlo: en el grupo, ⋯ → Crear tema → `🔥 Burns`;
+escribe `/chatid` dentro y pon el id del tema en esa variable. Detalle en `docs/BURN.md`.
+
 ## 13. Capturas en las novedades (/updates)
 
 Cada entrada de la página Novedades puede llevar una captura de la pantalla donde está el cambio. Va dentro de la tarjeta, debajo del texto, y al tocarla se ve en grande.

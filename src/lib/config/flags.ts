@@ -24,7 +24,8 @@ export const FEATURES = [
   "TELEGRAM_BOT", // the PANDA Telegram bot (webhook, automatic posts, personal alerts, wallet linking) — docs/TELEGRAM.md
   "TELEGRAM_CHANGELOG", // public changelog: a draft is sent to the admins in private and only published to the channel when one presses "Publicar" — requires TELEGRAM_BOT
   "TELEGRAM_MINIAPP", // the Telegram Mini App (/tg, /api/tg/*): explore, coin pages, watchlist, alerts and non-custodial trading through the user's own wallet app — requires TELEGRAM_BOT
-  "X_POSTING", // posts on X (@LaunchOnPanda): a draft goes to the admins in private and is only published when one presses "Publicar en X" — requires TELEGRAM_CHANGELOG
+  "X_POSTING",
+  "BURN", // the "Burn" share of a coin's creator fees: PANDA's burn wallet buys the coin and burns it (src/lib/burn) — needs NEXT_PUBLIC_PANDA_BURN_WALLET and its secret key // posts on X (@LaunchOnPanda): a draft goes to the admins in private and is only published when one presses "Publicar en X" — requires TELEGRAM_CHANGELOG
   "AI_ASSISTANT", // GPT-6 Luna assistant (create-with-AI, analyze a coin, Draw Your Trade help, search) — needs OPENAI_API_KEY
 ] as const;
 

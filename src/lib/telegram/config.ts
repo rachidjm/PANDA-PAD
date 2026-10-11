@@ -16,7 +16,7 @@ export type TelegramConfig = {
   adminIds: Set<number>;
   channelId: string | null;
   groupId: string | null;
-  topics: { newCoins: number | null; buys: number | null; payouts: number | null; suggestions: number | null };
+  topics: { newCoins: number | null; buys: number | null; payouts: number | null; suggestions: number | null; burns: number | null };
   minBuyUsd: number;
   /** Public invite links (not secrets): where the "Join the Community" / "Updates channel" / "Discuss" buttons point. Unset → no button. */
   groupUrl: string | null;
@@ -53,7 +53,7 @@ export function telegramConfig(env: Env = process.env): TelegramConfig {
     ),
     channelId: chatId(env.TELEGRAM_CHANNEL_ID),
     groupId: chatId(env.TELEGRAM_GROUP_ID),
-    topics: { newCoins: topic(env.TELEGRAM_TOPIC_NEW_COINS), buys: topic(env.TELEGRAM_TOPIC_BUYS), payouts: topic(env.TELEGRAM_TOPIC_PAYOUTS), suggestions: topic(env.TELEGRAM_TOPIC_SUGGESTIONS) },
+    topics: { newCoins: topic(env.TELEGRAM_TOPIC_NEW_COINS), buys: topic(env.TELEGRAM_TOPIC_BUYS), payouts: topic(env.TELEGRAM_TOPIC_PAYOUTS), suggestions: topic(env.TELEGRAM_TOPIC_SUGGESTIONS), burns: topic(env.TELEGRAM_TOPIC_BURNS) },
     minBuyUsd: Number.isFinite(min) && min > 0 ? min : 20,
     groupUrl: telegramUrl(env.TELEGRAM_GROUP_URL),
     channelUrl: telegramUrl(env.TELEGRAM_CHANNEL_URL),
