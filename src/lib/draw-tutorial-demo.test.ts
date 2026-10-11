@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { cardPlacement, demoView, overlaps, TUTORIAL_STEPS, TUTORIAL_TARGETS, type Box } from "./draw-tutorial";
+import { cardPlacement, demoView, phoneCardTop, overlaps, TUTORIAL_STEPS, TUTORIAL_TARGETS, type Box } from "./draw-tutorial";
 
 /**
  * The guided tutorial is a DEMO: what it shows comes from the step alone, it never touches the real panel, the wallet or
@@ -85,4 +85,27 @@ test("motion is optional: with 'reduce motion' there is no hand and no loop, and
   assert.match(TUTORIAL, /const hand = !still && step < 3 && point/);
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s+\.tutorial-pulse \{ animation: none;/);
+});
+
+test("on a phone the tutorial card is always whole inside the free screen and off the lit zone", () => {
+  // An iPhone inside Telegram, full screen: 100 px of Telegram's buttons on top, the bottom bar and home bar from 730 down.
+  const area = { top: 100, bottom: 730 };
+  const card = 150;
+  const inside = (top: number) => top >= area.top && top + card <= area.bottom;
+  // The zone near the top (where the page scrolls it to): the card sits just above the bottom bar.
+  const low = phoneCardTop({ top: 114, left: 8, width: 359, height: 300 }, card, area);
+  assert.equal(low, 730 - 150 - 8);
+  assert.ok(inside(low));
+  // The zone at the bottom (the sign button at the end of the page): the card goes to the top, under Telegram's buttons.
+  const zone = { top: 640, left: 8, width: 359, height: 60 };
+  const high = phoneCardTop(zone, card, area);
+  assert.equal(high, 108);
+  assert.ok(inside(high) && high + card <= zone.top);
+  // No zone found yet: the bottom. A zone as tall as the screen: still whole inside the area.
+  assert.equal(phoneCardTop(null, card, area), 572);
+  assert.ok(inside(phoneCardTop({ top: 90, left: 0, width: 375, height: 700 }, card, area)));
+  // A zone in the middle that both ends would touch: the end that covers less of it.
+  assert.equal(phoneCardTop({ top: 240, left: 0, width: 375, height: 380 }, card, area), 108);
+  // A screen too short for the card: it starts at the top of the free area rather than above it.
+  assert.equal(phoneCardTop(null, 400, { top: 100, bottom: 300 }), 108);
 });

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
-import { cardPlacement, demoView, moveStep, TUTORIAL_IMAGES, TUTORIAL_STEPS, TUTORIAL_TARGETS, TUTORIAL_TITLES, type Box, type DemoView } from "@/lib/draw-tutorial";
+import { cardPlacement, demoView, phoneCardTop, moveStep, TUTORIAL_IMAGES, TUTORIAL_STEPS, TUTORIAL_TARGETS, TUTORIAL_TITLES, type Box, type DemoView } from "@/lib/draw-tutorial";
 import { PCT_ROW } from "@/lib/strategy/allocation";
 
 /**
@@ -39,6 +39,34 @@ const boxOf = (el: Element | null): Box | null => {
   return r.width > 0 && r.height > 0 ? { top: r.top, left: r.left, width: r.width, height: r.height } : null;
 };
 const same = (a: Box | null, b: Box | null) => (!a || !b ? a === b : Math.abs(a.top - b.top) < 0.5 && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5);
+
+/**
+ * The part of a phone's screen that is really visible and free: under the site's fixed header (or, in the Telegram Mini
+ * App, under Telegram's own buttons), above the bottom bar, and inside the phone's safe areas. Read from the page itself
+ * — the visual viewport, the bars' own boxes and the --safe-* variables (globals.css) — so it is right in a browser
+ * whose toolbar comes and goes and inside Telegram alike.
+ */
+function screenArea(): { top: number; bottom: number } {
+  const vv = window.visualViewport;
+  const viewTop = vv?.offsetTop ?? 0;
+  const viewBottom = viewTop + (vv?.height ?? window.innerHeight);
+  let probe = document.getElementById("safe-area-probe");
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.id = "safe-area-probe";
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = "position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;padding-top:var(--safe-top,0px);padding-bottom:var(--safe-bottom,0px)";
+    document.body.appendChild(probe);
+  }
+  const cs = getComputedStyle(probe);
+  let top = viewTop + (parseFloat(cs.paddingTop) || 0);
+  let bottom = viewBottom - (parseFloat(cs.paddingBottom) || 0);
+  const header = document.querySelector("header");
+  if (header && /sticky|fixed/.test(getComputedStyle(header).position)) top = Math.max(top, header.getBoundingClientRect().bottom);
+  const bar = document.querySelector("[data-bottom-bar]")?.getBoundingClientRect();
+  if (bar && bar.height > 0) bottom = Math.min(bottom, bar.top);
+  return { top, bottom };
+}
 
 /** Where the hand taps in each step: the "Venta" tab, the "25%" button, a point on the chart a little above the price. */
 function hitPoint(step: number, target: Box | null): { x: number; y: number } | null {
@@ -136,6 +164,7 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [cardHeight, setCardHeight] = useState(96);
+  const [area, setArea] = useState<{ top: number; bottom: number } | null>(null);
 
   const tapped = still || beat === 2;
   const view = demoView(step, tapped);
@@ -179,6 +208,8 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
     const measure = () => {
       const next = boxOf(document.querySelector(`[data-tutorial="${TUTORIAL_TARGETS[step]}"]`));
       setTarget((prev) => (same(prev, next) ? prev : next));
+      const a = screenArea();
+      setArea((prev) => (prev && Math.abs(prev.top - a.top) < 0.5 && Math.abs(prev.bottom - a.bottom) < 0.5 ? prev : a));
     };
     const loop = () => {
       measure();
@@ -189,7 +220,9 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
     const slow = setInterval(measure, 250);
     window.addEventListener("scroll", measure, true);
     window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
     return () => {
+      window.visualViewport?.removeEventListener("resize", measure);
       cancelAnimationFrame(frame);
       clearTimeout(first);
       clearInterval(slow);
@@ -198,21 +231,23 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
     };
   }, [step, slot]);
 
-  // The page scrolls by itself so the zone is in view: centred on a desktop, near the top on a phone (the card is at the bottom).
+  // The page scrolls by itself so the zone is in view: centred on a desktop, near the top of the free screen on a phone (the card is at the bottom).
   useEffect(() => {
     const id = setTimeout(() => {
       const el = document.querySelector(`[data-tutorial="${TUTORIAL_TARGETS[step]}"]`);
       if (!el) return;
       const r = el.getBoundingClientRect();
       const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 64;
-      const wanted = phone ? header + 16 : Math.max(header + 16, (window.innerHeight - r.height) / 2);
+      const wanted = phone ? screenArea().top + 14 : Math.max(header + 16, (window.innerHeight - r.height) / 2);
       window.scrollBy({ top: r.top - wanted, behavior: still ? "auto" : "smooth" });
     }, 60);
     return () => clearTimeout(id);
   }, [step, phone, still, slot]);
 
+  // The card's own height (on a phone, with its frame): what decides where it fits.
   useLayoutEffect(() => {
-    if (cardRef.current) setCardHeight(cardRef.current.offsetHeight);
+    const el = phone ? cardRef.current?.parentElement : cardRef.current;
+    if (el) setCardHeight(el.offsetHeight);
   }, [step, phone]);
 
   const go = (move: "next" | "back") => {
@@ -224,7 +259,7 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
   const lit = target && { top: target.top - PAD, left: target.left - PAD, width: target.width + PAD * 2, height: target.height + PAD * 2 };
   const point = hitPoint(step, target);
   const hand = !still && step < 3 && point ? (beat === 0 ? { x: point.x + 46, y: point.y + 58 } : point) : null;
-  const small = "min-h-9 whitespace-nowrap rounded-full px-3 text-xs font-semibold transition sm:min-h-8";
+  const small = "min-h-11 whitespace-nowrap rounded-full px-4 text-xs font-semibold transition sm:min-h-8 sm:px-3";
   const last = step === total - 1;
 
   // A low, wide card: the small panda, a bold title with ONE line under it, and the buttons — in the same row on a
@@ -253,7 +288,7 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
         </div>
         <div className="flex shrink-0 items-center justify-between gap-1.5 sm:justify-end sm:pr-11">
           {/* On the last step "Entendido" is the way out, so "Saltar" would only crowd the row. */}
-          <button type="button" onClick={onClose} className={`min-h-9 px-1.5 text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper sm:min-h-8 ${last ? "invisible sm:hidden" : ""}`} tabIndex={last ? -1 : 0}>
+          <button type="button" onClick={onClose} className={`min-h-11 px-1.5 text-xs font-semibold text-panda-grey underline underline-offset-2 hover:text-paper sm:min-h-8 ${last ? "invisible sm:hidden" : ""}`} tabIndex={last ? -1 : 0}>
             {t("tutorial.skip")}
           </button>
           <div className="flex items-center gap-1.5">
@@ -317,7 +352,13 @@ export default function DrawTutorial({ onClose, onTry }: { onClose: () => void; 
           )}
           {hand && <Hand at={hand} pressed={beat === 2} />}
           {phone ? (
-            <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-paper/15 bg-ink-raised px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3.5 shadow-2xl">{card}</div>
+            // A whole card, never a sheet glued to the edge: above the bottom bar and the phone's home bar, or at the top when the lit zone is down there.
+            <div
+              className={`fixed rounded-2xl border border-paper/15 bg-ink-raised px-4 pb-3 pt-3.5 shadow-2xl ${still ? "" : "transition-[top] duration-300 ease-out"}`}
+              style={{ left: "calc(var(--safe-left, 0px) + 8px)", right: "calc(var(--safe-right, 0px) + 8px)", top: phoneCardTop(lit, cardHeight, area ?? { top: 0, bottom: window.innerHeight }) }}
+            >
+              {card}
+            </div>
           ) : (
             <div
               className={`fixed rounded-2xl border border-paper/15 bg-ink-raised p-3 shadow-2xl ${still ? "" : "transition-[top,left] duration-300 ease-out"}`}

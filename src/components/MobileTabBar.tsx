@@ -39,7 +39,7 @@ export default function MobileTabBar() {
   const cols = items.length + (aiAssistant ? 1 : 0);
 
   return (
-    <nav aria-label={t("nav.mobile")} className="fixed inset-x-0 bottom-0 z-40 border-t border-paper/10 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
+    <nav data-bottom-bar aria-label={t("nav.mobile")} className="fixed inset-x-0 bottom-0 z-40 border-t border-paper/10 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
       <ul className={`mx-auto grid max-w-md ${cols === 6 ? "grid-cols-6" : cols === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map((i) => {
           const active = i.href === "/" ? pathname === "/" : pathname === i.href || pathname.startsWith(i.href + "/");

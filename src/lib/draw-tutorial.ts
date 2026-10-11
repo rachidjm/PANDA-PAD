@@ -66,4 +66,23 @@ export function cardPlacement(target: Box, card: { width: number; height: number
   return { top: win.height - card.height - GAP, left: win.width - card.width - GAP };
 }
 
+/**
+ * Where the card goes on a phone. `area` is the part of the screen that can really be seen and touched: below the header
+ * (or Telegram's own buttons), above the bottom bar and the phone's home bar. The card sits at the bottom of it; when
+ * the lit zone is down there, it goes to the top instead. It is always whole inside the area, and when neither end is
+ * free of the zone (a zone taller than the room left) it takes the end that covers less of it.
+ */
+export function phoneCardTop(target: Box | null, cardHeight: number, area: { top: number; bottom: number }): number {
+  const EDGE = 8;
+  const high = area.top + EDGE;
+  const low = Math.max(high, area.bottom - cardHeight - EDGE);
+  if (!target) return low;
+  const zoneBottom = target.top + target.height;
+  if (zoneBottom + EDGE <= low) return low;
+  if (high + cardHeight + EDGE <= target.top) return high;
+  const coveredLow = Math.min(zoneBottom, area.bottom) - Math.max(target.top, low);
+  const coveredHigh = Math.min(zoneBottom, high + cardHeight) - Math.max(target.top, high);
+  return coveredHigh < coveredLow ? high : low;
+}
+
 export const overlaps = (a: Box, b: Box) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
