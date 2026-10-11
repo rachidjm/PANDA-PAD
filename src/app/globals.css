@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 :root {
+  /* The edges nothing may sit under: the phone's own (notch, home bar) and, inside Telegram's Mini App, Telegram's
+     (its "Close" / "..." buttons when the app is full screen). Telegram's script sets the --tg-* ones and keeps them
+     current; outside Telegram they are simply the phone's. The device part is the larger of the two reports, never
+     their sum: both describe the same notch. */
+  --safe-top: calc(max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px)) + var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)) + var(--tg-content-safe-area-inset-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--tg-safe-area-inset-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--tg-safe-area-inset-right, 0px));
   --ink: #0e0d0c;
   --ink-raised: #16140f;
   --paper: #f7f4ec;

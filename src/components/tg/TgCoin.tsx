@@ -143,7 +143,7 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
     }
   }
 
-  const pill = (on: boolean) => `min-h-9 rounded-full px-3 text-xs font-semibold ${on ? "bg-paper text-ink" : "text-panda-grey"}`;
+  const pill = (on: boolean) => `min-h-11 rounded-full px-3 text-xs font-semibold ${on ? "bg-paper text-ink" : "text-panda-grey"}`;
   return (
     <section className="mt-4 rounded-2xl border border-paper/10 bg-ink-raised p-4">
       <button type="button" onClick={toggleWatch} disabled={busy || watched === null} className={`w-full rounded-xl py-3 text-sm font-bold disabled:opacity-50 ${watched ? "border border-paper/15 text-paper/80" : "bg-paper text-ink"}`}>
@@ -193,7 +193,7 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
           {alerts.map((a) => (
             <li key={a.id} className="flex items-center justify-between gap-2 text-xs">
               <span className="min-w-0 truncate text-paper/80">{alertText(a, t)}</span>
-              <button type="button" onClick={() => removeAlert(a.id)} disabled={busy} className="min-h-8 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
+              <button type="button" onClick={() => removeAlert(a.id)} disabled={busy} className="min-h-11 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
                 {t("tg.alert.delete")}
               </button>
             </li>
@@ -283,7 +283,7 @@ function Trade({ coin }: { coin: Coin }) {
             ) : (
               <div className="mt-3 flex items-center justify-between gap-2 text-xs">
                 <span className="min-w-0 truncate text-paper/80">{t("tg.wallet.connected", { address: truncateAddress(address) })}</span>
-                <button type="button" onClick={() => disconnect().catch(() => {})} className="min-h-8 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
+                <button type="button" onClick={() => disconnect().catch(() => {})} className="min-h-11 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
                   {t("tg.wallet.disconnect")}
                 </button>
               </div>

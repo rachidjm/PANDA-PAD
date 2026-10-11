@@ -22,6 +22,8 @@ type TgWebApp = {
   platform?: string;
   colorScheme?: "light" | "dark";
   themeParams?: Record<string, string | undefined>;
+  safeAreaInset?: Partial<Record<Edge, number>>;
+  contentSafeAreaInset?: Partial<Record<Edge, number>>;
   ready: () => void;
   expand: () => void;
   openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
@@ -31,6 +33,24 @@ type TgWebApp = {
   setBackgroundColor?: (color: string) => void;
   BackButton?: { show: () => void; hide: () => void; onClick: (cb: () => void) => void; offClick: (cb: () => void) => void };
 };
+
+type Edge = "top" | "bottom" | "left" | "right";
+const EDGES: Edge[] = ["top", "bottom", "left", "right"];
+const SAFE_EVENTS = ["safeAreaChanged", "contentSafeAreaChanged", "fullscreenChanged", "viewportChanged"];
+
+/**
+ * Telegram's safe areas onto the page (globals.css adds them to the phone's own as --safe-top / --safe-bottom): the
+ * phone's notch and home bar, and — when the app is full screen — the strip where Telegram draws its own "Close" and
+ * "..." buttons. Telegram's script publishes the same variables; they are written here too so the page never depends on
+ * which version of that script arrived, and again on every change (rotation, full screen on or off).
+ */
+export function applySafeAreas(tg: Pick<TgWebApp, "safeAreaInset" | "contentSafeAreaInset">, root: { style: { setProperty: (name: string, value: string) => void } }): void {
+  const px = (v: unknown) => `${typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(Math.round(v), 200) : 0}px`;
+  for (const e of EDGES) {
+    root.style.setProperty(`--tg-safe-area-inset-${e}`, px(tg.safeAreaInset?.[e]));
+    root.style.setProperty(`--tg-content-safe-area-inset-${e}`, px(tg.contentSafeAreaInset?.[e]));
+  }
+}
 
 const TG_SCRIPT = "https://telegram.org/js/telegram-web-app.js";
 const webApp = (): TgWebApp | null => (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp ?? null;
@@ -279,6 +299,9 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
           undoTheme = applyTheme(tg);
         };
         tg.onEvent?.("themeChanged", onTheme);
+        const onSafe = () => applySafeAreas(tg, document.documentElement);
+        onSafe();
+        for (const e of SAFE_EVENTS) tg.onEvent?.(e, onSafe);
       }
       signIn().then((ok) => {
         // Back from the wallet through the bot's link: straight to the coin the user was on.
@@ -313,21 +336,22 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
 
   return (
     <Ctx.Provider value={value}>
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-xl flex-col bg-ink text-paper">
-        <header className="flex items-center justify-between gap-3 px-4 pb-2 pt-3">
-          <Link href="/tg" className="flex items-center gap-2" aria-label="PANDA">
+      {/* Nothing under Telegram's own buttons or the phone's edges: the frame starts below --safe-top and ends above --safe-bottom. */}
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-xl flex-col bg-ink pl-[var(--safe-left)] pr-[var(--safe-right)] pt-[var(--safe-top)] text-paper">
+        <header className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
+          <Link href="/tg" className="flex min-h-11 items-center gap-2" aria-label="PANDA">
             {/* The logo is drawn for a dark page: it keeps its own dark disc when Telegram's theme is light. */}
             <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-black">
               <Logo size={26} />
             </span>
             <span className="font-display text-base font-bold tracking-tight">PANDA</span>
           </Link>
-          <button type="button" onClick={openWeb} className="min-h-9 rounded-full border border-paper/15 px-3 text-xs font-semibold text-paper/80">
+          <button type="button" onClick={openWeb} className="min-h-11 rounded-full border border-paper/15 px-4 text-xs font-semibold text-paper/80">
             {t("tg.wallet.browser")}
           </button>
         </header>
 
-        <div className="flex-1 px-4 pb-24">
+        <div className="flex-1 px-4 pb-[calc(var(--safe-bottom)+6rem)]">
           {status === "ready" ? (
             children
           ) : status === "loading" ? (
@@ -362,7 +386,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         </div>
 
         {status === "ready" && (
-          <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-paper/10 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur" aria-label="PANDA">
+          <nav data-bottom-bar className="fixed inset-x-0 bottom-0 z-30 border-t border-paper/10 bg-ink/95 pb-[calc(var(--safe-bottom)+0.25rem)] pl-[var(--safe-left)] pr-[var(--safe-right)] backdrop-blur" aria-label="PANDA">
             <ul className="mx-auto flex max-w-xl">
               {NAV.map((n) => {
                 const active = n.href === "/tg" ? pathname === "/tg" || pathname.startsWith("/tg/coin/") : pathname.startsWith(n.href);
@@ -382,8 +406,8 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         )}
 
         {sheet && (
-          <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-3" role="dialog" aria-modal="true" aria-labelledby="tg-wallet-sheet">
-            <div className="w-full max-w-md rounded-3xl border border-paper/10 bg-ink-raised p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl">
+          <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-3 pt-[calc(var(--safe-top)+0.75rem)]" role="dialog" aria-modal="true" aria-labelledby="tg-wallet-sheet">
+            <div className="w-full max-w-md rounded-3xl border border-paper/10 bg-ink-raised p-5 pb-[calc(var(--safe-bottom)+1.25rem)] shadow-2xl">
               <h2 id="tg-wallet-sheet" className="font-display text-lg font-bold">
                 {t(sheet.phase === "timeout" ? "tg.sheet.timeoutTitle" : sheet.step.kind === "connect" ? "tg.sheet.connectTitle" : "tg.sheet.signTitle", { wallet: walletName })}
               </h2>
@@ -401,7 +425,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
                     {t("tg.wallet.browser")}
                   </button>
                 )}
-                <button type="button" onClick={sheet.cancel} className="w-full rounded-xl py-2.5 text-sm font-semibold text-panda-grey">
+                <button type="button" onClick={sheet.cancel} className="min-h-11 w-full rounded-xl py-2.5 text-sm font-semibold text-panda-grey">
                   {t(sheet.phase === "timeout" ? "updates.close" : "tg.sheet.cancel")}
                 </button>
               </div>

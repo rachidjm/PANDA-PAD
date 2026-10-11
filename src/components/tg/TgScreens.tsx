@@ -100,7 +100,7 @@ export function TgExplore() {
       {!query && (
         <div className="mt-3 inline-flex gap-0.5 rounded-full bg-ink-raised p-0.5" role="tablist">
           {tabs.map((x) => (
-            <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} onClick={() => setTab(x.id)} className={`min-h-9 rounded-full px-4 text-xs font-semibold ${tab === x.id ? "bg-paper text-ink" : "text-panda-grey"}`}>
+            <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} onClick={() => setTab(x.id)} className={`min-h-11 rounded-full px-4 text-xs font-semibold ${tab === x.id ? "bg-paper text-ink" : "text-panda-grey"}`}>
               {t(x.label)}
             </button>
           ))}
@@ -169,7 +169,7 @@ export function TgWatchlist() {
               key={c.mint}
               c={c}
               right={
-                <button type="button" onClick={() => remove(c.mint)} disabled={busy === c.mint} aria-label={t("tg.watch.removeShort")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-panda-grey hover:bg-paper/10 disabled:opacity-40">
+                <button type="button" onClick={() => remove(c.mint)} disabled={busy === c.mint} aria-label={t("tg.watch.removeShort")} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-panda-grey hover:bg-paper/10 disabled:opacity-40">
                   <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
                     <path d="M2 2l8 8M10 2l-8 8" />
                   </svg>
@@ -234,7 +234,7 @@ export function TgAlerts() {
                 <span className="block truncate text-sm font-bold">${a.ticker}</span>
                 <span className="block truncate text-xs text-panda-grey">{alertText(a, t)}</span>
               </Link>
-              <button type="button" onClick={() => remove(a.id)} disabled={busy === a.id} className="min-h-9 shrink-0 rounded-full border border-paper/15 px-3 text-xs font-semibold text-paper/80 disabled:opacity-40">
+              <button type="button" onClick={() => remove(a.id)} disabled={busy === a.id} className="min-h-11 shrink-0 rounded-full border border-paper/15 px-3 text-xs font-semibold text-paper/80 disabled:opacity-40">
                 {t("tg.alert.delete")}
               </button>
             </li>
