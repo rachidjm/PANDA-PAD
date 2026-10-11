@@ -16,7 +16,8 @@ import { PROVIDERS, type DeepLinkProvider } from "@/lib/wallet/deeplink/protocol
 import { FIRST_LISTS, isListPath, refresh } from "./cache";
 import { ScreenSkeleton } from "./TgSkeleton";
 import type { WalletKit } from "./TgWalletRoot";
-import { appSession, endWalletTrip, installSessionFetch, inWalletTrip, startWalletTrip, takeTicket, type AppSession } from "./session";
+import { takePendingLaunch } from "./launch";
+import { appSession, endWalletTrip, installSessionFetch, inWalletTrip, releaseHold, startWalletTrip, takeTicket, type AppSession } from "./session";
 
 /**
  * The Telegram Mini App's frame (docs/TELEGRAM.md §12): it loads Telegram's own script, signs in with Telegram's signed
@@ -177,6 +178,7 @@ function loadScript(): Promise<void> {
 
 const NAV: { href: string; label: DictKey; icon: string }[] = [
   { href: "/tg", label: "tg.nav.explore", icon: "M11 4a7 7 0 1 0 4.2 12.6l3.6 3.6 1.4-1.4-3.6-3.6A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z" },
+  { href: "/tg/create", label: "tg.nav.create", icon: "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" },
   { href: "/tg/watchlist", label: "tg.nav.watchlist", icon: "m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8L12 3Z" },
   { href: "/tg/alerts", label: "tg.nav.alerts", icon: "M12 3a6 6 0 0 0-6 6v3.6L4.3 16a1 1 0 0 0 .9 1.5h13.6a1 1 0 0 0 .9-1.5L18 12.6V9a6 6 0 0 0-6-6Zm-2 16a2 2 0 0 0 4 0h-4Z" },
 ];
@@ -187,7 +189,7 @@ const FLOW_TEXT: Record<FlowCode, DictKey> = { start: "tg.err.start", session: "
 type Sheet = { step: WalletStep; phase: "ask" | "waiting" | "timeout"; open: () => void; cancel: () => void };
 
 /** The address of the page on the website that matches this screen of the Mini App (a coin opens with Draw Your Trade). */
-export const webAddressOf = (pathname: string) => (pathname.startsWith("/tg/coin/") ? `${pathname.slice(3)}?draw=1` : "/");
+export const webAddressOf = (pathname: string) => (pathname.startsWith("/tg/coin/") ? `${pathname.slice(3)}?draw=1` : pathname === "/tg/create" ? "/create" : "/");
 
 export default function TgShell({ children, botUsername }: { children: React.ReactNode; botUsername: string | null }) {
   const { t, setLang } = useLanguage();
@@ -512,6 +514,11 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         // Back from the wallet through the bot's link: straight to the coin the user was on.
         const coin = ok ? coinOfStartParam(tg?.initDataUnsafe?.start_param) : null;
         if (coin && pathRef.current === "/tg") router.replace(`/tg/coin/${coin}`);
+        // A coin that was being created when Telegram restarted the app: if it was launched, it is recorded now and opened.
+        if (ok && !coin)
+          takePendingLaunch(api)
+            .then((mint) => mint && !cancelled && router.replace(`/tg/coin/${mint}`))
+            .catch(() => undefined);
       });
     });
     return () => {
@@ -532,6 +539,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") left();
+      else releaseHold(); // back from the phone's gallery or camera
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", left);

@@ -29,7 +29,22 @@ type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fee
 const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
-export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: number }) {
+/**
+ * `coinHref`, `onSigning` and `onLaunched` are for the Telegram Mini App, which shows this very form
+ * (src/components/tg/TgCreate.tsx): where "View coin page" goes, and when the coin's address is about to be signed for
+ * and when the launch has finished. The website passes none of them and behaves exactly as before.
+ */
+export default function CreateClient({
+  minFirstBuySol,
+  coinHref = (mint) => `/coin/${mint}`,
+  onSigning,
+  onLaunched,
+}: {
+  minFirstBuySol: number;
+  coinHref?: (mint: string) => string;
+  onSigning?: (mint: string) => void;
+  onLaunched?: (mint: string) => void;
+}) {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { t } = useLanguage();
@@ -190,6 +205,7 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
       const transaction = buildData.combined ? base64ToVersionedTransaction(buildData.transaction) : base64ToTransaction(buildData.transaction);
 
       setStage("signing");
+      onSigning?.(mint.publicKey.toBase58());
       const signature = await sendTransaction(transaction, connection, {
         signers: [mint],
         maxRetries: 3,
@@ -244,6 +260,7 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
       }
 
       setStage("done");
+      onLaunched?.(mint.publicKey.toBase58());
     } catch (err) {
       setStage("error");
       setError(explainError(err, t));
@@ -360,7 +377,7 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
             {t("cr.createAnother")}
           </button>
           <Link
-            href={`/coin/${result.mint}`}
+            href={coinHref(result.mint)}
             className="rounded-full bg-paper px-5 py-2.5 text-sm font-semibold text-ink hover:brightness-90 transition"
           >
             {t("cr.viewCoin")}
@@ -526,7 +543,7 @@ export default function CreateClient({ minFirstBuySol }: { minFirstBuySol: numbe
 
           {/* "Lanzar" stays in reach: pinned to the bottom of the screen (above the phone's tab bar) while the form
               runs past it. */}
-          <div className="sticky bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 -mx-4 border-t border-paper/10 bg-ink/95 px-4 py-3 backdrop-blur sm:bottom-0 sm:-mx-5 sm:px-5 lg:mx-0 lg:rounded-b-2xl lg:px-0">
+          <div className="sticky bottom-[var(--create-bar-bottom,calc(57px+env(safe-area-inset-bottom)))] z-30 -mx-4 border-t border-paper/10 bg-ink/95 px-4 py-3 backdrop-blur sm:bottom-[var(--create-bar-bottom,0px)] sm:-mx-5 sm:px-5 lg:mx-0 lg:rounded-b-2xl lg:px-0">
             <button
               onClick={() => setConfirming(true)}
               disabled={!canLaunch}

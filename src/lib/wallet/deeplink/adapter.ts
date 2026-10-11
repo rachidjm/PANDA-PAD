@@ -127,12 +127,17 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
 
   /** True when this wallet is connected, or was connected earlier in this browser (then it is again, with nothing to open). Synchronous: safe inside a tap. */
   restoreSaved(): boolean {
-    return !!this._publicKey || this.restore();
+    if (!this._publicKey) return this.restore();
+    // Said again on purpose: whoever started listening after the connection was made (the wallet library, once this
+    // wallet is the selected one) must still learn that it is connected.
+    this.emit("connect", this._publicKey);
+    return true;
   }
 
   /** Silent: a saved connection, or one whose answer arrived while the app was closed (it came back through the bot's link). */
   async autoConnect(): Promise<void> {
-    if (this._publicKey || this._connecting) return;
+    if (this._publicKey) return void this.emit("connect", this._publicKey); // already connected: say so to whoever is listening now
+    if (this._connecting) return;
     if (this.restore()) return;
     const pending = store.get<PendingConnect>(PENDING_KEY(this.provider));
     if (!pending) return;

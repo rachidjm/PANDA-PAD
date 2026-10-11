@@ -450,6 +450,48 @@ No hace falta `/setdomain` (eso es para el inicio de sesión web, que no se usa)
 
 ---
 
+### 12.x Pantalla, sesión, velocidad y crear (octubre 2026)
+
+**Zonas seguras.** La mini app no pone nada debajo de los botones de Telegram ni de los bordes del móvil. `globals.css`
+define `--safe-top`, `--safe-bottom`, `--safe-left` y `--safe-right`: la zona del móvil (`env(safe-area-inset-*)` o la
+que da Telegram, la mayor de las dos, nunca sumadas porque describen la misma muesca) más la franja de los botones de
+Telegram cuando la app está a pantalla completa (`--tg-content-safe-area-inset-*`). `TgShell` las escribe con
+`applySafeAreas` y escucha `safeAreaChanged`, `contentSafeAreaChanged`, `fullscreenChanged` y `viewportChanged`. Si la
+app se abre a pantalla completa se deja el hueco arriba (no se sale de ese modo: lo decide quien configura el bot).
+
+**Inicio de sesión al entrar.** Dos sesiones distintas:
+
+- La de Telegram (quién es esa cuenta, `initData` firmado): basta para mirar, watchlist y alertas.
+- La de PANDA (`src/lib/telegram/app-login.ts`, `src/components/tg/session.ts`): la de la wallet vinculada con /link.
+  La primera pantalla la pide ("Conectar e iniciar sesión"): la wallet firma el mensaje de inicio de sesión de PANDA
+  (el mismo de la web). Vive SOLO en la memoria de la app abierta, viaja en la cabecera `x-panda-app-session` junto al
+  `initData` (`x-tg-init-data`), nunca en una cookie, y en cada petición el servidor comprueba: su firma y caducidad
+  (4 h), el `initData` de Telegram para esa misma cuenta, que la fila de la sesión sigue viva y que esa cuenta sigue
+  teniendo esa wallet vinculada. Al salir de la app (o de Telegram) se borra y se revoca en el servidor
+  (`DELETE /api/tg/login`). Ir a la app de la wallet a firmar no es salir.
+- Viajes a la wallet: UNO si esa wallet ya se conectó antes en ese móvil (la conexión —una clave de cifrado y un
+  identificador que no pueden firmar nada— sí se guarda); DOS la primera vez (conectar y firmar: el protocolo de
+  enlaces de Phantom y Solflare no permite firmar sin conectar antes). El segundo se intenta abrir solo; si Telegram
+  no lo permite sin un toque, la hoja ofrece su botón.
+- Si Telegram reinicia la app al volver de la wallet, un tique de un solo uso (`panda.tg.ticket`, existe solo durante
+  el viaje, 5 minutos como mucho) devuelve la MISMA sesión (`PATCH /api/tg/login`). Una sesión cerrada está revocada:
+  ningún tique la recupera.
+- "Solo mirar" entra sin sesión; operar o crear vuelve a ofrecer iniciarla. Las órdenes PANDA ya firmadas las ejecuta
+  el servidor como siempre, con la app cerrada.
+- Nunca vale para /admin (esa puerta solo mira la cookie).
+
+**Velocidad.** `npx tsx scripts/tg-perf.ts` mide con un Chrome sin ventana como un móvil lento (Slow 4G, procesador 4
+veces más lento) contra `next start`. La primera pantalla no trae las librerías de la wallet (`TgWalletRoot` llega
+después, en segundo plano); el marco de la web (`SiteFrame`) no se descarga en /tg (`AppFrame`); el inicio de sesión de
+Telegram sale desde la primera línea de la página (`EARLY_BOOT` en `src/app/tg/layout.tsx`); las listas se guardan en
+memoria (`cache.ts`: una descarga por dirección, se enseña lo que ya hay y se actualiza por detrás); tocar una pantalla
+la enseña al instante (`loading.tsx` + `TgInstant`); el gráfico y el panel de operar se descargan al abrir una moneda.
+
+**Crear.** `/tg/create` enseña el formulario de la web (`src/app/create/CreateClient.tsx`, el mismo código): mismas
+reglas, mismo reparto de comisiones, mismas firmas, y si crear está en pausa en la web también lo está aquí. Si
+Telegram reinicia la app durante el lanzamiento, al volver a abrirla se comprueba si la moneda existe
+(`GET /api/tg/launch`), se completan sus registros por las rutas de la web y se abre su página.
+
 ## 13. Capturas en las novedades (/updates)
 
 Cada entrada de la página Novedades puede llevar una captura de la pantalla donde está el cambio. Va dentro de la tarjeta, debajo del texto, y al tocarla se ve en grande.

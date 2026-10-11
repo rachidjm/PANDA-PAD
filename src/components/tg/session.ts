@@ -23,6 +23,7 @@ const TRIP_MAX_MS = 150_000;
 let current: AppSession | null = null;
 let initData = "";
 let tripUntil = 0;
+let holdUntil = 0;
 let expiry: ReturnType<typeof setTimeout> | undefined;
 const listeners = new Set<() => void>();
 const tell = () => listeners.forEach((l) => l());
@@ -69,7 +70,18 @@ export function endWalletTrip(): void {
   } catch {}
 }
 
-export const inWalletTrip = (now: number = Date.now()) => now < tripUntil;
+/**
+ * The phone's own gallery or camera is about to cover the app (choosing a coin's picture): like a wallet step, that is
+ * not leaving. No ticket is written — the app is not going anywhere. Released the moment the app is on screen again.
+ */
+export function holdSession(ms: number = 3 * 60_000, now: number = Date.now()): void {
+  holdUntil = now + ms;
+}
+export function releaseHold(): void {
+  holdUntil = 0;
+}
+
+export const inWalletTrip = (now: number = Date.now()) => now < tripUntil || now < holdUntil;
 
 /** The ticket left by a wallet step, read ONCE (it is removed here) and only while it is young. */
 export function takeTicket(now: number = Date.now()): { jti: string; resume: string } | null {
