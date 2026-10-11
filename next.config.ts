@@ -7,13 +7,23 @@ import type { NextConfig } from "next";
  * app (clickjacking, MIME sniffing, plugin/base-tag injection, referrer and
  * device-API leakage, HTTPS downgrade).
  */
-const securityHeaders = [
+const baseHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+];
+const securityHeaders = [
+  ...baseHeaders,
+  { key: "X-Frame-Options", value: "DENY" },
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
+];
+// The Telegram Mini App (/tg) is shown inside an iframe by Telegram Web, so those pages — and only those, and only
+// while the Mini App's flag is on at build time — may be framed by Telegram instead of by nobody.
+const MINIAPP_ON = process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";
+const miniAppHeaders = [
+  ...baseHeaders,
+  { key: "Content-Security-Policy", value: "frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'self'; object-src 'none'; form-action 'self'" },
 ];
 
 // The canonical domain — apex, no "www". Kept as a plain literal (not imported from src/lib/config/site.ts) so
@@ -45,7 +55,12 @@ const nextConfig: NextConfig = {
     }));
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    if (!MINIAPP_ON) return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/((?!tg$|tg/).*)", headers: securityHeaders },
+      { source: "/tg", headers: miniAppHeaders },
+      { source: "/tg/:path*", headers: miniAppHeaders },
+    ];
   },
 };
 

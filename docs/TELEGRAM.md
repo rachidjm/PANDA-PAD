@@ -101,7 +101,7 @@ Web (launchonpanda.app): /telegram/link (firma) · /admin → TelegramPanel · /
    - Límite de intenciones por minuto.
    - Nunca se envía nada sin la firma del usuario.
 
-**Fase 3 (Mini App) — solo diseño:**
+**Fase 3 (Mini App) — implementada detrás de `FEATURE_TELEGRAM_MINIAPP` (ver §12). Diseño original:**
 - **Dónde vive:** dentro de la web actual, en rutas `/tg/*`, con los mismos componentes adaptados al viewport de Telegram.
 - **Autenticación:**
   - El cliente envía `Telegram.WebApp.initData` y el servidor la valida.
@@ -373,3 +373,72 @@ Debajo de cada versión va `🇪🇸 En resumen:` con una o dos frases muy fáci
 **Historial.** Se envía como un fichero JSON (`{ "history": [ { "date": "AAAA-MM-DD", "tag", "title": {en, es}, "body": {en, es} } ] }`) con `npm run changelog -- historial.json`. Al bot llega un resumen (día · etiqueta · título) con «✅ Publicar historial»; hasta que un admin lo pulsa no hay nada en la página.
 
 **Reglas** (`src/lib/updates/format.ts`): las mismas del changelog, en los dos idiomas.
+
+---
+
+## 12. Mini App de Telegram (`FEATURE_TELEGRAM_MINIAPP`, apagado por defecto)
+
+La Fase 3 ya está implementada, detrás de su propio flag. Con el flag apagado no existe nada: `/tg` y `/telegram/wallet` responden 404, las rutas `/api/tg/*` responden 404 y el bot no muestra el botón.
+
+### Qué hace
+
+**Bloque 1 — la app**
+- Vive dentro de la web actual, en `/tg`. El bot la abre con el botón **"🐼 Open PANDA app"** de `/start` (solo en chat privado; Telegram no admite ese botón en grupos).
+- Pantallas: **Explorar** (tendencias, nuevas en PANDA y buscador), **página de moneda** (gráfico y datos de la web, RugCheck), **Watchlist** y **Alertas**.
+- Watchlist y alertas son las mismas del bot (`/watch`, `/alert`): mismas tablas, mismos límites (20 monedas, 10 alertas) y mismas reglas (no se crea una alerta que ya se cumple).
+- Toma los colores de Telegram (claro u oscuro) y usa su flecha de volver. No muestra la cabecera, el pie ni las barras de la web.
+
+**Bloque 2 — operar sin custodia**
+- El usuario firma con **su propia app de wallet** (Phantom o Solflare) mediante sus enlaces oficiales ("deep links"). PANDA nunca pide frase semilla ni claves, y no existe ninguna wallet custodiada.
+- Se usa el **mismo panel de compra y venta de la web**: mismas rutas, comisiones, reclutadores, avisos y RugCheck.
+- Solo puede operar la wallet vinculada con `/link` a esa cuenta de Telegram. Sin wallet vinculada, la pantalla lo dice y ofrece vincularla.
+- Siempre hay un botón **"Abrir en el navegador"** por si la firma no funciona en un dispositivo.
+
+### Cómo se sabe quién es el usuario
+
+1. La app envía `Telegram.WebApp.initData` a `POST /api/tg/session`.
+2. El servidor comprueba la firma de Telegram: `HMAC_SHA256(clave = HMAC_SHA256("WebAppData", token del bot), campos ordenados)`. Si un solo campo cambia, la firma no coincide.
+3. Comprueba la caducidad: `auth_date` de hace menos de 1 hora (y nunca del futuro).
+4. Emite una sesión propia de 6 horas, firmada por el servidor, que nombra la cuenta de Telegram. Viaja en la cabecera `Authorization`, no en cookies.
+5. La wallet vinculada se lee de los registros de PANDA (`/link`), nunca de lo que diga el navegador.
+
+### Cómo funciona la firma
+
+1. La app crea una clave de cifrado de un solo uso y abre el enlace oficial de la wallet (`phantom.app/ul/v1/...` o `solflare.com/ul/v1/...`).
+2. El usuario aprueba en su app de wallet. La wallet vuelve a `launchonpanda.app/telegram/wallet`, en el navegador del móvil.
+3. Esa página entrega la respuesta **cifrada** a un buzón temporal (`/api/tg/relay`, 10 minutos, un solo uso, solo lo lee la cuenta de Telegram que lo abrió).
+4. La Mini App recoge la respuesta y la descifra. El servidor no puede leerla.
+5. En una compra o venta, la wallet firma **y envía** la transacción que PANDA construyó.
+
+Código: `src/lib/telegram/miniapp.ts` (firma, sesión, buzón), `src/lib/wallet/deeplink/` (protocolo y adaptador), `src/components/tg/` (pantallas), `src/app/tg/` y `src/app/api/tg/`.
+
+### Qué tienes que hacer para encenderla
+
+**En Vercel**
+1. Añade `FEATURE_TELEGRAM_MINIAPP=true` (necesita `FEATURE_TELEGRAM_BOT=true`, que ya está).
+2. Vuelve a desplegar (Deployments → Redeploy). Hace falta: las cabeceras que permiten a Telegram Web mostrar la app se fijan al construir.
+
+**En @BotFather**
+1. Envía `/mybots` y elige el bot de PANDA.
+2. **Bot Settings → Configure Mini App → Enable Mini App**. Cuando pida la dirección, envía `https://launchonpanda.app/tg`. Esto añade el botón "Open" en el perfil del bot.
+3. **Bot Settings → Menu Button → Configure menu button**. Envía la dirección `https://launchonpanda.app/tg` y después el título, por ejemplo `PANDA`. Es el botón que aparece junto al cuadro de escribir.
+4. Opcional: **Edit Bot → Edit Description** para mencionar la app.
+
+No hace falta `/setdomain` (eso es para el inicio de sesión web, que no se usa).
+
+**Prueba**
+1. En Telegram, envía `/start` al bot en privado. Debe aparecer "🐼 Open PANDA app".
+2. Ábrela. Deben verse las tendencias.
+3. Añade una moneda a la watchlist y crea una alerta. Comprueba con `/watchlist` y `/alerts` en el bot que son las mismas.
+4. Con una wallet ya vinculada (`/link`), entra en una moneda, pulsa "Conectar Phantom", aprueba en Phantom y vuelve a Telegram.
+5. Haz una compra pequeña.
+
+**Para apagarla:** pon `FEATURE_TELEGRAM_MINIAPP=false`, vuelve a desplegar y quita el botón de menú en BotFather.
+
+### Límites conocidos
+
+- **La firma con Phantom y Solflare no se ha probado en un teléfono real.** Está probada contra una wallet simulada que sigue el protocolo documentado. Haz la prueba de arriba antes de anunciarla.
+- **Telegram de escritorio y Telegram Web:** los enlaces de la wallet abren el navegador del ordenador, donde no hay app de wallet. Ahí hay que usar "Abrir en el navegador".
+- **Cada firma cambia de app.** El usuario va a la wallet y vuelve a Telegram a mano o con el botón "Volver a Telegram".
+- **Draw Your Trade, crear monedas y el resto de la web** no están en la Mini App: se abren en el navegador.
+- **Enlaces de reclutador:** la vinculación automática al conectar no se ejecuta dentro de la Mini App (pediría una firma extra por sorpresa). Quien ya tiene reclutador conserva su comisión reducida.

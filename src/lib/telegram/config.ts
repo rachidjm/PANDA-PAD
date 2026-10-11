@@ -24,6 +24,8 @@ export type TelegramConfig = {
   /** The public changelog: drafts are accepted (FEATURE_TELEGRAM_CHANGELOG) only with this secret (CHANGELOG_PUBLISH_SECRET). */
   changelogEnabled: boolean;
   changelogSecret: string | null;
+  /** The Mini App's address (https://…/tg) while FEATURE_TELEGRAM_MINIAPP is on; null = no "Open PANDA app" button anywhere. */
+  miniAppUrl: string | null;
   /** "launchonpanda.app" — what the wallet-linking message names, and where the bot's links point. */
   domain: string;
   siteUrl: string;
@@ -57,6 +59,7 @@ export function telegramConfig(env: Env = process.env): TelegramConfig {
     channelUrl: telegramUrl(env.TELEGRAM_CHANNEL_URL),
     changelogEnabled: isEnabled("TELEGRAM_CHANGELOG", env),
     changelogSecret: /^[A-Za-z0-9_-]{32,256}$/.test(env.CHANGELOG_PUBLISH_SECRET?.trim() ?? "") ? env.CHANGELOG_PUBLISH_SECRET!.trim() : null,
+    miniAppUrl: isEnabled("TELEGRAM_BOT", env) && isEnabled("TELEGRAM_MINIAPP", env) && !!env.TELEGRAM_BOT_TOKEN?.trim() && siteUrl().startsWith("https://") ? `${siteUrl().replace(/\/+$/, "")}/tg` : null,
     domain: siteDomain(),
     siteUrl: siteUrl(),
   };

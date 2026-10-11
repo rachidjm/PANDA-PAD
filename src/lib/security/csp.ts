@@ -19,11 +19,16 @@ export function newNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString("base64");
 }
 
-export function buildCsp({ nonce, dev = false, enforce = false }: { nonce: string; dev?: boolean; enforce?: boolean }): string {
+/** Telegram Web shows a Mini App inside an iframe of these origins (the phone apps use a WebView, which this does not concern). */
+export const TELEGRAM_FRAME_ANCESTORS = "https://web.telegram.org https://*.telegram.org";
+export const isMiniAppPath = (path: string) => path === "/tg" || path.startsWith("/tg/");
+
+/** `telegram`: the Mini App's pages (/tg) — Telegram's own script may load and Telegram Web may frame the page. Nothing else changes. */
+export function buildCsp({ nonce, dev = false, enforce = false, telegram = false }: { nonce: string; dev?: boolean; enforce?: boolean; telegram?: boolean }): string {
   const directives = [
     "default-src 'self'",
     // 'unsafe-eval' only in development (React's debugging). In production neither React nor Next uses eval.
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}${telegram ? " https://telegram.org" : ""}`,
     // Tailwind/Next set inline style attributes, which a nonce can't cover: 'unsafe-inline' for styles only (scripts stay strict).
     "style-src 'self' 'unsafe-inline'",
     // Coin logos come from third-party hosts; data:/blob: for previews (Create) and generated images.
@@ -38,7 +43,7 @@ export function buildCsp({ nonce, dev = false, enforce = false }: { nonce: strin
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    telegram ? `frame-ancestors ${TELEGRAM_FRAME_ANCESTORS}` : "frame-ancestors 'none'",
     `report-uri ${CSP_REPORT_PATH}`,
     "report-to csp-endpoint",
   ];

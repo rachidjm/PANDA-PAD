@@ -10,6 +10,7 @@ import MotionProvider from "@/components/providers/MotionProvider";
 import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
 import MobileTabBar from "@/components/MobileTabBar";
 import SkipLink from "@/components/SkipLink";
+import OutsideTg from "@/components/tg/OutsideTg";
 import ReferralCapture from "@/components/ReferralCapture";
 import ReferralAutoBind from "@/components/ReferralAutoBind";
 import ReferralWelcomeBanner from "@/components/ReferralWelcomeBanner";
@@ -79,17 +80,22 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 <DrawTradeAIBridgeProvider>
                   <AIAssistantProvider>
                     <ReferralCapture />
-                    <ReferralAutoBind />
-                    <ReferralWelcomeBanner />
-                    <SkipLink />
-                    <Navbar />
+                    {/* The Telegram Mini App (/tg) has its own frame: none of the website's header, footer or bars. */}
+                    <OutsideTg>
+                      <ReferralAutoBind />
+                      <ReferralWelcomeBanner />
+                      <SkipLink />
+                      <Navbar />
+                    </OutsideTg>
                     <ProtocolBanner />
                     <main id="main" tabIndex={-1} className="flex-1 outline-none">
                       {children}
                     </main>
-                    <Footer />
-                    <MobileTabBar />
-                    <AIAssistantFab />
+                    <OutsideTg>
+                      <Footer />
+                      <MobileTabBar />
+                      <AIAssistantFab />
+                    </OutsideTg>
                     <AIAssistantModal />
                   </AIAssistantProvider>
                 </DrawTradeAIBridgeProvider>

@@ -54,6 +54,7 @@ export function testConfig(over: Partial<TelegramConfig> = {}): TelegramConfig {
     channelUrl: "https://t.me/pandaupdates",
     changelogEnabled: true,
     changelogSecret: "k".repeat(40),
+    miniAppUrl: null,
     domain: "launchonpanda.app",
     siteUrl: "https://launchonpanda.app",
     ...over,

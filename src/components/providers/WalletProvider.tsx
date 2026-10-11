@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { ConnectionProvider, WalletProvider as SolanaWalletProvider } from "@solana/wallet-adapter-react";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { clusterApiUrl } from "@solana/web3.js";
 import SessionKeeper from "./SessionKeeper";
+import { isTgPath } from "@/components/tg/OutsideTg";
+import { DeepLinkWalletAdapter } from "@/lib/wallet/deeplink/adapter";
 
 export default function WalletProvider({ children }: { children: React.ReactNode }) {
   // Browsers can't call the public RPC at all (it answers every request that carries a
@@ -18,12 +21,15 @@ export default function WalletProvider({ children }: { children: React.ReactNode
   // Standard. Phantom also supports it, but we register its adapter
   // explicitly too: it's what lets the button deep-link into the Phantom
   // mobile app when no extension is installed, instead of just saying "install it".
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  // Inside the Telegram Mini App (/tg) there is no extension to find: the wallets there are the user's own wallet APPS,
+  // reached through their official deep links (src/lib/wallet/deeplink). Nowhere else are they offered.
+  const tg = isTgPath(usePathname());
+  const wallets = useMemo(() => (tg ? [new DeepLinkWalletAdapter("phantom"), new DeepLinkWalletAdapter("solflare")] : [new PhantomWalletAdapter()]), [tg]);
   const config = useMemo(() => ({ commitment: "confirmed" as const, confirmTransactionInitialTimeout: 60_000 }), []);
 
   return (
     <ConnectionProvider endpoint={endpoint} config={config}>
-      <SolanaWalletProvider wallets={wallets} autoConnect>
+      <SolanaWalletProvider wallets={wallets} autoConnect localStorageKey={tg ? "panda.tg.walletName" : "walletName"}>
         <SessionKeeper />
         {children}
       </SolanaWalletProvider>

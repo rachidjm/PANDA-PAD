@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildCsp, cspHeaderName, cspMode, newNonce, CSP_REPORT_PATH } from "@/lib/security/csp";
+import { buildCsp, cspHeaderName, cspMode, isMiniAppPath, newNonce, CSP_REPORT_PATH } from "@/lib/security/csp";
 import { adminGatePasses, isAdminOnlyPath } from "@/lib/auth/admin-gate";
 
 /**
@@ -25,7 +25,9 @@ export function proxy(request: NextRequest) {
   if (mode === "off") return hidden ? notFound() : NextResponse.next();
 
   const nonce = newNonce();
-  const policy = buildCsp({ nonce, dev: process.env.NODE_ENV === "development", enforce: mode === "enforce" });
+  // The Telegram Mini App's pages get Telegram's script and frame — only while its flag is on.
+  const telegram = isMiniAppPath(path) && process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";
+  const policy = buildCsp({ nonce, dev: process.env.NODE_ENV === "development", enforce: mode === "enforce", telegram });
   const header = cspHeaderName(mode);
 
   const requestHeaders = new Headers(request.headers);

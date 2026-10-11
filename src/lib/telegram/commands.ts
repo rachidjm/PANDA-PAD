@@ -147,14 +147,16 @@ export async function handleMessage(d: BotDeps, m: Incoming): Promise<void> {
 }
 
 // ── replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-type Button = { text: string; url: string } | { text: string; callback_data: string };
+type Button = { text: string; url: string } | { text: string; callback_data: string } | { text: string; web_app: { url: string } };
 
 /** The one button that isn't a link: "How alerts work" (bot.ts answers it with /help). */
 export const CALLBACK_HELP = "help";
 
 /** /start's buttons. The community and channel ones exist only when their public link is configured. */
-export function startButtons(cfg: TelegramConfig, lang: Lang): Button[] {
+export function startButtons(cfg: TelegramConfig, lang: Lang, chatType: Incoming["chatType"] = "private"): Button[] {
   return [
+    // "Open PANDA app": the Mini App, inside Telegram. Telegram only accepts this kind of button in a private chat.
+    ...(cfg.miniAppUrl && chatType === "private" ? [{ text: tt(lang, "btnApp"), web_app: { url: cfg.miniAppUrl } }] : []),
     ...(cfg.groupUrl ? [{ text: tt(lang, "btnCommunity"), url: cfg.groupUrl }] : []),
     ...(cfg.channelUrl ? [{ text: tt(lang, "btnChannel"), url: cfg.channelUrl }] : []),
     { text: tt(lang, "btnOpen"), url: cfg.siteUrl },
@@ -202,7 +204,7 @@ async function start(d: BotDeps, m: Incoming, payload: string | undefined): Prom
     await tgBumpCounter(d.db, WEB_START_COUNTER, d.now()).catch(() => undefined);
   }
   // Any other payload (unknown, malformed) is simply ignored: the welcome below is the same for everyone.
-  await say(d, m, tt(m.lang, "welcome", { site: d.cfg.siteUrl.replace(/^https?:\/\//, ""), domain: d.cfg.domain }), startButtons(d.cfg, m.lang));
+  await say(d, m, tt(m.lang, "welcome", { site: d.cfg.siteUrl.replace(/^https?:\/\//, ""), domain: d.cfg.domain }), startButtons(d.cfg, m.lang, m.chatType));
 }
 
 async function newCoins(d: BotDeps, m: Incoming): Promise<void> {

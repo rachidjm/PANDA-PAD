@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, max, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, like, lt, lte, max, ne, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import { holderPayoutRuns, pandaLaunches, telegramAlerts, telegramChangelogs, telegramLinkCodes, telegramOutbox, telegramState, telegramSuggestions, telegramUpdates, telegramUsers, telegramWatchlist } from "./schema";
 
@@ -240,6 +240,8 @@ export async function tgCleanup(db: Db, now: number): Promise<void> {
   await db.delete(telegramLinkCodes).where(lt(telegramLinkCodes.expiresAt, now - 86_400_000));
   await db.delete(telegramOutbox).where(and(inArray(telegramOutbox.status, ["sent", "failed"]), lt(telegramOutbox.createdAt, now - 14 * 86_400_000)));
   await db.delete(telegramAlerts).where(lt(telegramAlerts.firedAt, now - 30 * 86_400_000));
+  // The Mini App's wallet relay slots live ten minutes; one nobody collected is gone within the hour.
+  await db.delete(telegramState).where(and(like(telegramState.key, "relay:%"), lt(telegramState.updatedAt, now - 3_600_000)));
 }
 
 // ── reads for the automatic posts (other domains' tables, read-only) ─────────────────────────────────────────────────
