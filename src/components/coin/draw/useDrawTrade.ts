@@ -50,6 +50,7 @@ import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { groupOrders, LIVE, type OrdersList } from "@/lib/panda-orders/client-types";
 import { closeError, closeFailureCode } from "@/lib/panda-orders/close-errors";
 import { noteContinuation } from "@/lib/wallet/deeplink/ops";
+import { referencePrice } from "@/lib/strategy/reference";
 import { accessFromStatus, pandaAccessFor, type PandaAccess } from "@/lib/panda-orders/access-state";
 
 /**
@@ -461,7 +462,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
 
   // ── derived: numbers for each draft ──────────────────────────────────────────────────────────────
   const rates: Rates = useMemo(() => ({ solUsd: quote?.solUsd ?? null, usdcUsd: quote?.usdcUsd ?? null, eurUsd: quote?.eurUsd ?? null }), [quote]);
-  const currentUsd = quote?.tokenUsd ?? (chartPrice > 0 ? chartPrice : null);
+  // The real current price every line is compared with: never one source alone (src/lib/strategy/reference.ts).
+  const currentUsd = referencePrice({ quote: quote?.tokenUsd, live: coin?.livePriceUsd, chart: chartPrice });
 
   const views: DraftView[] = useMemo(
     () =>

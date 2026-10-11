@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Coin } from "@/lib/types";
-import { CHART, clampView, clientYToChartY, DEFAULT_VIEW, domainFor, dragAxis, isDefaultView, panView, priceToY, rowToAnchor, viewDomain, yToPrice, zoomView, type ChartView } from "@/lib/strategy/scale";
+import { CHART, clampDomain, clientYToChartY, fitDomain, priceToY, rowToAnchor, sameDomain, wheelFactor, yToPrice, zoomDomain, zoomLimits, type Domain } from "@/lib/strategy/scale";
 import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
@@ -327,6 +327,8 @@ export default function PriceChart({
             hoverIndex={hoverIndex}
             onHover={setHoverIndex}
             formatAxis={fmtDisplay}
+            viewKey={`${tf}:${unit}`}
+            now={draw.currentUsd !== null ? toDisplay(draw.currentUsd) : lastClose > 0 ? toDisplay(lastClose) : null}
             resetLabel={t("chart.resetView")}
             overlay={overlay}
             myTrades={hasRealTimes ? myTrades : []}
@@ -421,7 +423,13 @@ function AreaChart({
   fromDisplay,
   formatAxis,
   resetLabel,
+  viewKey,
+  now,
 }: {
+  /** Which view this is (timeframe and unit): a zoom belongs to one, and another starts from the normal view. */
+  viewKey: string;
+  /** The current price, in the axis's own unit — what the normal view is fitted around and the zoom's limits are measured from. */
+  now: number | null;
   overlay?: ChartOverlayData;
   /** How a value of the Y axis is written (price or market cap) — for the two small range labels of a moved view. */
   formatAxis: (displayValue: number) => string;
@@ -457,56 +465,99 @@ function AreaChart({
   }, [height]);
   const data = candles.map((c) => toDisplay(c.close));
 
-  // The vertical scale ALWAYS fits the visible candles alone, with a small margin — a strategy line or a
-  // trade marker outside it never stretches this any more (see ChartOverlay.tsx/TradeMarkers.tsx: they clamp
-  // to an edge arrow instead). `headroom` while actively drawing still adds a little extra room so a target
-  // can be placed beyond the recent highs and lows.
-  // Computed even with too little data to draw a curve (domainFor is safe with an empty/short list) so every hook below
-  // can always run in the same order, whether or not there's a chart to show — React requires that either way.
-  const base = domainFor(data, overlay?.drawing ? 0.25 : 0);
+  // The normal view: around the candles, the current price and the lines already drawn, with room above and below to
+  // mark new ones wherever Draw Your Trade is available (the same room whether or not a line is being placed, so the
+  // scale doesn't jump when drawing starts). Computed even with too little data to draw a curve, so every hook below
+  // always runs in the same order.
   const drawing = !!overlay?.drawing;
+  const marks = overlay ? overlay.lines.map((l) => toDisplay(l.price)) : [];
+  const fit = fitDomain(data, marks, overlay ? 0.25 : 0, now);
+  const limits = zoomLimits(fit, now);
 
-  // The user's own view of the price axis (zoomed out to mark a sell above what the candles reach, zoomed in, moved up
-  // or down). It belongs to one timeframe: changing it starts from the normal view again. Everything below — the curve,
-  // the strategy lines, the price under the pointer — reads `domain`, so they all follow the view together.
-  const [viewOf, setViewOf] = useState<{ tf: Timeframe; view: ChartView }>({ tf, view: DEFAULT_VIEW });
-  const view = viewOf.tf === tf ? viewOf.view : DEFAULT_VIEW;
-  const changeView = (next: (v: ChartView, b: { min: number; max: number }) => ChartView) => {
-    const b = { min: base.min, max: base.max };
-    setViewOf((s) => ({ tf, view: clampView(b, next(s.tf === tf ? s.view : DEFAULT_VIEW, b)) }));
+  // A drag is tracked on `window` from "down" until "up" / "cancel" (see below): the pointer that is placing a line.
+  const [dragPointerId, setDragPointerId] = useState<number | null>(null);
+
+  // The user's zoom of the price axis — vertical only, within `limits` (never below a tenth of the current price, never
+  // above ten times it, never to zero). It belongs to one view (timeframe + unit). Everything below — the curve, the
+  // lines, their tags, the price under the pointer — reads `domain`, so they all follow it together.
+  const [zoom, setZoom] = useState<{ key: string; domain: Domain } | null>(null);
+  const zoomed = zoom && zoom.key === viewKey ? clampDomain(zoom.domain, limits) : null;
+  const domain = zoomed && !sameDomain(zoomed, fit) ? zoomed : fit;
+  const moved = domain !== fit;
+  // The view the next zoom step starts from: the one on screen, or — when several wheel / pinch events arrive before
+  // the chart is drawn again — the one the previous step just made, so no step is ever lost.
+  const latest = useRef<{ key: string; domain: Domain } | null>(null);
+  useEffect(() => {
+    latest.current = { key: viewKey, domain };
+  });
+  const zoomBy = (factor: number, clientY: number) => {
+    const el = svgRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const from = latest.current?.key === viewKey ? latest.current.domain : domain;
+    const next = zoomDomain(from, factor, rowToAnchor(clientYToChartY(clientY, rect.top, rect.height)), limits);
+    latest.current = { key: viewKey, domain: next };
+    setZoom(sameDomain(next, fit) ? null : { key: viewKey, domain: next });
   };
-  const domain = viewDomain(base, view);
-  const moved = !isDefaultView(view);
 
-  // Fingers / mouse button currently down on the chart, and what they are doing with the view.
-  const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef<
-    | null
-    | { kind: "one"; id: number; x: number; y: number; lastY: number; axis: "x" | "y" | null }
-    | { kind: "pinch"; dist: number; midY: number }
-    | { kind: "done" }
-  >(null);
-  const [panning, setPanning] = useState(false);
-
-  // Mouse wheel: zoom around the price under the pointer. A non-passive listener, so the page doesn't scroll while the
-  // pointer is ON the chart; anywhere else the wheel scrolls the page as always.
+  // Mouse wheel, only while the pointer is ON the chart: a non-passive listener there, so the page doesn't scroll under
+  // it; anywhere else the wheel scrolls the page as always.
   const onWheel = useEffectEvent((e: WheelEvent) => {
     const el = svgRef.current;
     if (!el || e.ctrlKey) return; // ctrl + wheel is the browser's own page zoom
     e.preventDefault();
-    const rect = el.getBoundingClientRect();
-    const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * rect.height : e.deltaY;
-    const anchor = rowToAnchor(clientYToChartY(e.clientY, rect.top, rect.height));
-    changeView((v, b) => zoomView(b, v, Math.exp(Math.max(-120, Math.min(120, delta)) * 0.0018), anchor));
+    const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * el.getBoundingClientRect().height : e.deltaY;
+    zoomBy(wheelFactor(delta), e.clientY);
   });
-  // With fewer than two candles no chart is rendered at all: the listener is attached when one appears.
+
+  // Two fingers: pinch. One finger is never taken for the zoom — it draws and drags lines, reads the chart, and
+  // scrolls the page. The pinch is read from the touches themselves, so it works while the chart lets the page scroll.
+  const pinch = useRef<{ dist: number } | null>(null);
+  const [pinching, setPinching] = useState(false);
+  const dropLine = useEffectEvent(() => {
+    // A line that the first finger was placing is dropped, not committed, when the second one lands.
+    if (overlay?.drawing && dragPointerId !== null) {
+      overlay.onPointer("leave", 0, { type: "touch", button: 0, pressed: false });
+      setDragPointerId(null);
+    }
+    onHover(null);
+  });
+  const onTouch = useEffectEvent((e: TouchEvent) => {
+    if (e.touches.length !== 2) {
+      if (pinch.current) {
+        pinch.current = null;
+        setPinching(false);
+      }
+      return;
+    }
+    e.preventDefault(); // two fingers on the chart are the chart's: no page zoom, no scroll
+    const [a, b] = [e.touches[0], e.touches[1]];
+    const dist = Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1);
+    if (!pinch.current) {
+      pinch.current = { dist };
+      setPinching(true);
+      dropLine();
+      return;
+    }
+    // Fingers apart = closer (fewer prices on screen). Small steps: the movement since the last event only.
+    const factor = Math.max(0.8, Math.min(1.25, pinch.current.dist / dist));
+    pinch.current = { dist };
+    zoomBy(factor, (a.clientY + b.clientY) / 2);
+  });
+
+  // With fewer than two candles no chart is rendered at all: the listeners are attached when one appears.
   const noChart = data.length < 2;
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
-    const listener = (e: WheelEvent) => onWheel(e);
-    el.addEventListener("wheel", listener, { passive: false });
-    return () => el.removeEventListener("wheel", listener);
+    const wheel = (e: WheelEvent) => onWheel(e);
+    const touch = (e: TouchEvent) => onTouch(e);
+    el.addEventListener("wheel", wheel, { passive: false });
+    for (const type of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.addEventListener(type, touch, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      for (const type of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.removeEventListener(type, touch);
+    };
   }, [noChart]);
 
   /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve) — always
@@ -526,8 +577,6 @@ function AreaChart({
   // the SVG. Tracking the drag on `window` instead of the SVG itself (from "down" until "up"/
   // "cancel") means the line keeps following the finger and still commits on release, wherever
   // the finger ends up, instead of silently going stale the moment it leaves the chart's bounds.
-  const [dragPointerId, setDragPointerId] = useState<number | null>(null);
-
   useEffect(() => {
     if (!drawing || dragPointerId === null) return;
     const isTracked = (e: PointerEvent) => e.pointerId === dragPointerId;
@@ -583,72 +632,8 @@ function AreaChart({
     return Math.max(0, Math.min(points.length - 1, idx));
   }
 
-  /** The fraction of the chart's height a vertical movement in screen pixels covers. */
-  const heightFraction = (dyClient: number) => {
-    const rect = svgRef.current!.getBoundingClientRect();
-    return rect.height > 0 ? (dyClient / rect.height) * (height / (height - padding * 2)) : 0;
-  };
-
-  /** A second finger landed: whatever the first one was doing stops, and the two of them pinch. */
-  function startPinch() {
-    const [a, b] = [...pointers.current.values()];
-    gesture.current = { kind: "pinch", dist: Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1), midY: (a.y + b.y) / 2 };
-    if (drawing && dragPointerId !== null) {
-      // The line that first finger was placing is dropped, not committed.
-      overlay!.onPointer("leave", 0, { type: "touch", button: 0, pressed: false });
-      setDragPointerId(null);
-    }
-    onHover(null);
-    setPanning(false);
-  }
-
-  /** Moves the view with the fingers / the mouse. True when the movement was used for that (and for nothing else). */
-  function viewGestureMove(e: React.PointerEvent<SVGSVGElement>): boolean {
-    const g = gesture.current;
-    if (!g) return false;
-    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (g.kind === "done") return true;
-    if (g.kind === "pinch") {
-      const pts = [...pointers.current.values()];
-      if (pts.length < 2) return true;
-      const dist = Math.max(Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), 1);
-      const midY = (pts[0].y + pts[1].y) / 2;
-      const rect = svgRef.current!.getBoundingClientRect();
-      const anchor = rowToAnchor(clientYToChartY(midY, rect.top, rect.height));
-      // Fingers apart = closer (less on screen); the two of them sliding up or down moves the view.
-      const factor = g.dist / dist;
-      const slide = heightFraction(midY - g.midY);
-      gesture.current = { kind: "pinch", dist, midY };
-      changeView((v, b) => panView(b, zoomView(b, v, factor, anchor), slide));
-      return true;
-    }
-    if (g.id !== e.pointerId) return true;
-    if (!g.axis) {
-      g.axis = dragAxis(e.clientX - g.x, e.clientY - g.y, e.pointerType === "mouse" ? 4 : 8);
-      if (g.axis === "y") {
-        onHover(null);
-        setPanning(true);
-      }
-    }
-    if (g.axis !== "y") return false; // sideways (or not decided yet): the chart is being read, as always
-    const dy = e.clientY - g.lastY;
-    g.lastY = e.clientY;
-    changeView((v, b) => panView(b, v, heightFraction(dy)));
-    return true;
-  }
-
-  function endPointer(e: React.PointerEvent<SVGSVGElement>) {
-    pointers.current.delete(e.pointerId);
-    // After a pinch, the finger that stays down does nothing more until it is lifted too.
-    if (pointers.current.size === 0) gesture.current = null;
-    else if (gesture.current?.kind === "pinch") gesture.current = { kind: "done" };
-    else if (gesture.current?.kind === "one" && gesture.current.id === e.pointerId) gesture.current = null;
-    setPanning(false);
-  }
-
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
-    if (!svgRef.current) return;
-    if (viewGestureMove(e)) return;
+    if (!svgRef.current || pinching) return;
     if (drawing) {
       // While a drag is being tracked on `window` (above), that's the single source of truth — this
       // would otherwise double-fire for the same movement whenever the pointer is still over the SVG.
@@ -684,38 +669,26 @@ function AreaChart({
           else onHover(null);
         }}
         onPointerDown={(e) => {
-          if (e.pointerType === "mouse" && e.button !== 0) return;
-          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-          try {
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-          } catch {
-            // A pointer the browser no longer tracks can't be captured; its events still arrive while it is over the chart.
-          }
-          // Two fingers: pinch to zoom the price axis (and slide to move it) — while browsing and while drawing alike.
-          if (pointers.current.size === 2) return startPinch();
-          if (pointers.current.size > 2) return;
+          if (pinching || (e.pointerType === "mouse" && e.button !== 0)) return;
           if (drawing) {
             setDragPointerId(e.pointerId);
             overlay!.onPointer("down", priceAt(e), info(e));
             return;
           }
-          // One finger / the mouse, browsing: sideways it reads the chart, up and down it moves the price axis.
-          gesture.current = { kind: "one", id: e.pointerId, x: e.clientX, y: e.clientY, lastY: e.clientY, axis: null };
           // Touch: show the point under the finger right away.
           if (e.pointerType === "touch") onHover(hoverIndexAt(e));
         }}
         onPointerUp={(e) => {
-          endPointer(e);
           if (!drawing && e.pointerType === "touch") onHover(null);
         }}
         onPointerCancel={(e) => {
-          endPointer(e);
           if (!drawing && e.pointerType === "touch") onHover(null);
         }}
-        className={`h-[170px] w-full sm:h-[260px] ${panning ? "cursor-grabbing" : "cursor-crosshair"}`}
+        className="h-[170px] w-full cursor-crosshair sm:h-[260px]"
         style={{
-          // Every gesture that starts ON the chart belongs to the chart (line, scan, zoom, move); the page scrolls from anywhere else.
-          touchAction: "none",
+          // While a line is being placed, one finger on the chart belongs to the line. Otherwise the page scrolls
+          // through the chart as through anything else (two fingers pinch — handled above).
+          touchAction: drawing ? "none" : "pan-y",
           WebkitTapHighlightColor: "transparent",
           WebkitUserSelect: "none",
           userSelect: "none",
@@ -778,17 +751,17 @@ function AreaChart({
 
       {moved && (
         <>
-          {/* A moved view says what it shows (top and bottom of the axis) and how to get back. */}
+          {/* A zoomed view says what it shows (top and bottom of the axis) and has one small way back, in the corner. */}
           <span className="pointer-events-none absolute left-1.5 top-1 rounded bg-ink/70 px-1 text-[10px] tabular-nums text-panda-grey">{formatAxis(domain.max)}</span>
           <span className="pointer-events-none absolute left-1.5 rounded bg-ink/70 px-1 text-[10px] tabular-nums text-panda-grey" style={{ top: svgHeight - 18 }}>
             {formatAxis(domain.min)}
           </span>
           <button
             type="button"
-            onClick={() => setViewOf({ tf, view: DEFAULT_VIEW })}
-            className="absolute right-1.5 top-1 inline-flex min-h-7 items-center gap-1 whitespace-nowrap rounded-full border border-paper/15 bg-ink/85 px-2.5 text-[11px] font-semibold text-paper/90 backdrop-blur transition-colors hover:bg-ink hover:text-paper"
+            onClick={() => setZoom(null)}
+            className="absolute right-1.5 top-1 inline-flex min-h-6 items-center gap-1 whitespace-nowrap rounded-full border border-paper/15 bg-ink/85 px-2 text-[10px] font-semibold text-paper/80 backdrop-blur transition-colors hover:text-paper"
           >
-            <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M2.2 6a3.8 3.8 0 1 0 1.2-2.8M2 1.8v2h2" />
             </svg>
             {resetLabel}

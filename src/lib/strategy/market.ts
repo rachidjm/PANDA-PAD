@@ -1,4 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import { getLivePrice } from "@/lib/jupiter/price";
+import { quoteWasOverruled, referencePrice } from "./reference";
 import { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { bondingCurvePda, isLegacyQuoteMint, PumpSdk } from "@pump-fun/pump-sdk";
 import { fetchDexTokensBatch } from "@/lib/dexscreener/client";
@@ -65,18 +67,25 @@ async function onChainLiquidity(mint: string): Promise<{ curve: { complete: bool
 }
 
 export async function strategyQuote(mint: string): Promise<StrategyQuote> {
-  const [prices, solUsd, eurUsd, market] = await Promise.all([
+  const [prices, solUsd, eurUsd, market, live] = await Promise.all([
     usdPrices([mint, USDC_MINT]).catch(() => new Map<string, number>()),
     solPriceUsd().catch(() => 0),
     eurUsdRate(),
     tokenLiquidityAndChange(mint),
+    // The price the coin's page shows (Jupiter): the second opinion on the feed's figure (see reference.ts).
+    getLivePrice(mint)
+      .then((p) => p?.usdPrice ?? null)
+      .catch(() => null),
   ]);
+  const feed = prices.get(mint) ?? null;
+  const tokenUsd = referencePrice({ quote: feed, live });
+  if (quoteWasOverruled({ quote: feed, live })) console.warn("[PANDA quote] price sources disagree", JSON.stringify({ mint, feed, live, used: tokenUsd }));
   const sol = solUsd > 0 ? solUsd : null;
   // The feed first; only when it has no figure (typical for a coin still on its curve) is the chain read.
   const chain = market.liquidityUsd !== null && market.liquidityUsd > 0 ? { curve: null, poolSolLamports: null } : await onChainLiquidity(mint);
   const { liquidityUsd } = resolveLiquidityUsd({ dexUsd: market.liquidityUsd, curve: chain.curve, poolSolLamports: chain.poolSolLamports, solUsd: sol });
   return {
-    tokenUsd: prices.get(mint) ?? null,
+    tokenUsd,
     solUsd: sol,
     usdcUsd: prices.get(USDC_MINT) ?? null,
     eurUsd,
