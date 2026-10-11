@@ -109,7 +109,8 @@ export default function FeeDistributionStep({
         </span>
         <span className="flex items-center gap-2">
           <span className="text-sm font-semibold">{PANDA_SHARE_BPS / 100}%</span>
-          <span className="rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-paper/70">
+          {/* The lock already says it on a phone, where the row has no room for both. */}
+          <span className="hidden rounded-full bg-paper/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-paper/70 sm:inline">
             {t("fd.locked")}
           </span>
         </span>
@@ -277,9 +278,9 @@ function Row({
   stacked?: boolean;
 }) {
   return (
-    <div className={`flex rounded-xl bg-ink py-2.5 ${stacked ? "flex-col gap-2 px-2.5 sm:px-3" : compact ? "flex-col gap-2 px-3 sm:flex-row sm:items-center sm:gap-3 sm:px-3.5" : "items-center gap-3 px-3.5"} ${disabled ? "opacity-40" : ""}`}>
-      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
-        <span className={`${stacked ? "" : "mr-1"} h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+    <div className={`flex rounded-xl bg-ink py-2.5 ${stacked ? "flex-col gap-2 px-2 sm:px-3" : compact ? "flex-col gap-2 px-3 sm:flex-row sm:items-center sm:gap-3 sm:px-3.5" : "items-center gap-3 px-3.5"} ${disabled ? "opacity-40" : ""}`}>
+      <span className={`flex min-w-0 flex-1 items-center ${stacked ? "gap-1 text-[13px] sm:gap-1.5 sm:text-sm" : "gap-1.5 text-sm"}`}>
+        <span className={`${stacked ? "h-2 w-2 sm:h-2.5 sm:w-2.5" : "mr-1 h-2.5 w-2.5"} shrink-0 rounded-full ${dot}`} aria-hidden />
         {icon && <span className={stacked ? "hidden" : compact ? "hidden sm:inline-flex" : "inline-flex"}>{icon}</span>}
         <span className="truncate">{label}</span>
         {tooltip && <InfoTooltip text={tooltip} align="end" />}
