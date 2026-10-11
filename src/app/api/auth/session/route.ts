@@ -6,7 +6,7 @@ import { getSession, sessionsRevocable } from "@/lib/auth/session";
  * caller — whether its sessions can be revoked ("close all my sessions" is offered only where that is true).
  */
 export async function GET(req: Request) {
-  const session = await getSession(req);
+  const session = await getSession(req, { linked: true }); // read-only: also the Mini App's session
   const res = NextResponse.json(session ? { wallet: session.wallet, issuedAt: session.issuedAt, revocable: sessionsRevocable() } : { wallet: null });
   res.headers.set("Cache-Control", "no-store");
   return res;

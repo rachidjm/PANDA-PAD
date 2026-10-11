@@ -12,7 +12,8 @@ import {
 } from "@solana/wallet-adapter-base";
 import { PublicKey, Transaction, VersionedTransaction, type Connection, type TransactionSignature, type TransactionVersion } from "@solana/web3.js";
 import bs58 from "bs58";
-import { deepLinkBridge, DeepLinkFlowError, DEEPLINK_WALLET_NAMES, LOGIN_KEY, type DeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "./bridge";
+import { deepLinkBridge, DeepLinkFlowError, DEEPLINK_WALLET_NAMES, type DeepLinkBridge, type FlowCode, type WalletStepUi } from "./bridge";
+import { clearOp, saveOp, settleOp, takeContinuation } from "./ops";
 import { connectUrl, DeepLinkError, newDappKeys, newRelayId, readConnect, readResult, redirectUrl, requestUrl, type DappKeys, type DeepLinkMethod, type DeepLinkProvider, type WalletSession } from "./protocol";
 
 /**
@@ -50,10 +51,6 @@ export const RELAY_WAIT_MS = 2 * 60_000;
 export const RELAY_POLL_MS = 2_000;
 
 type PendingConnect = { relayId: string; dapp: DappKeys; at: number };
-/** A sign-in whose signature is on its way: where its answer will be, and which challenge it answers. Not a session. */
-type PendingLogin = { relayId: string; nonce: string; at: number };
-type RequestOptions = { kind?: WalletStep["kind"]; open?: "sheet" | "now" | "auto"; onRelay?: (relayId: string) => void };
-
 const store = {
   get<T>(key: string): T | null {
     try {
@@ -76,6 +73,20 @@ const store = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Waits `ms` — or less, if the page comes back to the screen meanwhile (the user is back from the wallet app). */
+function untilVisibleOr(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof document === "undefined") return void setTimeout(resolve, ms);
+    const done = () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onChange);
+      resolve();
+    };
+    const onChange = () => document.visibilityState === "visible" && done();
+    const timer = setTimeout(done, ms);
+    document.addEventListener("visibilitychange", onChange);
+  });
+}
 
 export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   name: WalletName;
@@ -148,6 +159,7 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
       for (let i = 0; i < 20 && !deepLinkBridge()?.signedIn(); i++) await sleep(500);
       const answer = await this.collect(pending.relayId, 30_000, () => false);
       this.adopt(readConnect(this.provider, pending.dapp, answer));
+      clearOp(pending.relayId);
     } catch {
       // Nothing arrived (or the user said no): the next tap on "Connect" starts again.
       store.del(PENDING_KEY(this.provider));
@@ -170,12 +182,14 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
       const dapp = newDappKeys();
       const relayId = newRelayId();
       store.set(PENDING_KEY(this.provider), { relayId, dapp, at: Date.now() } satisfies PendingConnect);
-      const url = connectUrl({ provider: this.provider, dappPublicKey: dapp.publicKey, redirect: redirectUrl(b.siteUrl, this.provider, relayId, b.back()), appUrl: b.siteUrl });
+      const url = connectUrl({ provider: this.provider, dappPublicKey: dapp.publicKey, redirect: redirectUrl(b.siteUrl, this.provider, relayId), appUrl: b.siteUrl });
       b.openLink(url);
+      saveOp({ relayId, provider: this.provider, method: "connect", path: b.path(), at: Date.now(), then: [] });
       ui = b.begin({ provider: this.provider, kind: "connect", url, opened: true });
       this.openSlot(relayId);
       const answer = await this.collect(relayId, RELAY_WAIT_MS, ui.cancelled);
       this.adopt(this.read(() => readConnect(this.provider, dapp, answer)));
+      clearOp(relayId);
       ui.end("ok");
     } catch (err) {
       store.del(PENDING_KEY(this.provider));
@@ -247,41 +261,17 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   }
 
   /**
-   * PANDA's sign-in message, for the Mini App's own sign-in. `open: "now"` opens the wallet at once — call it straight
-   * from a tap; `"auto"` tries without one (right after connecting). The request is written down (not the session), so
-   * if Telegram restarts the app on the way back, resumeLogin() still finds the signature.
+   * The answer to a request another copy of the app made (./ops.ts): Telegram reopened the Mini App on the way back
+   * from the wallet, and this copy finishes what that one started. The connection is the one saved on this phone.
    */
-  async signLogin(message: Uint8Array, nonce: string, open: "now" | "auto"): Promise<Uint8Array> {
+  async resumeAnswer<T>(relayId: string, timeoutMs = 30_000): Promise<T> {
+    if (!this._session && !this.restore()) throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
+    const session = this._session!;
     try {
-      const out = await this.request<{ signature?: unknown }>(
-        "signMessage",
-        { message: bs58.encode(message), display: "utf8" },
-        { kind: "login", open, onRelay: (relayId) => store.set(LOGIN_KEY(this.provider), { relayId, nonce, at: Date.now() } satisfies PendingLogin) }
-      );
-      if (typeof out.signature !== "string") throw new DeepLinkFlowError("unreadable", this.say("unreadable"));
-      return bs58.decode(out.signature);
+      const answer = await this.collect(relayId, timeoutMs, () => false);
+      return this.read(() => readResult<T>(session, answer));
     } catch (err) {
-      throw this.fail(err, (m, c) => new WalletSignMessageError(m, c));
-    } finally {
-      store.del(LOGIN_KEY(this.provider));
-    }
-  }
-
-  /** A sign-in that was in the wallet when the app was restarted: its signature and the challenge it answers, or null. */
-  async resumeLogin(): Promise<{ nonce: string; signature: Uint8Array } | null> {
-    const pending = store.get<PendingLogin>(LOGIN_KEY(this.provider));
-    if (!pending) return null;
-    store.del(LOGIN_KEY(this.provider));
-    if (Date.now() - pending.at > PENDING_MAX_AGE_MS) return null;
-    if (!this._session && !this.restore()) return null;
-    const session = this._session;
-    if (!session) return null;
-    try {
-      const answer = await this.collect(pending.relayId, 20_000, () => false);
-      const out = readResult<{ signature?: unknown }>(session, answer);
-      return typeof out.signature === "string" ? { nonce: pending.nonce, signature: bs58.decode(out.signature) } : null;
-    } catch {
-      return null;
+      throw this.flowError(err);
     }
   }
 
@@ -320,26 +310,28 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   }
 
   /** A signature: the sheet first (its button opens the wallet, inside that tap), then the wait for the answer. */
-  private async request<T>(method: DeepLinkMethod, body: Record<string, unknown>, o: RequestOptions = {}): Promise<T> {
+  private async request<T>(method: DeepLinkMethod, body: Record<string, unknown>): Promise<T> {
     const session = this._session;
     if (!session) throw new WalletNotConnectedError();
     const b = this.requireBridge();
     const relayId = newRelayId();
-    const url = requestUrl(session, method, body, redirectUrl(b.siteUrl, this.provider, relayId, b.back()));
-    o.onRelay?.(relayId);
-    // Inside a tap the wallet opens before anything is awaited (Telegram allows it nowhere else).
-    const open = o.open ?? "sheet";
-    if (open !== "sheet") b.openLink(url);
+    const url = requestUrl(session, method, body, redirectUrl(b.siteUrl, this.provider, relayId));
+    // Written down before the wallet opens: if Telegram reopens the app on the way back, that copy finishes this (./ops.ts).
+    saveOp({ relayId, provider: this.provider, method, path: b.path(), at: Date.now(), then: takeContinuation() });
     this.openSlot(relayId);
-    const ui = b.begin({ provider: this.provider, kind: o.kind ?? "sign", url, opened: open !== "sheet", auto: open === "auto" });
+    const ui = b.begin({ provider: this.provider, kind: "sign", url, opened: false });
     try {
       await ui.ready;
       const answer = await this.collect(relayId, RELAY_WAIT_MS, ui.cancelled);
       const out = this.read(() => readResult<T>(session, answer));
+      const signature = (out as { signature?: unknown } | null)?.signature;
+      settleOp(relayId, { ok: true, ...(method === "signAndSendTransaction" && typeof signature === "string" ? { signature } : {}) });
       ui.end("ok");
       return out;
     } catch (err) {
       const flow = this.flowError(err);
+      // Refused or cancelled: there is nothing left to finish. After a timeout the answer may still come: the note stays.
+      if (flow.code !== "timeout") clearOp(relayId);
       ui.end(flow.code === "timeout" ? "timeout" : "error");
       throw flow;
     }
@@ -357,21 +349,25 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
   private async collect(relayId: string, timeoutMs: number, cancelled: () => boolean): Promise<Record<string, string>> {
     const b = this.requireBridge();
     const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      await sleep(RELAY_POLL_MS);
+    for (;;) {
+      // The phone freezes this page while the wallet app is in front. The wait ends early the moment the app is back
+      // on screen, and the relay is ALWAYS asked once more before giving up — however long the user was away.
+      await untilVisibleOr(RELAY_POLL_MS);
       if (cancelled()) throw new DeepLinkFlowError("rejected", `${this.say("rejected")} (cancelled)`);
-      let res: Response;
+      const late = Date.now() - started >= timeoutMs;
+      let res: Response | null = null;
       try {
         res = await b.api(`/api/tg/relay?id=${relayId}`);
       } catch {
-        continue; // offline for a moment while the phone switches apps
+        // offline for a moment while the phone switches apps
       }
-      if (res.status === 401) throw new DeepLinkFlowError("session", this.say("session"));
-      if (!res.ok) continue;
-      const data = (await res.json().catch(() => null)) as { answer?: Record<string, string> } | null;
-      if (data?.answer) return data.answer;
+      if (res?.status === 401) throw new DeepLinkFlowError("session", this.say("session"));
+      if (res?.ok) {
+        const data = (await res.json().catch(() => null)) as { answer?: Record<string, string> } | null;
+        if (data?.answer) return data.answer;
+      }
+      if (late) throw new DeepLinkFlowError("timeout", this.say("timeout"));
     }
-    throw new DeepLinkFlowError("timeout", this.say("timeout"));
   }
 }
 

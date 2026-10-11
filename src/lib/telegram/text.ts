@@ -70,7 +70,7 @@ const EN = {
   linkMovedAway: "ℹ️ Wallet {wallet} was linked to another Telegram account by its owner (they signed with that wallet). It is no longer linked here.",
   unlinked: "Your wallet is no longer linked to this Telegram account.",
   notLinked: "No wallet is linked to this Telegram account.",
-  linkTooMany: "You asked for several links in a short time — wait a while and try again.",
+  linkTooMany: "You asked for several links in a short time. Wait about {minutes} minutes and try again.",
   // suggest
   suggestUsage: "Usage: /suggest &lt;your idea&gt; (up to 1000 characters)",
   suggestSaved: "Thanks — your suggestion was saved for the team.",
@@ -152,7 +152,7 @@ const ES: Record<Key, string> = {
   linkMovedAway: "ℹ️ El dueño de la wallet {wallet} la ha vinculado a otra cuenta de Telegram (firmando con esa wallet). Ya no está vinculada aquí.",
   unlinked: "Tu wallet ya no está vinculada a esta cuenta de Telegram.",
   notLinked: "No hay ninguna wallet vinculada a esta cuenta de Telegram.",
-  linkTooMany: "Has pedido varios enlaces en poco tiempo — espera un rato y vuelve a intentarlo.",
+  linkTooMany: "Has pedido varios enlaces en poco tiempo. Espera unos {minutes} minutos y vuelve a intentarlo.",
   suggestUsage: "Uso: /suggest &lt;tu idea&gt; (hasta 1000 caracteres)",
   suggestSaved: "Gracias — tu sugerencia se ha guardado para el equipo.",
   suggestTooMany: "Hoy ya has enviado varias sugerencias — ¡gracias! Vuelve a intentarlo mañana.",

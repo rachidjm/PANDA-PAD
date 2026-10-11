@@ -1,148 +1,90 @@
-import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import bs58 from "bs58";
 import type { Db } from "@/lib/db/client";
-import { pgCreateSession, pgRevokeSession, pgSessionStatus } from "@/lib/db/sessions";
 import { tgDeleteState, tgGetState, tgGetUser, tgSetState } from "@/lib/db/telegram";
-import { buildSignInMessage, CHALLENGE_TTL_MS, newNonce, verifyEd25519, type NonceRecord } from "@/lib/auth/wallet-auth";
-import { INIT_DATA_MAX_AGE_MS, verifyInitData } from "./miniapp";
+import { verifyInitData } from "./miniapp";
 
 /**
- * Signing in to PANDA inside the Telegram Mini App (docs/TELEGRAM.md §12).
+ * PANDA's session inside the Telegram Mini App (docs/TELEGRAM.md §12).
  *
- * The website keeps a wallet's session in a cookie for days. The Mini App must not: its session lives only in the open
- * app's memory and ends when the app is closed. So it is a different kind of session, with the same proof behind it —
- * the wallet signs PANDA's own sign-in message — and three more conditions, checked on EVERY request:
+ * WHO it is: the Telegram account that Telegram's own signed `initData` names, acting as the wallet that account
+ * linked with /link — a link the wallet itself signed, once, and that only that wallet can make. So signing in here
+ * asks the wallet for nothing: Telegram proves the account, PANDA's own record gives the wallet.
  *
- *   1. the request carries Telegram's signed `initData`, and it names the Telegram account the session was issued to;
- *   2. the wallet is the one that account linked with /link — still, right now (unlinking ends the session);
- *   3. the session is a live, unrevoked row (closing the app revokes it) and is at most a few hours old.
+ * WHAT it can do: nothing that moves money. It is accepted ONLY by the routes that ask for it by name
+ * (`getSession(req, { linked: true })`): reading the wallet's own orders, and the order routes in which every change
+ * is a transaction the wallet signs or a fact read back from the chain. Buying, selling, creating a coin and creating,
+ * changing or cancelling an order all still need the wallet app's signature — there is no route where this session
+ * stands in for it. Every other signed-in route of the website (rewards, claims, referrals, the market, /admin)
+ * does not see it at all.
  *
- * It travels in a header, never in a cookie, and is never valid for /admin (the admin gate reads the cookie alone).
+ * HOW LONG: 30 minutes from the last use, wherever the user went meanwhile (the wallet app, another app, a locked
+ * phone, Telegram reloading the Mini App) — it lives on the server, keyed by the Telegram account, so there is nothing
+ * to lose on the phone. Twelve hours at the very most. Unlinking the wallet, or linking another, ends it at once.
  */
 
-export const APP_SESSION_TTL_MS = 4 * 60 * 60_000;
+export const APP_SESSION_IDLE_MS = 30 * 60_000;
+export const APP_SESSION_MAX_MS = 12 * 60 * 60_000;
+/** Telegram's data is issued once per opening of the app: a request made hours into that opening still carries it. */
+export const APP_INIT_DATA_MAX_AGE_MS = 24 * 60 * 60_000;
+/** The last use is written at most this often (one small update, not one per request). */
+const TOUCH_EVERY_MS = 60_000;
 export const APP_SESSION_HEADER = "x-panda-app-session";
 export const APP_INIT_DATA_HEADER = "x-tg-init-data";
 
-export type NonceStore = {
-  store: (nonce: string, record: NonceRecord) => Promise<void>;
-  read: (nonce: string) => Promise<NonceRecord | null>;
-  burn: (nonce: string, wallet: string) => Promise<boolean>;
-};
-export type LoginDeps = { db: Db; now: () => number; botToken: string; nonces: NonceStore };
+export type LoginDeps = { db: Db; now: () => number; botToken: string };
+type State = { wallet: string; startedAt: number; lastActive: number };
+const key = (telegramId: number) => `appsess:tg:${telegramId}`;
+const expiryOf = (s: State) => Math.min(s.lastActive + APP_SESSION_IDLE_MS, s.startedAt + APP_SESSION_MAX_MS);
 
-const hmac = (key: string | Buffer, data: string) => createHmac("sha256", key).update(data).digest();
-const sameBytes = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b);
-const tokenKey = (botToken: string) => hmac("panda-miniapp-wallet-session", botToken);
-const sha = (v: string) => createHash("sha256").update(v).digest("hex");
-const stateKey = (jti: string) => `appsess:${jti}`;
+export type AppSessionInfo = { wallet: string; expiresAt: number; startedAt: number };
 
-export type AppToken = { jti: string; telegramId: number; wallet: string; expiresAt: number };
-/** What the server keeps beside the session row: whose it is, and the hash of the one-time ticket that can bring it back after a wallet trip. */
-type AppSessionState = { telegramId: number; wallet: string; expiresAt: number; resumeHash: string };
-
-function makeToken(t: AppToken, botToken: string): string {
-  const body = `tgw1.${t.jti}.${t.telegramId}.${t.wallet}.${t.expiresAt}`;
-  return `${body}.${hmac(tokenKey(botToken), body).toString("base64url")}`;
-}
-
-export function readAppToken(token: unknown, botToken: string, now: number): AppToken | null {
-  if (typeof token !== "string" || token.length > 300 || !botToken) return null;
-  const m = /^(tgw1\.([0-9a-f-]{36})\.(\d{1,16})\.([1-9A-HJ-NP-Za-km-z]{32,44})\.(\d{10,16}))\.([A-Za-z0-9_-]{43})$/.exec(token);
-  if (!m) return null;
-  if (!sameBytes(hmac(tokenKey(botToken), m[1]), Buffer.from(m[6], "base64url"))) return null;
-  const telegramId = Number(m[3]);
-  const expiresAt = Number(m[5]);
-  if (!Number.isSafeInteger(telegramId) || telegramId <= 0 || expiresAt <= now) return null;
-  return { jti: m[2], telegramId, wallet: m[4], expiresAt };
-}
-
-export type Challenge = { ok: true; nonce: string; message: string; wallet: string; expiresAt: number } | { ok: false; error: "not_linked" };
-
-/** PANDA's ordinary sign-in message, for the wallet this Telegram account linked. The wallet is never taken from the request. */
-export async function startAppLogin(d: LoginDeps, telegramId: number, domain: string): Promise<Challenge> {
+/** "Sign in": for a Telegram account with a linked wallet, and only for that wallet. No signature is asked for. */
+export async function startAppSession(d: Pick<LoginDeps, "db" | "now">, telegramId: number): Promise<({ ok: true } & AppSessionInfo) | { ok: false; error: "not_linked" }> {
   const wallet = (await tgGetUser(d.db, telegramId))?.wallet ?? null;
   if (!wallet) return { ok: false, error: "not_linked" };
-  const nonce = newNonce();
-  const issuedAt = d.now();
-  const expiresAt = issuedAt + CHALLENGE_TTL_MS;
-  await d.nonces.store(nonce, { wallet, issuedAt, expiresAt, used: false });
-  return { ok: true, nonce, wallet, expiresAt, message: buildSignInMessage({ domain, wallet, nonce, issuedAt, expiresAt }) };
+  const now = d.now();
+  const state: State = { wallet, startedAt: now, lastActive: now };
+  await tgSetState(d.db, key(telegramId), state, now);
+  return { ok: true, wallet, startedAt: now, expiresAt: expiryOf(state) };
 }
 
-export type AppLogin = { ok: true; token: string; jti: string; resume: string; wallet: string; expiresAt: number } | { ok: false; error: "not_linked" | "invalid" };
-
-/** The signature is checked against the message the server rebuilds itself, for the LINKED wallet; the nonce works once. */
-export async function completeAppLogin(d: LoginDeps, i: { telegramId: number; nonce: unknown; signature: unknown; domain: string }): Promise<AppLogin> {
-  const wallet = (await tgGetUser(d.db, i.telegramId))?.wallet ?? null;
-  if (!wallet) return { ok: false, error: "not_linked" };
-  if (typeof i.nonce !== "string" || !/^[0-9a-f]{32}$/.test(i.nonce) || typeof i.signature !== "string" || i.signature.length > 128) return { ok: false, error: "invalid" };
+/**
+ * The live session of a Telegram account, or null: never started, signed out, unused for 30 minutes, older than its
+ * maximum, or for a wallet that is no longer the one linked. `touch` counts this as a use.
+ */
+export async function appSessionOf(d: Pick<LoginDeps, "db" | "now">, telegramId: number, touch = true): Promise<AppSessionInfo | null> {
+  const state = await tgGetState<State>(d.db, key(telegramId));
+  if (!state || typeof state.wallet !== "string") return null;
   const now = d.now();
-  const record = await d.nonces.read(i.nonce);
-  if (!record || record.used || record.wallet !== wallet || now > record.expiresAt) return { ok: false, error: "invalid" };
-  let sig: Uint8Array;
-  let key: Uint8Array;
-  try {
-    sig = bs58.decode(i.signature);
-    key = bs58.decode(wallet);
-  } catch {
-    return { ok: false, error: "invalid" };
+  if (now >= expiryOf(state)) {
+    await tgDeleteState(d.db, key(telegramId));
+    return null;
   }
-  const message = buildSignInMessage({ domain: i.domain, wallet, nonce: i.nonce, issuedAt: record.issuedAt, expiresAt: record.expiresAt });
-  if (!verifyEd25519(new TextEncoder().encode(message), sig, key)) return { ok: false, error: "invalid" };
-  if (!(await d.nonces.burn(i.nonce, wallet))) return { ok: false, error: "invalid" };
-
-  const jti = randomUUID();
-  const expiresAt = now + APP_SESSION_TTL_MS;
-  const resume = randomBytes(24).toString("base64url");
-  await pgCreateSession(d.db, { jti, wallet, issuedAt: now, expiresAt });
-  await tgSetState(d.db, stateKey(jti), { telegramId: i.telegramId, wallet, expiresAt, resumeHash: sha(resume) } satisfies AppSessionState, now);
-  return { ok: true, token: makeToken({ jti, telegramId: i.telegramId, wallet, expiresAt }, d.botToken), jti, resume, wallet, expiresAt };
+  if ((await tgGetUser(d.db, telegramId))?.wallet !== state.wallet) {
+    await tgDeleteState(d.db, key(telegramId));
+    return null;
+  }
+  let live = state;
+  if (touch && now - state.lastActive >= TOUCH_EVERY_MS) {
+    live = { ...state, lastActive: now };
+    await tgSetState(d.db, key(telegramId), live, now);
+  }
+  return { wallet: live.wallet, startedAt: live.startedAt, expiresAt: expiryOf(live) };
 }
 
-export type AppWalletSession = { wallet: string; telegramId: number; jti: string; issuedAt: number };
-
-/**
- * The check behind every request the Mini App makes as a wallet. Null for anything that isn't all of: a token PANDA
- * signed and that hasn't expired, Telegram's own signed data for the SAME account, a session row that is still live,
- * and that account still having this very wallet linked.
- */
-export async function appWalletSession(d: Pick<LoginDeps, "db" | "now" | "botToken">, token: unknown, initData: unknown): Promise<AppWalletSession | null> {
-  const now = d.now();
-  const t = readAppToken(token, d.botToken, now);
-  if (!t) return null;
-  // Telegram's data is issued once per opening of the app, so by the end of a session it is as old as the session.
-  const tg = verifyInitData(initData, d.botToken, now, APP_SESSION_TTL_MS + INIT_DATA_MAX_AGE_MS);
-  if (!tg.ok || tg.user.id !== t.telegramId) return null;
-  if ((await pgSessionStatus(d.db, t.jti, t.wallet, now)) !== "active") return null;
-  if ((await tgGetUser(d.db, t.telegramId))?.wallet !== t.wallet) return null;
-  return { wallet: t.wallet, telegramId: t.telegramId, jti: t.jti, issuedAt: t.expiresAt - APP_SESSION_TTL_MS };
-}
-
-/** The app was closed (or the user left Telegram): the session ends on the server too. True if it was live. */
-export async function closeAppLogin(d: Pick<LoginDeps, "db" | "now" | "botToken">, token: unknown): Promise<boolean> {
-  const t = readAppToken(token, d.botToken, d.now());
-  if (!t) return false;
-  await tgDeleteState(d.db, stateKey(t.jti));
-  return pgRevokeSession(d.db, t.jti, "miniapp_closed", d.now());
+/** "Sign out". True if there was a session. */
+export async function closeAppSession(d: Pick<LoginDeps, "db">, telegramId: number): Promise<boolean> {
+  const had = !!(await tgGetState<State>(d.db, key(telegramId)));
+  if (had) await tgDeleteState(d.db, key(telegramId));
+  return had;
 }
 
 /**
- * Coming back from the wallet app, Telegram sometimes starts the Mini App again from scratch — and what was in its
- * memory is gone. Only for that: the one-time ticket the app wrote down when it opened the wallet brings the SAME
- * session back (same expiry), for the same Telegram account, while the session is still live. The ticket then changes.
- * A session that was closed is revoked, so no ticket can bring it back.
+ * The check behind every request the Mini App makes to one of the website's routes: Telegram's own signed data (its
+ * signature is verified here, every time — the browser's word is never taken), and that account's live session.
  */
-export async function resumeAppLogin(d: Pick<LoginDeps, "db" | "now" | "botToken">, i: { telegramId: number; jti: unknown; resume: unknown }): Promise<AppLogin> {
-  const bad = { ok: false, error: "invalid" } as const;
-  if (typeof i.jti !== "string" || !/^[0-9a-f-]{36}$/.test(i.jti) || typeof i.resume !== "string" || i.resume.length < 16 || i.resume.length > 64) return bad;
-  const now = d.now();
-  const state = await tgGetState<AppSessionState>(d.db, stateKey(i.jti));
-  if (!state || state.telegramId !== i.telegramId || state.expiresAt <= now) return bad;
-  if (!sameBytes(Buffer.from(state.resumeHash, "hex"), Buffer.from(sha(i.resume), "hex"))) return bad;
-  if ((await pgSessionStatus(d.db, i.jti, state.wallet, now)) !== "active") return bad;
-  if ((await tgGetUser(d.db, i.telegramId))?.wallet !== state.wallet) return { ok: false, error: "not_linked" };
-  const resume = randomBytes(24).toString("base64url");
-  await tgSetState(d.db, stateKey(i.jti), { ...state, resumeHash: sha(resume) } satisfies AppSessionState, now);
-  return { ok: true, token: makeToken({ jti: i.jti, telegramId: i.telegramId, wallet: state.wallet, expiresAt: state.expiresAt }, d.botToken), jti: i.jti, resume, wallet: state.wallet, expiresAt: state.expiresAt };
+export async function appWalletSession(d: LoginDeps, initData: unknown): Promise<{ wallet: string; telegramId: number; issuedAt: number } | null> {
+  const tg = verifyInitData(initData, d.botToken, d.now(), APP_INIT_DATA_MAX_AGE_MS);
+  if (!tg.ok) return null;
+  const s = await appSessionOf(d, tg.user.id);
+  return s ? { wallet: s.wallet, telegramId: tg.user.id, issuedAt: s.startedAt } : null;
 }

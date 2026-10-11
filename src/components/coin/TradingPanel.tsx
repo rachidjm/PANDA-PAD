@@ -21,6 +21,7 @@ import { useRates } from "@/components/coin/useRates";
 import { usePriceImpact } from "@/components/coin/usePriceImpact";
 import { PRICE_IMPACT_HIGH_PCT, PRICE_IMPACT_WARN_PCT } from "@/lib/strategy/plan";
 import PayWithSelect, { type PayOption } from "@/components/coin/PayWithSelect";
+import { noteContinuation } from "@/lib/wallet/deeplink/ops";
 import { compactAmount, holdingValue, isRejection, settleByBalance } from "@/lib/trading/outcome";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -309,6 +310,8 @@ export default function TradingPanel({ coin }: { coin: Coin }) {
       // The balance BEFORE, so that whatever the wallet or the RPC say afterwards, the chain can be asked what happened.
       beforeRaw = await readTokenRaw().catch(() => null);
       setStatus("signing");
+      // For the Telegram Mini App only (no effect on the website): what to record if the app is reopened while the wallet has the screen.
+      noteContinuation(publicKey && (side === "sell" || paidInSol) ? [{ url: "/api/portfolio/record-trade", body: { wallet: publicKey.toBase58(), mint: coin.mint, ticker: coin.ticker, side }, put: "signature", confirmed: true }] : []);
       sig = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
       setSignature(sig);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useWallet } from "@solana/wallet-adapter-react";
 import CoinAvatar from "@/components/CoinAvatar";
@@ -12,7 +12,8 @@ import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { Coin } from "@/lib/types";
 import { putCached } from "./cache";
 import { ALERTS, alertText, Change, money, priceLabel, WATCHLIST, type TgAlert } from "./TgScreens";
-import { cleanError, useTg } from "./TgShell";
+import TgConnect, { useLinkedWallet } from "./TgConnect";
+import { useTg } from "./TgShell";
 import { ChartSkeleton } from "./TgSkeleton";
 import { useTgData } from "./useTgData";
 
@@ -201,30 +202,17 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
 }
 
 /**
- * Trading, non-custodial: the user's own wallet app signs. It needs PANDA's session — the one the first screen asks
- * for — and that is always the wallet this Telegram account linked with /link. Just looking, the card offers to sign
- * in. On a computer there is no wallet app to hand over to, so the only button is "Open in browser".
+ * Trading, non-custodial: the user's own wallet app signs every operation. It needs PANDA's session (one tap, on the
+ * first screen) and that wallet connected — always the one this Telegram account linked with /link. Just looking,
+ * the card offers to sign in. On a computer there is no wallet app to hand over to: the only button is "Open in browser".
  */
 function Trade({ coin }: { coin: Coin }) {
   const { t } = useLanguage();
   const { wallet: linked, phone, openExternal, authed, askLogin, logout } = useTg();
-  const { connected, publicKey, wallet } = useWallet();
-  const [error, setError] = useState<string | null>(null);
-  const address = connected ? publicKey?.toBase58() ?? null : null;
-
-  useEffect(() => {
-    const adapter = wallet?.adapter;
-    if (!adapter) return;
-    const onError = (e: Error) => setError(cleanError(e.message));
-    adapter.on("error", onError);
-    return () => {
-      adapter.off("error", onError);
-    };
-  }, [wallet]);
+  const { ready } = useLinkedWallet();
 
   const openWeb = () => openExternal(`${window.location.origin}/coin/${coin.mint}?draw=1`);
   const ghost = "min-h-12 w-full rounded-xl border border-paper/15 px-4 text-sm font-semibold text-paper/80";
-  const ready = phone && authed && !!address && address === linked;
 
   return (
     <section className="mt-4">
@@ -249,17 +237,15 @@ function Trade({ coin }: { coin: Coin }) {
                 </button>
               </>
             ) : (
-              <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-                <span className="min-w-0 truncate text-paper/80">{t("tg.login.signedIn", { address: truncateAddress(linked ?? address ?? "") })}</span>
-                <button type="button" onClick={logout} className="min-h-11 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
-                  {t("tg.login.logout")}
-                </button>
-              </div>
-            )}
-            {error && (
-              <p className="mt-2 text-xs leading-snug text-clay-red" role="alert">
-                {error}
-              </p>
+              <>
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate text-paper/80">{t("tg.login.signedIn", { address: truncateAddress(linked ?? "") })}</span>
+                  <button type="button" onClick={logout} className="min-h-11 shrink-0 px-2 font-semibold text-panda-grey underline underline-offset-2">
+                    {t("tg.login.logout")}
+                  </button>
+                </div>
+                <TgConnect />
+              </>
             )}
             <button type="button" onClick={openWeb} className={`${ghost} mt-3`}>
               {t("tg.wallet.browser")}

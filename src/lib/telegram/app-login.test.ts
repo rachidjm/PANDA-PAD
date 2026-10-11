@@ -1,26 +1,26 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import type { Db } from "@/lib/db/client";
 import { newTestDb } from "@/lib/db/testing";
+import { setDbForTests } from "@/lib/db/client";
 import { telegramUsers } from "@/lib/db/schema";
-import { pgSessionStatus } from "@/lib/db/sessions";
 import { tgUnlinkWallet } from "@/lib/db/telegram";
-import { consumeNonce, type NonceRecord } from "@/lib/auth/wallet-auth";
-import { APP_INIT_DATA_HEADER, APP_SESSION_HEADER, APP_SESSION_TTL_MS, appWalletSession, closeAppLogin, completeAppLogin, readAppToken, resumeAppLogin, startAppLogin, type LoginDeps } from "./app-login";
+import { eq } from "drizzle-orm";
+import { getSession, getSessionWallet } from "@/lib/auth/session";
+import { APP_INIT_DATA_HEADER, APP_INIT_DATA_MAX_AGE_MS, APP_SESSION_HEADER, APP_SESSION_IDLE_MS, APP_SESSION_MAX_MS, appSessionOf, appWalletSession, closeAppSession, startAppSession } from "./app-login";
 import { newUserId } from "./testing";
-import { readFileSync } from "node:fs";
 
 /**
- * The Mini App's PANDA session: valid only while the app is open (closing it ends it on the server), only for the wallet
- * linked to that Telegram account, only with Telegram's own signed data for that same account — and a trip to the
- * wallet app never loses it.
+ * PANDA's session in the Mini App: no wallet signature to sign in (Telegram proves the account, /link gives the
+ * wallet), 30 minutes from the last use, on the server so a reload loses nothing — and never enough to move money.
  */
 
 const TOKEN = "1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const DOMAIN = "launchonpanda.app";
 const T0 = 1_800_000_000_000;
 
 function signInitData(telegramId: number, at: number, token = TOKEN): string {
@@ -38,172 +38,169 @@ before(async () => {
   db = await newTestDb();
 });
 
-function world() {
+const world = () => {
   const clock = { t: T0 };
-  const memory = new Map<string, NonceRecord>();
-  const d: LoginDeps = {
-    db,
-    now: () => clock.t,
-    botToken: TOKEN,
-    nonces: {
-      store: async (n, r) => void memory.set(n, r),
-      read: async (n) => memory.get(n) ?? null,
-      burn: async (n, w) => {
-        const r = consumeNonce(memory.get(n) ?? null, w, clock.t);
-        if (r.next) memory.set(n, r.next);
-        return r.ok;
-      },
-    },
-  };
-  return { d, clock };
+  return { clock, d: { db, now: () => clock.t, botToken: TOKEN } };
+};
+const newWallet = () => bs58.encode(nacl.sign.keyPair().publicKey);
+async function user(wallet: string | null = newWallet()) {
+  const telegramId = newUserId() + 700_000;
+  await db.insert(telegramUsers).values({ telegramId, lang: "es", wallet, linkedAt: wallet ? T0 : null, createdAt: T0, updatedAt: T0 });
+  return { telegramId, wallet };
 }
 
-async function linkedUser() {
-  const keys = nacl.sign.keyPair();
-  const wallet = bs58.encode(keys.publicKey);
-  const telegramId = newUserId() + 500_000;
-  await db.insert(telegramUsers).values({ telegramId, lang: "es", wallet, linkedAt: T0, createdAt: T0, updatedAt: T0 });
-  const sign = (message: string) => bs58.encode(nacl.sign.detached(new TextEncoder().encode(message), keys.secretKey));
-  return { telegramId, wallet, sign };
-}
-
-async function signedIn() {
-  const w = world();
-  const u = await linkedUser();
-  const c = await startAppLogin(w.d, u.telegramId, DOMAIN);
-  assert.ok(c.ok);
-  const login = await completeAppLogin(w.d, { telegramId: u.telegramId, nonce: c.nonce, signature: u.sign(c.message), domain: DOMAIN });
-  assert.ok(login.ok);
-  return { ...w, u, login, initData: signInitData(u.telegramId, T0 - 5_000) };
-}
-
-test("signing in: PANDA's own sign-in message, for the wallet linked to that Telegram account, signed by that wallet", async () => {
+test("signing in asks the wallet for nothing: a Telegram account with a linked wallet gets a session as that wallet", async () => {
   const { d } = world();
-  const u = await linkedUser();
-  const c = await startAppLogin(d, u.telegramId, DOMAIN);
-  assert.ok(c.ok);
-  assert.equal(c.wallet, u.wallet);
-  assert.match(c.message, /^PANDA wants you to sign in with your Solana wallet\./);
-  assert.ok(c.message.includes(`Wallet: ${u.wallet}`) && c.message.includes(`Domain: ${DOMAIN}`));
-
-  const login = await completeAppLogin(d, { telegramId: u.telegramId, nonce: c.nonce, signature: u.sign(c.message), domain: DOMAIN });
-  assert.ok(login.ok);
-  assert.equal(login.wallet, u.wallet);
-  assert.equal(login.expiresAt, T0 + APP_SESSION_TTL_MS);
-  assert.ok(APP_SESSION_TTL_MS <= 6 * 3_600_000, "a few hours at most");
-  assert.deepEqual(readAppToken(login.token, TOKEN, T0), { jti: login.jti, telegramId: u.telegramId, wallet: u.wallet, expiresAt: login.expiresAt });
-
-  // One signature, one sign-in.
-  assert.deepEqual(await completeAppLogin(d, { telegramId: u.telegramId, nonce: c.nonce, signature: u.sign(c.message), domain: DOMAIN }), { ok: false, error: "invalid" });
+  const u = await user();
+  assert.equal(await appSessionOf(d, u.telegramId), null, "nobody is signed in until they say so");
+  const s = await startAppSession(d, u.telegramId);
+  assert.deepEqual(s, { ok: true, wallet: u.wallet, startedAt: T0, expiresAt: T0 + APP_SESSION_IDLE_MS });
+  assert.equal(APP_SESSION_IDLE_MS, 30 * 60_000);
+  assert.deepEqual(await appSessionOf(d, u.telegramId), { wallet: u.wallet, startedAt: T0, expiresAt: T0 + APP_SESSION_IDLE_MS });
 });
 
-test("no linked wallet: there is nothing to sign in with", async () => {
+test("no linked wallet, no session", async () => {
   const { d } = world();
-  const telegramId = newUserId() + 500_000;
-  assert.deepEqual(await startAppLogin(d, telegramId, DOMAIN), { ok: false, error: "not_linked" });
-  assert.deepEqual(await completeAppLogin(d, { telegramId, nonce: "0".repeat(32), signature: "x", domain: DOMAIN }), { ok: false, error: "not_linked" });
+  const u = await user(null);
+  assert.deepEqual(await startAppSession(d, u.telegramId), { ok: false, error: "not_linked" });
+  assert.equal(await appSessionOf(d, u.telegramId), null);
 });
 
-test("another wallet's signature, another account's challenge, another site's message and a late signature are all refused", async () => {
+test("it lasts 30 minutes from the last use — through a reload, the wallet app, a locked phone — and no longer", async () => {
   const { d, clock } = world();
-  const u = await linkedUser();
-  const other = await linkedUser();
+  const u = await user();
+  await startAppSession(d, u.telegramId);
 
-  // Signed by a wallet that isn't the linked one.
-  const c1 = await startAppLogin(d, u.telegramId, DOMAIN);
-  assert.ok(c1.ok);
-  assert.deepEqual(await completeAppLogin(d, { telegramId: u.telegramId, nonce: c1.nonce, signature: other.sign(c1.message), domain: DOMAIN }), { ok: false, error: "invalid" });
-  // Another Telegram account presenting this account's challenge (its own linked wallet doesn't match the challenge's).
-  assert.deepEqual(await completeAppLogin(d, { telegramId: other.telegramId, nonce: c1.nonce, signature: other.sign(c1.message), domain: DOMAIN }), { ok: false, error: "invalid" });
-  // The same words signed for another site.
-  assert.deepEqual(await completeAppLogin(d, { telegramId: u.telegramId, nonce: c1.nonce, signature: u.sign(c1.message), domain: "evil.example" }), { ok: false, error: "invalid" });
-  // Too late.
-  const c2 = await startAppLogin(d, u.telegramId, DOMAIN);
-  assert.ok(c2.ok);
-  clock.t = c2.expiresAt + 1;
-  assert.deepEqual(await completeAppLogin(d, { telegramId: u.telegramId, nonce: c2.nonce, signature: u.sign(c2.message), domain: DOMAIN }), { ok: false, error: "invalid" });
-  // Garbage.
-  for (const bad of [{ nonce: "nope", signature: "x" }, { nonce: c1.nonce, signature: 5 }, { nonce: c1.nonce, signature: "0OIl" }]) {
-    assert.equal((await completeAppLogin(d, { telegramId: u.telegramId, ...bad, domain: DOMAIN })).ok, false);
+  // 29 minutes away (in the wallet app, phone locked, Telegram reloading the Mini App): nothing was kept on the phone,
+  // so there was nothing to lose. The session is found again from Telegram's own data — and that is a use.
+  clock.t = T0 + 29 * 60_000;
+  const fresh = signInitData(u.telegramId, clock.t); // a reopened app carries NEW data from Telegram
+  assert.deepEqual(await appWalletSession(d, fresh), { wallet: u.wallet, telegramId: u.telegramId, issuedAt: T0 });
+  // …so 29 more minutes later it is still live,
+  clock.t += 29 * 60_000;
+  assert.ok(await appSessionOf(d, u.telegramId));
+  // but 30 minutes with no use at all ends it, and then nothing brings it back but signing in again.
+  clock.t += APP_SESSION_IDLE_MS;
+  assert.equal(await appSessionOf(d, u.telegramId), null);
+  assert.equal(await appWalletSession(d, signInitData(u.telegramId, clock.t)), null);
+  clock.t += 1000;
+  assert.equal(await appSessionOf(d, u.telegramId), null);
+  assert.equal((await startAppSession(d, u.telegramId)).ok, true);
+  assert.ok(await appSessionOf(d, u.telegramId));
+});
+
+test("just asking without counting it as a use does not keep it alive, and there is a hard end even with constant use", async () => {
+  const { d, clock } = world();
+  const u = await user();
+  await startAppSession(d, u.telegramId);
+  clock.t = T0 + 20 * 60_000;
+  assert.equal((await appSessionOf(d, u.telegramId, false))?.expiresAt, T0 + APP_SESSION_IDLE_MS);
+  clock.t = T0 + 31 * 60_000;
+  assert.equal(await appSessionOf(d, u.telegramId, false), null);
+
+  const v = await user();
+  clock.t = T0;
+  await startAppSession(d, v.telegramId);
+  for (clock.t = T0; clock.t < T0 + APP_SESSION_MAX_MS; clock.t += 20 * 60_000) assert.ok(await appSessionOf(d, v.telegramId), "used every 20 minutes");
+  assert.equal(await appSessionOf(d, v.telegramId), null, "twelve hours at the very most");
+});
+
+test("sign out ends it at once", async () => {
+  const { d } = world();
+  const u = await user();
+  await startAppSession(d, u.telegramId);
+  assert.equal(await closeAppSession(d, u.telegramId), true);
+  assert.equal(await appSessionOf(d, u.telegramId), null);
+  assert.equal(await appWalletSession(d, signInitData(u.telegramId, T0)), null);
+  assert.equal(await closeAppSession(d, u.telegramId), false);
+});
+
+test("another Telegram account, forged or foreign Telegram data, and another wallet are all refused", async () => {
+  const { d, clock } = world();
+  const u = await user();
+  const other = await user();
+  await startAppSession(d, u.telegramId);
+
+  // Another account has no session of its own, whatever this one did.
+  assert.equal(await appWalletSession(d, signInitData(other.telegramId, T0)), null);
+  // Telegram's data that Telegram didn't sign (another bot's token, an edited user id, nothing at all).
+  assert.equal(await appWalletSession(d, signInitData(u.telegramId, T0, "999:another-bot")), null);
+  assert.equal(await appWalletSession(d, signInitData(other.telegramId, T0).replace(String(other.telegramId), String(u.telegramId))), null);
+  for (const junk of [null, undefined, "", "user=%7B%22id%22%3A1%7D&hash=00", 42]) assert.equal(await appWalletSession(d, junk), null);
+  // Telegram's data from an opening of the app more than a day ago.
+  clock.t = T0 + 60_000;
+  assert.equal(await appWalletSession(d, signInitData(u.telegramId, clock.t - APP_INIT_DATA_MAX_AGE_MS - 1000)), null);
+
+  // The wallet is ONLY ever the linked one: unlink it, or link another, and the session is over.
+  assert.ok(await appWalletSession(d, signInitData(u.telegramId, clock.t)));
+  await db.update(telegramUsers).set({ wallet: newWallet() }).where(eq(telegramUsers.telegramId, u.telegramId));
+  assert.equal(await appWalletSession(d, signInitData(u.telegramId, clock.t)), null, "another wallet linked: not the session's wallet any more");
+  assert.equal(await appSessionOf(d, u.telegramId), null);
+  await startAppSession(d, other.telegramId);
+  await tgUnlinkWallet(db, other.telegramId, clock.t);
+  assert.equal(await appSessionOf(d, other.telegramId), null);
+});
+
+test("on the website's routes the session exists ONLY where a route asks for it by name; everywhere else it is nobody", async () => {
+  const saved = { ...process.env };
+  Object.assign(process.env, { FEATURE_TELEGRAM_BOT: "true", FEATURE_TELEGRAM_MINIAPP: "true", TELEGRAM_BOT_TOKEN: TOKEN });
+  setDbForTests(db);
+  try {
+    const u = await user();
+    await startAppSession({ db, now: Date.now }, u.telegramId);
+    const req = (initData: string | null) => new Request("https://launchonpanda.app/api/x", { headers: { [APP_SESSION_HEADER]: "1", ...(initData ? { [APP_INIT_DATA_HEADER]: initData } : {}) } });
+    const good = signInitData(u.telegramId, Date.now());
+
+    assert.equal(await getSessionWallet(req(good), { linked: true }), u.wallet);
+    assert.equal((await getSession(req(good), { linked: true }))?.via, "telegram");
+    // The default — every route that doesn't opt in (claims, rewards, referrals, the market, /admin): no session at all.
+    assert.equal(await getSessionWallet(req(good)), null);
+    assert.equal(await getSession(req(good)), null);
+    // And where it is accepted, only with Telegram's real data.
+    assert.equal(await getSessionWallet(req(null), { linked: true }), null);
+    assert.equal(await getSessionWallet(req(signInitData(u.telegramId, Date.now(), "999:another-bot")), { linked: true }), null);
+    // With the Mini App off, it is nobody everywhere.
+    process.env.FEATURE_TELEGRAM_MINIAPP = "false";
+    assert.equal(await getSessionWallet(req(good), { linked: true }), null);
+  } finally {
+    setDbForTests(null);
+    for (const k of ["FEATURE_TELEGRAM_BOT", "FEATURE_TELEGRAM_MINIAPP", "TELEGRAM_BOT_TOKEN"]) delete process.env[k];
+    Object.assign(process.env, saved);
   }
 });
 
-test("every request: the session, Telegram's signed data for the same account, the live row and the linked wallet", async () => {
-  const { d, clock, u, login, initData } = await signedIn();
-  const s = await appWalletSession(d, login.token, initData);
-  assert.deepEqual(s, { wallet: u.wallet, telegramId: u.telegramId, jti: login.jti, issuedAt: T0 });
+test("no action with money without the wallet's signature: the only routes that accept this session are ones where every change is a signed transaction or the chain's word", () => {
+  // Every file under src that passes `linked: true` — the complete list of places the Mini App's session is somebody.
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const p = path.join(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(name) && !/\.test\.ts$/.test(name) && /getSession(Wallet)?\(req, \{ linked: true \}\)/.test(readFileSync(p, "utf8").replace(/^\s*(\/\/|\*).*$/gm, ""))) files.push(p.replace(/\\/g, "/"));
+    }
+  };
+  walk("src");
+  assert.deepEqual(files.sort(), ["src/app/api/auth/session/route.ts", "src/app/api/strategy/list/route.ts", "src/lib/panda-orders/route.ts", "src/lib/strategy/route.ts"]);
 
-  // Without Telegram's data, with data that fails its signature, or with another account's data: no session.
-  assert.equal(await appWalletSession(d, login.token, null), null);
-  assert.equal(await appWalletSession(d, login.token, signInitData(u.telegramId, T0, "999:other-bot-token")), null);
-  const stranger = await linkedUser();
-  assert.equal(await appWalletSession(d, login.token, signInitData(stranger.telegramId, T0)), null);
-  // A token that was altered — another wallet, another account, a later expiry — fails its own signature.
-  const parts = login.token.split(".");
-  for (const [i, v] of [[2, String(stranger.telegramId)], [3, stranger.wallet], [4, String(login.expiresAt + 1)]] as const) {
-    const forged = parts.map((p, k) => (k === i ? v : p)).join(".");
-    assert.equal(readAppToken(forged, TOKEN, T0), null);
-    assert.equal(await appWalletSession(d, forged, initData), null);
-  }
-  assert.equal(await appWalletSession(d, "nonsense", initData), null);
+  // The two reads change nothing.
+  for (const f of ["src/app/api/auth/session/route.ts", "src/app/api/strategy/list/route.ts"]) assert.doesNotMatch(readFileSync(f, "utf8"), /export async function (POST|PUT|PATCH|DELETE)/, f);
 
-  // It lasts while the app is open — but never more than its few hours, even if the app is never closed.
-  clock.t = T0 + APP_SESSION_TTL_MS - 60_000;
-  assert.ok(await appWalletSession(d, login.token, initData));
-  clock.t = T0 + APP_SESSION_TTL_MS + 1;
-  assert.equal(await appWalletSession(d, login.token, initData), null);
-});
+  // PANDA orders — create, change, cancel: each is a transaction the wallet signs, checked against what the server
+  // built, or a fact read back from the chain. The session alone changes nothing.
+  const read = (f: string) => readFileSync(f, "utf8");
+  assert.match(read("src/app/api/panda-orders/submit/route.ts"), /signed by this wallet/);
+  assert.match(read("src/app/api/panda-orders/submit/route.ts"), /signed: b\.signed/);
+  assert.match(read("src/app/api/panda-orders/modify/submit/route.ts"), /advance: b\.advance, signed: b\.signed/);
+  assert.match(read("src/app/api/panda-orders/close/route.ts"), /The wallet signs and sends it/);
+  assert.match(read("src/app/api/panda-orders/closed/route.ts"), /marks what the CHAIN shows as closed/);
+  // Strategies: every write also needs Jupiter's own session — which only the wallet's signature gives.
+  assert.match(read("src/lib/strategy/route.ts"), /JUPITER_AUTH_REQUIRED/);
 
-test("closing the app ends the session on the server: the same token is refused afterwards, and nothing brings it back", async () => {
-  const { d, login, initData, u } = await signedIn();
-  assert.ok(await appWalletSession(d, login.token, initData));
-  assert.equal(await closeAppLogin(d, login.token), true);
-  assert.equal(await appWalletSession(d, login.token, initData), null);
-  assert.equal(await pgSessionStatus(db, login.jti, u.wallet, T0), "revoked");
-  assert.deepEqual(await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: login.resume }), { ok: false, error: "invalid" });
-  assert.equal(await closeAppLogin(d, login.token), false);
-  assert.equal(await closeAppLogin(d, "nonsense"), false);
-});
-
-test("unlinking the wallet (or linking another) ends the session at once", async () => {
-  const { d, login, initData, u } = await signedIn();
-  await tgUnlinkWallet(db, u.telegramId, T0);
-  assert.equal(await appWalletSession(d, login.token, initData), null);
-  assert.equal((await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: login.resume })).ok, false);
-});
-
-test("back from the wallet: the session is still there, and if Telegram restarted the app the one-time ticket returns the same one", async () => {
-  const { d, clock, login, initData, u } = await signedIn();
-  // Two minutes in the wallet app: nothing was closed, the session simply still works.
-  clock.t = T0 + 2 * 60_000;
-  assert.ok(await appWalletSession(d, login.token, initData));
-
-  // Telegram started the app again (new initData, empty memory): the ticket brings back the SAME session, same expiry.
-  const fresh = signInitData(u.telegramId, clock.t);
-  const back = await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: login.resume });
-  assert.ok(back.ok);
-  assert.equal(back.jti, login.jti);
-  assert.equal(back.expiresAt, login.expiresAt);
-  assert.deepEqual(await appWalletSession(d, back.token, fresh), { wallet: u.wallet, telegramId: u.telegramId, jti: login.jti, issuedAt: T0 });
-
-  // The ticket works once; another account can't use one; a wrong one is refused.
-  assert.equal((await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: login.resume })).ok, false);
-  const stranger = await linkedUser();
-  assert.equal((await resumeAppLogin(d, { telegramId: stranger.telegramId, jti: login.jti, resume: back.resume })).ok, false);
-  assert.equal((await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: "x".repeat(32) })).ok, false);
-  assert.equal((await resumeAppLogin(d, { telegramId: u.telegramId, jti: "nope", resume: back.resume })).ok, false);
-  // And never past the session's own end.
-  clock.t = login.expiresAt + 1;
-  assert.equal((await resumeAppLogin(d, { telegramId: u.telegramId, jti: login.jti, resume: back.resume })).ok, false);
-});
-
-test("the session travels in a header and never in a cookie or in the browser's storage", () => {
-  assert.equal(APP_SESSION_HEADER, "x-panda-app-session");
-  assert.equal(APP_INIT_DATA_HEADER, "x-tg-init-data");
-  const auth = readFileSync("src/lib/auth/session.ts", "utf8");
-  assert.ok(auth.includes(`const APP_SESSION_HEADER = "${APP_SESSION_HEADER}"`), "session.ts reads the same header");
-  const route = readFileSync("src/app/api/tg/login/route.ts", "utf8");
-  assert.ok(!/cookies\.set|Set-Cookie/i.test(route), "the sign-in route sets no cookie");
-  const client = readFileSync("src/components/tg/session.ts", "utf8");
-  assert.ok(!/(localStorage|sessionStorage)[^\n]*token/i.test(client) && !/document\.cookie/.test(client), "the app keeps the session in memory only");
+  // Buying, selling and launching are transactions the wallet signs and sends itself; their routes only BUILD them
+  // and don't take a session at all. And the sign-in routes of the Mini App hold no signing key and send nothing.
+  for (const f of ["src/app/api/pump/buy/route.ts", "src/app/api/pump/create/route.ts"]) assert.doesNotMatch(read(f), /getSession/, f);
+  for (const f of ["src/lib/telegram/app-login.ts", "src/app/api/tg/login/route.ts"]) assert.doesNotMatch(read(f), /sendTransaction|sendRawTransaction|Keypair|secretKey|signTransaction/, f);
+  // The headers the session travels in are the same on both sides.
+  assert.ok(read("src/lib/auth/session.ts").includes(`const APP_SESSION_HEADER = "${APP_SESSION_HEADER}"`));
+  assert.ok(read("src/components/tg/session.ts").includes(`const HEADER = "${APP_SESSION_HEADER}"`) && read("src/components/tg/session.ts").includes(`const INIT_DATA_HEADER = "${APP_INIT_DATA_HEADER}"`));
 });

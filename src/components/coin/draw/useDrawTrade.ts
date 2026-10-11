@@ -49,6 +49,7 @@ import { TERMINAL, type StrategyRecord } from "@/lib/strategy/types";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { groupOrders, LIVE, type OrdersList } from "@/lib/panda-orders/client-types";
 import { closeError, closeFailureCode } from "@/lib/panda-orders/close-errors";
+import { noteContinuation } from "@/lib/wallet/deeplink/ops";
 import { accessFromStatus, pandaAccessFor, type PandaAccess } from "@/lib/panda-orders/access-state";
 
 /**
@@ -1005,6 +1006,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         }
         setStep("signOrders");
         const txs = p.orders.map((o) => base64ToVersionedTransaction(o.transaction));
+        // For the Telegram Mini App only (no effect on the website): where the signed orders go if the app is reopened while the wallet has the screen.
+        noteContinuation([{ url: "/api/panda-orders/submit", body: { groupId: d.id }, put: "orders", ids: p.orders.map((o) => o.id) }]);
         const signed = signAllTransactions ? await signAllTransactions(txs) : await signOneByOne(txs, signTransaction);
         setStep("create");
         const orders = p.orders;
@@ -1153,6 +1156,8 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         // Whatever the server refuses is SAID (closeError): this never ends in silence. The list is read again first, so
         // what is on screen is what is really there.
         if (!res.ok) throw new ApiError(data.error ?? "", closeFailureCode(res.status, data.code), undefined, undefined, data.detail);
+        // For the Telegram Mini App only (no effect on the website): what confirms the close if the app is reopened meanwhile.
+        noteContinuation([{ url: "/api/panda-orders/closed", body: { nonceAccounts: data.nonceAccounts }, confirmed: true }]);
         await sendAndConfirm(data.transaction);
         await fetch("/api/panda-orders/closed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonceAccounts: data.nonceAccounts }) }).catch(() => undefined);
         await refreshPanda();

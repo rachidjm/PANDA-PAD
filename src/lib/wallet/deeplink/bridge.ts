@@ -13,12 +13,8 @@ export class DeepLinkFlowError extends Error {
   }
 }
 
-/**
- * `opened`: the wallet's link was already opened when the sheet appears. `auto`: it was opened WITHOUT a tap (the second
- * step of signing in, straight after connecting) — Telegram may have ignored it, so the sheet offers its button again
- * if the app is still on screen a moment later.
- */
-export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign" | "login"; url: string; opened: boolean; auto?: boolean };
+/** `opened`: the wallet's link was already opened (inside the tap) when the sheet appears. */
+export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign"; url: string; opened: boolean };
 /** The sheet the Mini App shows during a wallet step. `ready` resolves once the wallet link has been opened by a tap. */
 export type WalletStepUi = { ready: Promise<void>; cancelled: () => boolean; end: (outcome: "ok" | "error" | "timeout") => void };
 
@@ -33,8 +29,8 @@ export type DeepLinkBridge = {
   /** The message for a failure, in the app's language. */
   text: (code: FlowCode) => string;
   begin: (step: WalletStep) => WalletStepUi;
-  /** Where the wallet should bring the user back to (the coin being looked at), or null. */
-  back: () => string | null;
+  /** The screen the request is made from: where another copy of the app goes to finish it (./ops.ts). */
+  path: () => string;
 };
 let bridge: DeepLinkBridge | null = null;
 export function setDeepLinkBridge(b: DeepLinkBridge | null): void {
@@ -44,14 +40,3 @@ export const deepLinkBridge = (): DeepLinkBridge | null => bridge;
 
 export const DEEPLINK_WALLET_NAMES: Record<DeepLinkProvider, string> = { phantom: "Phantom · Telegram", solflare: "Solflare · Telegram" };
 export const deepLinkProviders: DeepLinkProvider[] = ["phantom", "solflare"];
-
-/** A sign-in whose signature is on its way (where its answer will be, which challenge it answers). Not a session. */
-export const LOGIN_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.signin`;
-/** True when a sign-in was in the wallet app the last time this page was alive: the start then waits for the wallet code to look for its answer. */
-export function hasPendingLogin(): boolean {
-  try {
-    return deepLinkProviders.some((p) => !!localStorage.getItem(LOGIN_KEY(p)));
-  } catch {
-    return false;
-  }
-}

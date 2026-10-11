@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db/client";
 import { sameOrigin } from "@/lib/auth/session";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { tgDeleteState, tgGetState, tgSetState } from "@/lib/db/telegram";
-import { cleanRelayAnswer, isRelayId, miniappEnabled, relayKey, RELAY_TTL_MS, type RelaySlot } from "@/lib/telegram/miniapp";
+import { isRelayId, leaveRelayAnswer, miniappEnabled, relayKey, RELAY_TTL_MS, type RelaySlot } from "@/lib/telegram/miniapp";
 import { appGate, noStore } from "@/lib/telegram/miniapp-route";
 
 /**
@@ -12,7 +12,8 @@ import { appGate, noStore } from "@/lib/telegram/miniapp-route";
  *   POST  the Mini App says "slot <id> is mine" (best effort: the phone may freeze it before this is sent).
  *   PUT   the page the wallet app comes back to (in the phone's browser) leaves the answer — once. It is accepted even
  *         if the POST never arrived: the id is a 192-bit secret that only the Mini App which made it knows.
- *   GET   the Mini App collects the answer — once. A slot that belongs to another Telegram account is never given.
+ *   GET   the Mini App collects the answer (it stays until the slot expires, a few minutes). A slot that belongs to
+ *         another Telegram account is never given.
  */
 export async function POST(req: Request) {
   const g = await appGate(req, 60, "relay-open");
@@ -35,14 +36,9 @@ export async function PUT(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Forbidden origin." }, { status: 403 });
   if (await rateLimited(`tg-relay:ip:${clientIp(req)}`, 30, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   const body = (await req.json().catch(() => null)) as { id?: unknown; answer?: unknown } | null;
-  const id = body?.id;
-  const answer = cleanRelayAnswer(body?.answer);
-  if (!isRelayId(id) || !answer) return NextResponse.json({ error: "invalid", code: "invalid" }, { status: 400 });
-  const db = getDb();
-  const now = Date.now();
-  const slot = await tgGetState<RelaySlot>(db, relayKey(id));
-  if (slot && (slot.expiresAt <= now || slot.answer)) return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
-  await tgSetState(db, relayKey(id), { telegramId: slot?.telegramId ?? null, expiresAt: slot?.expiresAt ?? now + RELAY_TTL_MS, answer } satisfies RelaySlot, now);
+  const r = await leaveRelayAnswer(getDb(), body?.id, body?.answer, Date.now());
+  if (r === "invalid") return NextResponse.json({ error: "invalid", code: "invalid" }, { status: 400 });
+  if (r === "gone") return NextResponse.json({ error: "gone", code: "gone" }, { status: 410 });
   return NextResponse.json({ ok: true }, noStore);
 }
 
@@ -62,6 +58,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ pending: true }, noStore);
   }
   if (!slot.answer) return NextResponse.json({ pending: true }, noStore);
-  await tgDeleteState(db, relayKey(id));
+  // Not removed on reading: coming back from the wallet, Telegram may open a second copy of the app, and whichever
+  // copy is on screen must find it. It is encrypted for a key only this phone holds, and gone when the slot expires.
   return NextResponse.json({ answer: slot.answer }, noStore);
 }

@@ -23,6 +23,7 @@ import { currentOf, fmtMetric, isCrossed, MAX_ALERTS, MAX_WATCH, parseAlertSpec 
 import type { TelegramConfig } from "./config";
 import { pandaMint } from "./config";
 import { createLinkCode, walletKey } from "./link";
+import { LINK_LIMIT, LINK_WAIT_MINUTES, LINK_WINDOW_MS, linkPageUrl } from "./link-limit";
 import type { CoinInfo, Market } from "./market";
 import { esc, price, shortAddr, tt, usd } from "./text";
 
@@ -334,9 +335,10 @@ async function alertsList(d: BotDeps, m: Incoming): Promise<void> {
 }
 
 async function link(d: BotDeps, m: Incoming): Promise<void> {
-  if (await d.isLimited(`tg:link:${m.fromId}`, 5, 3_600_000)) return say(d, m, tt(m.lang, "linkTooMany"));
+  // Only asking for a link counts (this command and the "start=link" deep link) — never a plain /start.
+  if (await d.isLimited(`tg:link:${m.fromId}`, LINK_LIMIT, LINK_WINDOW_MS)) return say(d, m, tt(m.lang, "linkTooMany", { minutes: LINK_WAIT_MINUTES }));
   const { code } = await createLinkCode(d.db, m.fromId, d.now());
-  await say(d, m, tt(m.lang, "linkIntro", { domain: d.cfg.domain }), [{ text: tt(m.lang, "linkButton"), url: `${d.cfg.siteUrl}/telegram/link?code=${code}` }]);
+  await say(d, m, tt(m.lang, "linkIntro", { domain: d.cfg.domain }), [{ text: tt(m.lang, "linkButton"), url: linkPageUrl(d.cfg.siteUrl, code) }]);
 }
 
 async function unlink(d: BotDeps, m: Incoming): Promise<void> {

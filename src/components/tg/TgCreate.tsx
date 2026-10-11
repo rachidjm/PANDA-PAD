@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { clearPendingLaunch, notePendingLaunch } from "./launch";
-import { holdSession } from "./session";
+import TgConnect, { useLinkedWallet } from "./TgConnect";
 import { useTg } from "./TgShell";
 import { ScreenSkeleton } from "./TgSkeleton";
 
@@ -19,23 +18,24 @@ const CreateClient = dynamic(() => import("@/app/create/CreateClient"), { ssr: f
  */
 export default function TgCreate({ minFirstBuySol }: { minFirstBuySol: number }) {
   const { t } = useLanguage();
-  const { authed, phone, wallet: linked, askLogin, openExternal } = useTg();
-  const { connected, publicKey } = useWallet();
-  const ready = phone && authed && connected && !!linked && publicKey?.toBase58() === linked;
+  const { authed, phone, askLogin, openExternal } = useTg();
+  const { ready } = useLinkedWallet();
 
   if (!ready) {
     return (
       <div>
         <h1 className="font-display text-xl font-bold">{t("tg.create.title")}</h1>
         <div className="mt-3 rounded-2xl border border-paper/10 bg-ink-raised p-4">
-          <p className="text-sm leading-relaxed text-paper/80">{t(phone ? "tg.create.login" : "tg.create.desktop")}</p>
-          {phone ? (
-            <button type="button" onClick={askLogin} className="mt-3 min-h-12 w-full rounded-xl bg-bamboo px-4 text-sm font-bold text-ink">
-              {t("tg.create.loginButton")}
-            </button>
-          ) : (
+          <p className="text-sm leading-relaxed text-paper/80">{t(!phone ? "tg.create.desktop" : authed ? "tg.create.connect" : "tg.create.login")}</p>
+          {!phone ? (
             <button type="button" onClick={() => openExternal(`${window.location.origin}/create`)} className="mt-3 min-h-12 w-full rounded-xl bg-paper px-4 text-sm font-bold text-ink">
               {t("tg.wallet.browser")}
+            </button>
+          ) : authed ? (
+            <TgConnect />
+          ) : (
+            <button type="button" onClick={askLogin} className="mt-3 min-h-12 w-full rounded-xl bg-bamboo px-4 text-sm font-bold text-ink">
+              {t("tg.create.loginButton")}
             </button>
           )}
         </div>
@@ -47,10 +47,6 @@ export default function TgCreate({ minFirstBuySol }: { minFirstBuySol: number })
     <div
       // "Launch" stays above the app's own bottom bar and the phone's home bar.
       style={{ "--create-bar-bottom": "calc(61px + var(--safe-bottom))" } as React.CSSProperties}
-      // Choosing the picture hands the screen to the phone's gallery or camera for a moment: that is not leaving the app.
-      onClickCapture={(e) => {
-        if (e.target instanceof HTMLInputElement && e.target.type === "file") holdSession();
-      }}
     >
       <CreateClient minFirstBuySol={minFirstBuySol} coinHref={(mint) => `/tg/coin/${mint}`} onSigning={notePendingLaunch} onLaunched={clearPendingLaunch} />
       <p className="mt-3 text-center text-[11px] leading-snug text-panda-grey">{t("tg.create.signNote")}</p>

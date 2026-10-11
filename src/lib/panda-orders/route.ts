@@ -19,7 +19,8 @@ export async function guardOrders(req: Request, name: string, limit: number, opt
     if (paused) return paused;
     if (!sameOrigin(req)) return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
   }
-  const wallet = await getSessionWallet(req);
+  // Also the Mini App's session: nothing here changes without a transaction the wallet signs or what the chain shows.
+  const wallet = await getSessionWallet(req, { linked: true });
   if (!wallet) return NextResponse.json({ error: "Sign in required.", code: "AUTH_REQUIRED" }, { status: 401 });
   // Rollout: only the admins and PANDA_ORDERS_ALLOWLIST until it's opened to everyone (access.ts).
   if (!ordersAllowed(wallet)) return NextResponse.json({ error: "PANDA orders aren't available for this wallet yet.", code: "NOT_ALLOWED" }, { status: 403 });

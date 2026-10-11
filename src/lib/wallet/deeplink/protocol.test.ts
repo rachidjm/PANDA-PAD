@@ -106,11 +106,11 @@ test("relay ids are 32 URL-safe characters of fresh randomness", () => {
   for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{32}$/);
 });
 
-test("the way back: the slot and the coin travel in the PATH, and the wallet's answer is read however it was attached", () => {
+test("the way back: the slot travels in the PATH, and the wallet's answer is read however it was attached", () => {
   const mint = "zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda";
   const id = "A".repeat(32);
-  assert.equal(redirectUrl("https://launchonpanda.app", "solflare", id, mint), `https://launchonpanda.app/telegram/wallet/solflare/${id}/${mint}`);
-  assert.equal(redirectUrl("https://launchonpanda.app/", "phantom", id, "../../admin"), `https://launchonpanda.app/telegram/wallet/phantom/${id}`, "only a coin address goes in");
+  assert.equal(redirectUrl("https://launchonpanda.app", "solflare", id), `https://launchonpanda.app/telegram/wallet/solflare/${id}`);
+  assert.equal(redirectUrl("https://launchonpanda.app/", "phantom", id), `https://launchonpanda.app/telegram/wallet/phantom/${id}`, "nothing but the wallet and the slot: the screen to go back to is noted on the phone");
   assert.deepEqual(parseReturnPath(`/telegram/wallet/solflare/${id}/${mint}`), { provider: "solflare", relayId: id, back: mint });
   assert.deepEqual(parseReturnPath(`/telegram/wallet/phantom/${id}`), { provider: "phantom", relayId: id, back: null });
   for (const bad of ["/telegram/wallet", `/telegram/wallet/metamask/${id}`, "/telegram/wallet/phantom/short", `/telegram/wallet/phantom/${id}/not a coin`, `/admin/${id}`]) assert.equal(parseReturnPath(bad), null, bad);

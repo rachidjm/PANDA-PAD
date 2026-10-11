@@ -39,19 +39,26 @@ function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-export type Session = { wallet: string; issuedAt: number; jti?: string };
+export type Session = { wallet: string; issuedAt: number; jti?: string; via?: "telegram" };
+
+/**
+ * `linked`: this route also accepts the Telegram Mini App's session — the wallet a Telegram account linked, with no
+ * wallet signature behind the session itself (src/lib/telegram/app-login.ts). ONLY for routes where that is enough:
+ * reading the wallet's own orders, and steps in which every change is a transaction the wallet signs or a fact read
+ * back from the chain. Everything else leaves it out, and the Mini App's session does not exist there.
+ */
+export type SessionOptions = { linked?: boolean };
 
 /** The wallet this request has proven it controls, or null. */
-export async function getSessionWallet(req: Request): Promise<string | null> {
-  return (await getSession(req))?.wallet ?? null;
+export async function getSessionWallet(req: Request, opts: SessionOptions = {}): Promise<string | null> {
+  return (await getSession(req, opts))?.wallet ?? null;
 }
 
 /** The wallet and the time it last signed in, or null. Checks revocation according to the `sessions` mode (see above). */
-export async function getSession(req: Request): Promise<Session | null> {
-  // The Telegram Mini App's session travels in a header, never in a cookie. A request that carries that header is judged
-  // by it alone: a cookie left in the same browser never stands in for a Mini App session that has ended.
-  const app = req.headers.get(APP_SESSION_HEADER);
-  if (app !== null) return appSession(req, app);
+export async function getSession(req: Request, opts: SessionOptions = {}): Promise<Session | null> {
+  // The Telegram Mini App's session travels in headers, never in a cookie. A request that carries them is judged by
+  // them alone (a cookie left in the same browser never stands in), and only on a route that accepts that session.
+  if (req.headers.get(APP_SESSION_HEADER) !== null) return opts.linked ? appSession(req) : null;
   const secret = sessionSecret();
   if (!secret) return null;
   const parsed = readSessionToken(readCookie(req, SESSION_COOKIE), secret, Date.now());
@@ -74,13 +81,13 @@ export async function getSession(req: Request): Promise<Session | null> {
 
 const APP_SESSION_HEADER = "x-panda-app-session"; // src/lib/telegram/app-login.ts (kept in step by a test)
 
-/** The Mini App's session (src/lib/telegram/app-login.ts): its token, Telegram's signed data, the live row and the linked wallet — all checked, every time. */
-async function appSession(req: Request, token: string): Promise<Session | null> {
+/** The Mini App's session (src/lib/telegram/app-login.ts): Telegram's signed data, that account's live session and its linked wallet — all checked, every time. */
+async function appSession(req: Request): Promise<Session | null> {
   try {
     const [{ appWalletSession, APP_INIT_DATA_HEADER }, { miniappEnabled }] = await Promise.all([import("@/lib/telegram/app-login"), import("@/lib/telegram/miniapp")]);
     if (!miniappEnabled()) return null;
-    const s = await appWalletSession({ db: getDb(), now: Date.now, botToken: process.env.TELEGRAM_BOT_TOKEN!.trim() }, token, req.headers.get(APP_INIT_DATA_HEADER));
-    return s ? { wallet: s.wallet, issuedAt: s.issuedAt, jti: s.jti } : null;
+    const s = await appWalletSession({ db: getDb(), now: Date.now, botToken: process.env.TELEGRAM_BOT_TOKEN!.trim() }, req.headers.get(APP_INIT_DATA_HEADER));
+    return s ? { wallet: s.wallet, issuedAt: s.issuedAt, via: "telegram" } : null;
   } catch (err) {
     console.error("[PANDA auth] mini app session lookup failed", err instanceof Error ? err.message : err);
     return null;

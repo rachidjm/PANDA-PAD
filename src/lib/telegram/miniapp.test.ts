@@ -106,7 +106,7 @@ test("PANDA's session: signed by the server, names a Telegram account, expires, 
 
 test("with the flag off the Mini App does not exist: every /api/tg route answers 404 and the page tree is closed", async () => {
   assert.equal(miniappEnabled(), false, "the test environment has the flag off, as production does");
-  const routes = ["session", "coins", "watchlist", "alerts", "relay"];
+  const routes = ["session", "coins", "watchlist", "alerts", "relay", "login", "link", "launch"];
   for (const r of routes) {
     const mod = (await import(`@/app/api/tg/${r}/route`)) as Record<string, (req: Request) => Promise<Response>>;
     for (const method of ["GET", "POST", "PUT", "DELETE"]) {
@@ -194,7 +194,7 @@ test("the wallet relay only ever stores what a wallet's redirect carries — sho
   assert.deepEqual(await tgGetState<RelaySlot>(db, relayKey("b".repeat(32))), slot);
 });
 
-test("the relay, end to end: the wallet's answer is kept even if it arrives BEFORE the Mini App could claim the slot, and is read once, by one account", async () => {
+test("the relay, end to end: the wallet's answer is kept even if it arrives BEFORE the Mini App could claim the slot, and only its own account reads it", async () => {
   const { setDbForTests } = await import("@/lib/db/client");
   const saved = { ...process.env };
   Object.assign(process.env, ON);
@@ -219,7 +219,9 @@ test("the relay, end to end: the wallet's answer is kept even if it arrives BEFO
     assert.equal((await put(a, answer)).status, 410, "filled once");
     assert.deepEqual(await get(a, eve), { pending: true }, "nothing for anyone else");
     assert.deepEqual(await get(a, ana), { answer });
-    assert.deepEqual(await get(a, ana), { pending: true }, "read once");
+    // Telegram may open a second copy of the app on the way back: whichever copy is on screen must find the answer too.
+    assert.deepEqual(await get(a, ana), { answer }, "still there for the other copy of the app");
+    assert.deepEqual(await get(a, eve), { pending: true }, "and still for nobody else");
 
     // 2) The phone froze the Mini App before it could claim the slot: the wallet's answer is still kept…
     const b = "d".repeat(32);
@@ -259,23 +261,25 @@ test("the wallet link is opened INSIDE the tap, and a signature waits for the us
   // Nothing is awaited before the link is opened: Telegram.WebApp.openLink only works inside a tap.
   assert.ok(connect.indexOf("b.openLink(url);") > 0 && !connect.slice(0, connect.indexOf("b.openLink(url);")).includes("await "));
   const request = adapter.slice(adapter.indexOf("  private async request<T>"), adapter.indexOf("  private openSlot"));
-  // A transaction's signature waits for the user's own tap on the sheet ("sheet" is the default); only the sign-in,
-  // started by a tap on "Connect and sign in", opens the wallet itself — and then before anything is awaited.
-  assert.ok(request.includes('const open = o.open ?? "sheet";') && request.includes('opened: open !== "sheet"') && request.includes("await ui.ready;"));
-  assert.ok(request.indexOf("b.openLink(url);") > 0 && !request.slice(0, request.indexOf("b.openLink(url);")).includes("await "));
-  assert.equal(adapter.split('{ kind: "login", open, onRelay').length, 2);
-  assert.equal((adapter.match(/onRelay: /g) ?? []).length, 1, "only signLogin passes options to a request: every other signature waits for the sheet's tap");
+  // Every signature waits for the user's own tap on the sheet: no code opens the wallet for a signature by itself.
+  assert.ok(request.includes('b.begin({ provider: this.provider, kind: "sign", url, opened: false })') && request.includes("await ui.ready;"));
+  assert.ok(!request.includes("b.openLink("), "a signature's link is opened by the sheet's button");
+  // What the request leaves written down before the wallet opens, so another copy of the app can finish it.
+  assert.ok(request.indexOf("saveOp(") > 0 && request.indexOf("saveOp(") < request.indexOf("await ui.ready;"));
   assert.match(adapter, /export const RELAY_WAIT_MS = 2 \* 60_000;/);
   const shell = readFileSync("src/components/tg/TgShell.tsx", "utf8");
   assert.ok(shell.includes("tg.openLink(url, { try_instant_view: false })"), "Telegram's official method");
   assert.ok(shell.includes("openExternal(step.url); // inside the tap on the sheet's button"));
+  // Signing in itself never opens the wallet: it is one request to PANDA.
+  const login = shell.slice(shell.indexOf("  const startLogin = useCallback("), shell.indexOf("  // ── linking a wallet, from the first screen"));
+  assert.ok(login.includes('api("/api/tg/login", { method: "POST" })') && !/openExternal|adapter|connect\(/.test(login));
   assert.ok(shell.includes('sheet.phase === "timeout"') && shell.includes('t("tg.wallet.browser")'), "after two minutes: what happened and 'Open in browser'");
   // The page keeps trading on the same panel, and a computer gets no button that can't work.
   const coinScreen = readFileSync("src/components/tg/TgCoin.tsx", "utf8");
-  const start = shell.slice(shell.indexOf("  function startLogin("), shell.indexOf("  const logout ="));
-  assert.ok(start.includes("await adapter.connect(); // opens the wallet before anything is awaited") && start.indexOf("adapter.connect()") < start.indexOf("select(name);"));
-  assert.ok(!start.slice(0, start.indexOf("adapter.restoreSaved()")).includes("await "), "the tap reaches the wallet with nothing awaited on the way");
-  assert.ok(coinScreen.includes("authed && !!address && address === linked"), "trading needs the app's session and the linked wallet");
+  const connectCard = readFileSync("src/components/tg/TgConnect.tsx", "utf8");
+  assert.ok(connectCard.includes("adapter?.connect()") && connectCard.indexOf("adapter?.connect()") < connectCard.indexOf("select(name);"), "the wallet opens inside the tap, before the wallet library is told");
+  assert.ok(connectCard.includes("ready: phone && authed && !!address && address === linked"), "signing needs the app's session and the linked wallet connected");
+  assert.ok(coinScreen.includes("{ready && (") && coinScreen.includes("<TradingPanel coin={coin} />"));
   assert.ok(coinScreen.includes("{!phone ? (") && coinScreen.includes('t("tg.wallet.desktop")'));
   assert.ok(coinScreen.includes("coin={drawOn ? coin : undefined}"), "Draw Your Trade is the website's own, on the same chart");
 });

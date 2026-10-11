@@ -2,7 +2,6 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { clearPendingLaunch, notePendingLaunch, pendingLaunch, takePendingLaunch } from "./launch";
-import { holdSession, inWalletTrip, releaseHold } from "./session";
 
 /** Creating a coin in the Mini App: the website's own form, and a launch is never left half-recorded. */
 
@@ -24,7 +23,7 @@ test("the create screen is the website's own form: same code, same rules, same s
   assert.ok(screen.includes("coinHref={(mint) => `/tg/coin/${mint}`}"), "the new coin opens inside the app");
   // Nothing about a launch is decided in the Mini App: no route, transaction or fee rule of its own.
   assert.doesNotMatch(screen, /api\/pump|upload-metadata|sendTransaction|shareBps|FeeDistribution/);
-  assert.ok(screen.includes("authed && connected && !!linked && publicKey?.toBase58() === linked"), "signed in, with the wallet linked to this Telegram account");
+  assert.ok(screen.includes("useLinkedWallet()") && readFileSync("src/components/tg/TgConnect.tsx", "utf8").includes("ready: phone && authed && !!address && address === linked"), "signed in, with the wallet linked to this Telegram account connected");
   const page = readFileSync("src/app/tg/create/page.tsx", "utf8");
   assert.ok(page.includes("createMinFirstBuySol()"), "the same minimum first buy as the website");
   // The website's form is what it was: the three openings are optional and it is called there without them.
@@ -33,17 +32,6 @@ test("the create screen is the website's own form: same code, same rules, same s
   assert.ok(readFileSync("src/app/create/page.tsx", "utf8").includes("<CreateClient minFirstBuySol={createMinFirstBuySol()} />"));
   assert.ok(form.includes('accept="image/gif,image/png,image/jpeg,image/webp"'), "a picture from the phone: its gallery or its camera");
   assert.ok(readFileSync("src/components/tg/TgShell.tsx", "utf8").includes('{ href: "/tg/create", label: "tg.nav.create"'), "Create is in the app's bar");
-});
-
-test("choosing the picture (gallery or camera over the app) does not end the session", () => {
-  assert.equal(inWalletTrip(T0), false);
-  holdSession(180_000, T0);
-  assert.equal(inWalletTrip(T0 + 60_000), true, "the phone's gallery covering the app is not leaving it");
-  assert.equal(inWalletTrip(T0 + 181_000), false, "but not for ever");
-  holdSession(180_000, T0);
-  releaseHold(); // the app is on screen again
-  assert.equal(inWalletTrip(T0 + 1), false);
-  assert.equal(disk.size, 0, "nothing is written for it");
 });
 
 test("a coin being created is written down as its public address only, for minutes", () => {

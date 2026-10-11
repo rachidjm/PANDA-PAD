@@ -99,9 +99,8 @@ export function newRelayId(): string {
  * "?…" to the end must not break an address that already had one. `back` is the coin being looked at, so the page can
  * send the user back to it inside Telegram.
  */
-export function redirectUrl(siteUrl: string, provider: DeepLinkProvider, relayId: string, back?: string | null): string {
-  const coin = back && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(back) ? `/${back}` : "";
-  return `${siteUrl.replace(/\/+$/, "")}/telegram/wallet/${provider}/${relayId}${coin}`;
+export function redirectUrl(siteUrl: string, provider: DeepLinkProvider, relayId: string): string {
+  return `${siteUrl.replace(/\/+$/, "")}/telegram/wallet/${provider}/${relayId}`;
 }
 
 /** What a return address says: which wallet, which relay slot, which coin to go back to. Null when it isn't one. */

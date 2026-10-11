@@ -459,26 +459,36 @@ Telegram cuando la app está a pantalla completa (`--tg-content-safe-area-inset-
 `applySafeAreas` y escucha `safeAreaChanged`, `contentSafeAreaChanged`, `fullscreenChanged` y `viewportChanged`. Si la
 app se abre a pantalla completa se deja el hueco arriba (no se sale de ese modo: lo decide quien configura el bot).
 
-**Inicio de sesión al entrar.** Dos sesiones distintas:
+**Inicio de sesión (sin firma).** Dos sesiones distintas:
 
 - La de Telegram (quién es esa cuenta, `initData` firmado): basta para mirar, watchlist y alertas.
-- La de PANDA (`src/lib/telegram/app-login.ts`, `src/components/tg/session.ts`): la de la wallet vinculada con /link.
-  La primera pantalla la pide ("Conectar e iniciar sesión"): la wallet firma el mensaje de inicio de sesión de PANDA
-  (el mismo de la web). Vive SOLO en la memoria de la app abierta, viaja en la cabecera `x-panda-app-session` junto al
-  `initData` (`x-tg-init-data`), nunca en una cookie, y en cada petición el servidor comprueba: su firma y caducidad
-  (4 h), el `initData` de Telegram para esa misma cuenta, que la fila de la sesión sigue viva y que esa cuenta sigue
-  teniendo esa wallet vinculada. Al salir de la app (o de Telegram) se borra y se revoca en el servidor
-  (`DELETE /api/tg/login`). Ir a la app de la wallet a firmar no es salir.
-- Viajes a la wallet: UNO si esa wallet ya se conectó antes en ese móvil (la conexión —una clave de cifrado y un
-  identificador que no pueden firmar nada— sí se guarda); DOS la primera vez (conectar y firmar: el protocolo de
-  enlaces de Phantom y Solflare no permite firmar sin conectar antes). El segundo se intenta abrir solo; si Telegram
-  no lo permite sin un toque, la hoja ofrece su botón.
-- Si Telegram reinicia la app al volver de la wallet, un tique de un solo uso (`panda.tg.ticket`, existe solo durante
-  el viaje, 5 minutos como mucho) devuelve la MISMA sesión (`PATCH /api/tg/login`). Una sesión cerrada está revocada:
-  ningún tique la recupera.
-- "Solo mirar" entra sin sesión; operar o crear vuelve a ofrecer iniciarla. Las órdenes PANDA ya firmadas las ejecuta
-  el servidor como siempre, con la app cerrada.
-- Nunca vale para /admin (esa puerta solo mira la cookie).
+- La de PANDA (`src/lib/telegram/app-login.ts`): dice como qué wallet actúa esa cuenta — la que vinculó con /link.
+  Iniciarla es un toque y NO pide nada a la wallet: Telegram demuestra la cuenta (el servidor verifica `initData` en
+  cada petición) y la vinculación, que la wallet firmó en su día, da la wallet. Vive en el servidor
+  (`telegram_state`, clave `appsess:tg:<id>`): 30 minutos desde el último uso, 12 horas como máximo; sobrevive a ir a
+  la wallet, cambiar de app, bloquear el móvil o que Telegram recargue la mini app, porque en el móvil no hay nada que
+  perder. "Cerrar sesión" la borra; desvincular o cambiar la wallet la corta al momento.
+- Qué puede hacer: NADA que mueva dinero. Solo la aceptan las rutas que la piden por su nombre
+  (`getSession(req, { linked: true })`): leer la sesión, leer las órdenes propias, y las rutas de órdenes PANDA y de
+  estrategias, donde todo cambio es una transacción firmada por la wallet, lo que muestra la cadena o exige además la
+  sesión de Jupiter. En el resto de rutas con sesión de la web (reclamaciones, recompensas, referidos, mercado,
+  /admin) esa sesión no existe. Un test lista esas rutas y falla si aparece una nueva.
+- Conectar la wallet (una vez por móvil; se recuerda) solo se pide donde hay que FIRMAR: operar, Draw Your Trade, crear.
+
+**Vincular desde la app.** Sin wallet vinculada, la primera pantalla tiene "Vincular mi wallet": pide al servidor el
+enlace de un solo uso (`POST /api/tg/link`, el mismo de /link) y abre la página de vincular con
+`Telegram.WebApp.openLink`. No se manda nada al bot. Mientras esa pantalla está abierta, la app pregunta al servidor
+cada 4 segundos y entra sola con sesión en cuanto la wallet queda vinculada; "Ya la he vinculado · comprobar" lo
+pregunta al momento. Límite compartido con /link: 5 enlaces en 10 minutos (`link-limit.ts`); un /start normal no cuenta.
+
+**Vuelta de la wallet.** La wallet solo puede responder abriendo una dirección web
+(`/telegram/wallet/<wallet>/<hueco>`). El servidor guarda ahí mismo la respuesta cifrada y la página vuelve sola a la
+app de Telegram (`tg://resolve`, que no abre nada dentro de Telegram) con un botón por si el navegador pregunta. Nunca
+vuelve a abrir la mini app: la que quedó abierta recoge la respuesta en cuanto vuelve a primer plano y sigue donde
+estaba. Por si Telegram la hubiera recargado, cada petición deja una nota en el móvil (`panda.tg.op`: qué respuesta
+esperar, de qué pantalla salió y qué llamadas la completan — `src/lib/wallet/deeplink/ops.ts`); al arrancar, la app
+vuelve a esa pantalla y termina la operación (compra/venta: avisa y registra; órdenes de Draw Your Trade: las entrega;
+lo demás: pide repetirlo con un mensaje claro).
 
 **Velocidad.** `npx tsx scripts/tg-perf.ts` mide con un Chrome sin ventana como un móvil lento (Slow 4G, procesador 4
 veces más lento) contra `next start`. La primera pantalla no trae las librerías de la wallet (`TgWalletRoot` llega

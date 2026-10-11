@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { isEnabled } from "@/lib/config/flags";
 import type { Db } from "@/lib/db/client";
-import { tgAddAlert, tgDeleteAlert, tgUnwatch, tgUserAlerts, tgWatch, tgWatchlist } from "@/lib/db/telegram";
+import { tgAddAlert, tgDeleteAlert, tgGetState, tgSetState, tgUnwatch, tgUserAlerts, tgWatch, tgWatchlist } from "@/lib/db/telegram";
 import { currentOf, isCrossed, MAX_ALERTS, MAX_WATCH } from "./alerts";
 import { walletKey } from "./link";
 import type { CoinInfo, Market } from "./market";
@@ -20,8 +20,8 @@ export function miniappEnabled(env: Env = process.env): boolean {
   return isEnabled("TELEGRAM_BOT", env) && isEnabled("TELEGRAM_MINIAPP", env) && !!env.TELEGRAM_BOT_TOKEN?.trim();
 }
 
-/** Telegram's `initData` is accepted for an hour after it was issued. */
-export const INIT_DATA_MAX_AGE_MS = 60 * 60_000;
+/** Telegram's `initData` is issued once per opening of the app, and an app may stay open for hours: accepted for a day. */
+export const INIT_DATA_MAX_AGE_MS = 24 * 60 * 60_000;
 /** PANDA's own session, issued after that check. Reopening the app from Telegram issues a new one. */
 export const SESSION_TTL_MS = 6 * 60 * 60_000;
 const CLOCK_SKEW_MS = 60_000;
@@ -183,6 +183,23 @@ export const isRelayId = (v: unknown): v is string => typeof v === "string" && R
 export const relayKey = (id: string) => `relay:${id}`;
 /** `telegramId` null: the wallet answered before the Mini App could say whose slot it is (the phone froze it); the first signed-in reader that knows the id — a 192-bit secret only the Mini App that made it has — takes it. */
 export type RelaySlot = { telegramId: number | null; expiresAt: number; answer: Record<string, string> | null };
+
+/**
+ * The wallet's answer is left in its slot — once. Accepted even if nobody claimed the slot yet: its id is a 192-bit
+ * secret only the Mini App that made it knows. Used by the page the wallet comes back to (src/app/telegram/wallet) and
+ * by the relay route.
+ */
+export async function leaveRelayAnswer(db: Db, rawId: unknown, rawAnswer: unknown, now: number = Date.now()): Promise<"ok" | "invalid" | "gone"> {
+  const answer = cleanRelayAnswer(rawAnswer);
+  if (!isRelayId(rawId) || !answer) return "invalid";
+  const slot = await tgGetState<RelaySlot>(db, relayKey(rawId));
+  if (slot && (slot.expiresAt <= now || slot.answer)) return "gone";
+  await tgSetState(db, relayKey(rawId), { telegramId: slot?.telegramId ?? null, expiresAt: slot?.expiresAt ?? now + RELAY_TTL_MS, answer } satisfies RelaySlot, now);
+  return "ok";
+}
+
+/** "r_<slot id>": the one-time code the wallet's way back to Telegram carries (t.me/<bot>?startapp=…). */
+export const relayStartParam = (relayId: string) => `r_${relayId}`;
 
 /** Only the fields a wallet's redirect can carry, as short strings — nothing else is stored. */
 export function cleanRelayAnswer(raw: unknown): Record<string, string> | null {
