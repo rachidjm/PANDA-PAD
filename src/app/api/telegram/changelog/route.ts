@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db/client";
 import { recordAudit } from "@/lib/audit/log";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { telegramConfig } from "@/lib/telegram/config";
-import { changelogSecretMatches, receiveDraft, receiveHistory } from "@/lib/telegram/changelog";
+import { changelogSecretMatches, receiveDraft, receiveHistory, receiveImages } from "@/lib/telegram/changelog";
 import { realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
 import { xConfig } from "@/lib/x/client";
@@ -37,6 +37,14 @@ export async function POST(req: Request) {
     await recordAudit({ actor: "system:changelog", action: "updates.history.draft", object: h.id });
     await processOutbox(realQueueDeps(), 4_000).catch(() => undefined);
     return NextResponse.json({ ok: true, id: h.id, history: h.entries, sentTo: h.sentTo });
+  }
+  // Screenshots for entries already on the page: the same door, the same approval.
+  if (json && typeof json === "object" && "images" in json) {
+    const i = await receiveImages({ db: getDb(), now: Date.now, cfg }, json);
+    if (!i.ok) return NextResponse.json({ error: i.error, problems: i.problems }, { status: i.status });
+    await recordAudit({ actor: "system:changelog", action: "updates.images.draft", object: i.id });
+    await processOutbox(realQueueDeps(), 6_000).catch(() => undefined);
+    return NextResponse.json({ ok: true, id: i.id, images: i.images, sentTo: i.sentTo });
   }
   const r = await receiveDraft({ db: getDb(), now: Date.now, cfg, x: { config: xConfig() } }, json);
   if (!r.ok) return NextResponse.json({ error: r.error, problems: r.problems }, { status: r.status });

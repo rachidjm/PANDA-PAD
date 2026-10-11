@@ -122,3 +122,44 @@ export function slugFor(title: string, ts: number): string {
 
 export const SLUG_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]{1,70}$/;
 export const TAG_LABEL: Record<UpdateTag, Bilingual> = { new: { en: "New", es: "Nuevo" }, improved: { en: "Improved", es: "Mejorado" }, fixed: { en: "Fixed", es: "Corregido" } };
+
+// ── screenshots ──────────────────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * An entry's screenshot is one of the site's own files, under /updates/. When the screen's text changes with the
+ * language there are two files, "….en.webp" and "….es.webp": the entry stores the English one and the Spanish reader
+ * gets its sibling. A picture with no text in it is a single file without that mark.
+ */
+const SHOT_RE = /^\/updates\/[a-z0-9][a-z0-9._-]{0,80}\.(?:webp|png|jpe?g)$/;
+export const isScreenshotPath = (v: unknown): v is string => typeof v === "string" && SHOT_RE.test(v) && !v.includes("..");
+
+export function localizedImage(url: string, lang: string): string {
+  return lang === "es" ? url.replace(/\.en\.(webp|png|jpe?g)$/, ".es.$1") : url;
+}
+/** Every file an entry's picture stands for (one, or the English and the Spanish one). */
+export function imageVariants(url: string): string[] {
+  const es = localizedImage(url, "es");
+  return es === url ? [url] : [url, es];
+}
+
+export const MAX_IMAGE_ASSIGNMENTS = 60;
+export type ImageAssignment = { id: string; imageUrl: string | null };
+
+/** Screenshots for entries that are ALREADY on the page: which entry, which file (null takes the picture away). */
+export function checkImageAssignments(raw: unknown): { ok: true; items: ImageAssignment[] } | { ok: false; problems: string[] } {
+  if (!Array.isArray(raw) || raw.length === 0) return { ok: false, problems: ["Images: no entries."] };
+  if (raw.length > MAX_IMAGE_ASSIGNMENTS) return { ok: false, problems: [`Images: at most ${MAX_IMAGE_ASSIGNMENTS} entries (got ${raw.length}).`] };
+  const problems: string[] = [];
+  const items: ImageAssignment[] = [];
+  const seen = new Set<string>();
+  raw.forEach((r, k) => {
+    const o = (r && typeof r === "object" ? r : {}) as { id?: unknown; imageUrl?: unknown };
+    const id = typeof o.id === "string" ? o.id.trim() : "";
+    if (!SLUG_RE.test(id)) return void problems.push(`Image ${k + 1}: the entry's id isn't valid.`);
+    if (seen.has(id)) return void problems.push(`Image ${k + 1}: ${id} appears twice.`);
+    seen.add(id);
+    if (o.imageUrl === null) return void items.push({ id, imageUrl: null });
+    if (!isScreenshotPath(o.imageUrl)) return void problems.push(`Image ${k + 1}: the picture must be a file of the site under /updates/ (webp, png or jpg).`);
+    items.push({ id, imageUrl: o.imageUrl });
+  });
+  return problems.length ? { ok: false, problems } : { ok: true, items };
+}

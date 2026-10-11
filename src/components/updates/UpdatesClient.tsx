@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { SiteUpdate } from "@/lib/db/updates";
-import { TAG_LABEL, type UpdateTag } from "@/lib/updates/format";
+import { localizedImage, TAG_LABEL, type UpdateTag } from "@/lib/updates/format";
 import { useLatestUpdate } from "./useLatestUpdate";
 
 /**
@@ -47,6 +47,52 @@ function CopyLink({ id }: { id: string }) {
   );
 }
 
+/**
+ * An update's screenshot: inside the card, under the text. A tap (or Enter) shows it large over the page; a tap anywhere,
+ * the ✕ or Escape closes it. A picture whose file is missing simply isn't shown.
+ */
+function Screenshot({ src, alt }: { src: string; alt: string }) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [broken, setBroken] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+    };
+  }, [open]);
+  if (broken === src) return null;
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-label={t("updates.enlarge")} className="group relative mt-4 block w-full cursor-zoom-in overflow-hidden rounded-xl border border-paper/10 bg-ink">
+        {/* eslint-disable-next-line @next/next/no-img-element -- an update's own picture, of any size, from the site or an approved address */}
+        <img src={src} alt={alt} loading="lazy" decoding="async" onError={() => setBroken(src)} className="mx-auto block max-h-[420px] w-auto max-w-full" />
+        <span className="pointer-events-none absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-ink/80 text-paper/80 transition-colors group-hover:text-paper" aria-hidden>
+          <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7.5 1.5h3v3M4.5 10.5h-3v-3M10.5 1.5 7 5M1.5 10.5 5 7" />
+          </svg>
+        </span>
+      </button>
+      {open && (
+        <div role="dialog" aria-modal="true" aria-label={alt} onClick={() => setOpen(false)} className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/90 p-3 sm:p-8">
+          {/* eslint-disable-next-line @next/next/no-img-element -- the same picture, large */}
+          <img src={src} alt={alt} className="max-h-full max-w-full rounded-lg object-contain" />
+          <button type="button" autoFocus onClick={() => setOpen(false)} aria-label={t("updates.close")} className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-ink/80 text-paper">
+            <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+              <path d="M2 2l8 8M10 2l-8 8" />
+            </svg>
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function UpdateCard({ entry, linked }: { entry: SiteUpdate; linked: boolean }) {
   const { lang } = useLanguage();
   const title = entry.title[lang] ?? entry.title.en;
@@ -68,10 +114,7 @@ export function UpdateCard({ entry, linked }: { entry: SiteUpdate; linked: boole
         )}
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-paper/80">{entry.body[lang] ?? entry.body.en}</p>
-      {entry.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- an update's own picture, of any size, from the site or an approved address
-        <img src={entry.imageUrl} alt={title} loading="lazy" className="mt-4 w-full rounded-xl border border-paper/10" />
-      )}
+      {entry.imageUrl && <Screenshot src={localizedImage(entry.imageUrl, lang)} alt={title} />}
       <div className="mt-4">
         <CopyLink id={entry.id} />
       </div>

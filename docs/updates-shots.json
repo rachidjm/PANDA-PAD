@@ -1,0 +1,51 @@
+{
+  "hide": ["div.fixed.bottom-20", "div.fixed.inset-x-4"],
+  "shots": [
+    { "name": "home", "url": "/", "langs": ["en", "es"], "wait": 4000, "clip": { "x": 8, "y": 66, "w": 884, "h": 324 } },
+    { "name": "home-banner", "url": "/", "langs": ["en", "es"], "wait": 4000, "clip": { "x": 14, "y": 118, "w": 872, "h": 270 } },
+    {
+      "name": "launched-on-panda", "url": "/", "langs": ["en", "es"], "wait": 4000,
+      "steps": "for (let y = 0; y < 2400; y += 600) { scrollTo(0, y); await sleep(500); } const s = [...document.querySelectorAll('main section section')].find((x) => /Launched on PANDA|Lanzad[oa]s en PANDA/i.test(x.querySelector('h2,h3')?.textContent || '')); s.scrollIntoView({ block: 'center' }); await sleep(900); const r = s.getBoundingClientRect(); window.__clip = { x: 0, y: r.top + scrollY - 14, w: 900, h: Math.min(r.height + 20, 480) };"
+    },
+    {
+      "name": "home-sections", "url": "/", "langs": ["en", "es"], "wait": 4000,
+      "steps": "for (let y = 0; y < 3000; y += 600) { scrollTo(0, y); await sleep(500); } const s = [...document.querySelectorAll('main section section')].find((x) => /^(Trending|Tendencias)/i.test(x.querySelector('h2,h3')?.textContent || '')); s.scrollIntoView({ block: 'start' }); await sleep(1200); const r = s.getBoundingClientRect(); window.__clip = { x: 0, y: r.top + scrollY - 14, w: 900, h: 560 };"
+    },
+    {
+      "name": "search", "url": "/", "langs": ["en", "es"], "width": 1280, "wait": 3500,
+      "steps": "const i = document.querySelector('header input, nav input'); i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'bonk'); i.dispatchEvent(new Event('input', { bubbles: true })); await sleep(4500); const box = i.closest('.relative'); const d = box.querySelector('.absolute'); const a = i.getBoundingClientRect(); const b = (d || i).getBoundingClientRect(); const left = Math.min(a.left, b.left) - 16; window.__clip = { x: left, y: 0, w: Math.min(1280 - left, Math.max(a.right, b.right) - left + 16), h: Math.min(b.bottom + 16, 520) };"
+    },
+    { "name": "create", "url": "/create", "langs": ["en", "es"], "clip": { "x": 8, "y": 118, "w": 884, "h": 800 } },
+    { "name": "analytics", "url": "/analytics", "langs": ["en", "es"], "wait": 5000, "clip": { "x": 8, "y": 108, "w": 884, "h": 790 } },
+    { "name": "discover", "url": "/discover", "langs": ["en", "es"], "wait": 5000, "clip": { "x": 8, "y": 112, "w": 884, "h": 580 } },
+    { "name": "recruiters", "url": "/recruiters", "langs": ["en", "es"], "clip": { "x": 60, "y": 112, "w": 780, "h": 680 } },
+    { "name": "updates-page", "url": "/updates", "langs": ["en", "es"], "clip": { "x": 8, "y": 108, "w": 884, "h": 540 } },
+    { "name": "spanish", "url": "/", "langs": ["es"], "width": 1280, "wait": 4000, "clip": { "x": 0, "y": 0, "w": 1280, "h": 150 } },
+    { "name": "coin-header", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "wait": 6000, "clip": { "x": 8, "y": 104, "w": 884, "h": 284 } },
+    {
+      "name": "chart", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "wait": 7000,
+      "steps": "const c = document.querySelector('[data-tutorial=chart]'); let card = c; while (card && !/rounded-3xl|rounded-2xl/.test(card.className)) card = card.parentElement; const top = card.getBoundingClientRect().top + scrollY; const low = c.parentElement.nextElementSibling || c; const bottom = low.getBoundingClientRect().bottom + scrollY; window.__clip = { x: 8, y: top - 6, w: 884, h: bottom - top + 22 };"
+    },
+    {
+      "name": "chart-market-cap", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "wait": 7000,
+      "steps": "const press = (re) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()))?.click(); press(/^(Market cap|Cap\\. de mercado)$/); await sleep(400); press(/^1h$/); await sleep(5000); const c = document.querySelector('[data-tutorial=chart]'); let card = c; while (card && !/rounded-3xl|rounded-2xl/.test(card.className)) card = card.parentElement; const top = card.getBoundingClientRect().top + scrollY; const low = c.parentElement.nextElementSibling || c; const bottom = low.getBoundingClientRect().bottom + scrollY; window.__clip = { x: 8, y: top - 6, w: 884, h: bottom - top + 22 };"
+    },
+    {
+      "name": "chart-zoom", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "wait": 7000,
+      "steps": "const c = document.querySelector('[data-tutorial=chart]'); const svg = c.querySelector('svg'); svg.scrollIntoView({ block: 'center' }); await sleep(600); const r = svg.getBoundingClientRect(); for (let k = 0; k < 4; k++) svg.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, clientX: r.left + r.width / 2, clientY: r.bottom - 8, bubbles: true, cancelable: true })); await sleep(700); let card = c; while (card && !/rounded-3xl|rounded-2xl/.test(card.className)) card = card.parentElement; const top = card.getBoundingClientRect().top + scrollY; const low = c.parentElement.nextElementSibling || c; const bottom = low.getBoundingClientRect().bottom + scrollY; window.__clip = { x: 8, y: top - 6, w: 884, h: bottom - top + 22 };"
+    },
+    {
+      "name": "draw", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "wait": 7000,
+      "steps": "const c = document.querySelector('[data-tutorial=chart]'); const d = document.querySelector('section[aria-labelledby=draw-title]'); const top = c.getBoundingClientRect().top + scrollY; const bottom = d.getBoundingClientRect().bottom + scrollY; window.__clip = { x: 8, y: top - 16, w: 884, h: bottom - top + 40 };"
+    },
+    {
+      "name": "draw-guide", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "width": 1280, "height": 900, "wait": 7000,
+      "steps": "const press = (re) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()))?.click(); const c = document.querySelector('[data-tutorial=chart]'); c.scrollIntoView({ block: 'start' }); scrollBy(0, -90); await sleep(600); press(/How it works|Cómo funciona/); await sleep(1500); press(/^(Next|Siguiente)$/); await sleep(1200); press(/^(Next|Siguiente)$/); await sleep(2200); window.__clip = { x: 0, y: scrollY, w: 1280, h: 900 };"
+    },
+    {
+      "name": "trade-panel", "url": "/coin/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "langs": ["en", "es"], "wait": 7000,
+      "steps": "const b = [...document.querySelectorAll('button')].find((x) => /Connect wallet to trade|Conecta tu wallet para operar/.test(x.textContent)); let el = b; while (el && el.getBoundingClientRect().height < 250) el = el.parentElement; el.scrollIntoView({ block: 'center' }); await sleep(700); const r = el.getBoundingClientRect(); window.__clip = { x: Math.max(0, r.left - 10), y: r.top + scrollY - 10, w: r.width + 20, h: r.height + 20 };"
+    },
+    { "name": "phone", "url": "/coin/zefa42tKR24WwpYZJujta7CDkD43n47soQwCoJpanda", "langs": ["en", "es"], "mobile": true, "wait": 7000, "clip": { "x": 0, "y": 0, "w": 390, "h": 780 } }
+  ]
+}

@@ -158,6 +158,8 @@ export const dict = {
   "tg.cb.error": { en: "The wallet's answer couldn't be delivered. Go back to Telegram and try again.", es: "No se ha podido entregar la respuesta de la wallet. Vuelve a Telegram e inténtalo otra vez." },
   "tg.cb.back": { en: "Back to Telegram", es: "Volver a Telegram" },
   "tg.cb.note": { en: "You can close this tab. PANDA never sees your keys.", es: "Puedes cerrar esta pestaña. PANDA nunca ve tus claves." },
+  "updates.enlarge": { en: "See the screenshot larger", es: "Ver la captura en grande" },
+  "updates.close": { en: "Close", es: "Cerrar" },
   "updates.all": { en: "All updates", es: "Todas las novedades" },
   "footer.product": { en: "Product", es: "Producto" },
   "legal.updated": { en: "Last updated", es: "Última actualización" },

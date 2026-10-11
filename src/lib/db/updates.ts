@@ -1,7 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import type { Db } from "./client";
 import { siteUpdates } from "./schema";
-import { slugFor, type UpdateEntry, type UpdateTag } from "@/lib/updates/format";
+import { slugFor, type ImageAssignment, type UpdateEntry, type UpdateTag } from "@/lib/updates/format";
 
 /** The public Updates page's entries (site_updates). Only what was approved is ever written here. */
 
@@ -43,4 +43,14 @@ export async function pgListUpdates(db: Db, order: "newest" | "oldest" = "newest
 export async function pgGetUpdate(db: Db, id: string): Promise<SiteUpdate | null> {
   const [row] = await db.select().from(siteUpdates).where(eq(siteUpdates.id, id)).limit(1);
   return row ? toPublic(row) : null;
+}
+
+/** Sets (or, with null, removes) the screenshot of entries that already exist. Returns the ids that were changed. */
+export async function pgSetUpdateImages(db: Db, items: ImageAssignment[]): Promise<string[]> {
+  const changed: string[] = [];
+  for (const it of items) {
+    const rows = await db.update(siteUpdates).set({ imageUrl: it.imageUrl }).where(eq(siteUpdates.id, it.id)).returning({ id: siteUpdates.id });
+    if (rows.length) changed.push(it.id);
+  }
+  return changed;
 }

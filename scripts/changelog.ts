@@ -39,10 +39,14 @@ async function main() {
   // A ".json" file is the project's history for the Updates page: sent as it is, the server checks it and the bot asks for approval.
   if (file.toLowerCase().endsWith(".json")) {
     const res = await fetch(`${base}/api/telegram/changelog`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` }, body: readFileSync(file, "utf8") });
-    const data = (await res.json().catch(() => ({}))) as { id?: string; history?: number; sentTo?: number; error?: string; problems?: string[] };
+    const data = (await res.json().catch(() => ({}))) as { id?: string; history?: number; images?: number; sentTo?: number; error?: string; problems?: string[] };
     if (!res.ok) {
       console.error(`Not accepted (HTTP ${res.status})${data.error ? `: ${data.error}` : ""}${data.problems ? NL + data.problems.map((p) => `  - ${p}`).join(NL) : ""}`);
       process.exit(1);
+    }
+    if (data.images !== undefined) {
+      console.log(`Screenshots ${data.id} (${data.images} entries) sent to ${data.sentTo} admin(s) in private, each picture with it. Nothing changes on the page until one presses "Publicar capturas".`);
+      return;
     }
     console.log(`History ${data.id} (${data.history} entries) sent to ${data.sentTo} admin(s) in private as a summary. Nothing is on the page until one presses "Publicar historial".`);
     return;

@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { newTestDb } from "@/lib/db/testing";
-import { pgAddUpdates, pgGetUpdate, pgListUpdates } from "@/lib/db/updates";
+import { pgAddUpdates, pgGetUpdate, pgListUpdates, pgSetUpdateImages } from "@/lib/db/updates";
 import { tgGetChangelog } from "@/lib/db/telegram";
 import { handleUpdate } from "@/lib/telegram/bot";
-import { buildWeeklyDrafts, CB_DISCARD, CB_EDIT, CB_PUBLISH, CB_VERSION, handleChangelogCallback, parseDraftMarkdown, receiveDraft, receiveHistory, webMessages } from "@/lib/telegram/changelog";
+import { buildWeeklyDrafts, CB_DISCARD, CB_EDIT, CB_PUBLISH, CB_VERSION, handleChangelogCallback, parseDraftMarkdown, receiveDraft, receiveHistory, receiveImages, shotMessages, webMessages } from "@/lib/telegram/changelog";
 import { ADMIN_TG, botDeps, queued } from "@/lib/telegram/testing";
-import { checkEntry, checkHistory, checkWebEntries, imageOf, sentences, slugFor, SLUG_RE } from "./format";
+import { readFileSync } from "node:fs";
+import { checkEntry, checkHistory, checkImageAssignments, checkWebEntries, imageOf, imageVariants, isScreenshotPath, localizedImage, sentences, slugFor, SLUG_RE, type UpdateEntry } from "./format";
 
 /**
  * The public Updates page: what an entry may say, where entries come from (a changelog published from the bot, and the
@@ -250,4 +251,95 @@ test("a discarded history adds nothing, and it can't be published afterwards", a
   await handleUpdate(d, press(`${CB_DISCARD}${r.id}`));
   assert.equal((await handleChangelogCallback(d, { data: `${CB_PUBLISH}${r.id}_0`, fromId: ADMIN_TG, chatId: ADMIN_TG })).outcome, "already");
   assert.equal((await pgListUpdates(db)).length, 0);
+});
+
+// ── screenshots ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+test("a screenshot is a file of the site under /updates/; an English one has its Spanish sibling", () => {
+  for (const ok of ["/updates/chart-zoom.webp", "/updates/2026-10-11-orders.en.webp", "/updates/a.png", "/updates/b_1.jpg"]) assert.equal(isScreenshotPath(ok), true, ok);
+  for (const bad of ["/updates/../admin.webp", "/admin/x.webp", "https://evil.example/x.webp", "/updates/x.svg", "/updates/x.gif", "/updates/.webp", "/updates/a/b.webp", "", null, 5]) assert.equal(isScreenshotPath(bad), false, String(bad));
+  assert.equal(localizedImage("/updates/orders.en.webp", "es"), "/updates/orders.es.webp");
+  assert.equal(localizedImage("/updates/orders.en.webp", "en"), "/updates/orders.en.webp");
+  assert.equal(localizedImage("/updates/chart.webp", "es"), "/updates/chart.webp", "a picture with no text in it is one file");
+  assert.deepEqual(imageVariants("/updates/orders.en.webp"), ["/updates/orders.en.webp", "/updates/orders.es.webp"]);
+  assert.deepEqual(imageVariants("/updates/chart.webp"), ["/updates/chart.webp"]);
+
+  const good = checkImageAssignments([{ id: "2026-09-18-panda-goes-live", imageUrl: "/updates/home.en.webp" }, { id: "2026-10-01-second-thing", imageUrl: null }]);
+  assert.ok(good.ok && good.items.length === 2 && good.items[1].imageUrl === null);
+  const problems = (raw: unknown) => {
+    const r = checkImageAssignments(raw);
+    return r.ok ? "" : r.problems.join(" | ");
+  };
+  assert.match(problems([]), /no entries/);
+  assert.match(problems("x"), /no entries/);
+  assert.match(problems([{ id: "../x", imageUrl: "/updates/a.webp" }]), /id isn't valid/);
+  assert.match(problems([{ id: "2026-09-18-a", imageUrl: "https://elsewhere.example/a.webp" }]), /under \/updates\//);
+  assert.match(problems([{ id: "2026-09-18-a", imageUrl: "/updates/a.webp" }, { id: "2026-09-18-a", imageUrl: "/updates/b.webp" }]), /appears twice/);
+  assert.match(problems(Array.from({ length: 61 }, (_, k) => ({ id: `2026-09-18-a${k}`, imageUrl: "/updates/a.webp" }))), /at most 60/);
+});
+
+test("a new update's screenshot is SHOWN to the admin with the 🌐 WEB message, before anything is published", async () => {
+  const { db, d } = await setup();
+  const r = await receiveDraft(d, draft({ web: [entry({ imageUrl: "/updates/orders.en.webp" }), entry({ title: { en: "No picture here", es: "Sin captura" } })] }));
+  if (!r.ok) throw new Error(JSON.stringify(r));
+  const sent = await queued(db, ADMIN_TG);
+  const photos = sent.filter((m) => m.row.method === "sendPhoto").map((m) => m.payload as { photo: string; caption: string });
+  assert.deepEqual(photos.map((p) => p.photo), ["https://launchonpanda.app/updates/orders.en.webp", "https://launchonpanda.app/updates/orders.es.webp"], "the English and the Spanish screen");
+  assert.match(photos[0].caption, /^<b>🌐 WEB · Captura · 🇬🇧<\/b>\nVentas y stops en el gráfico\nhttps:\/\/launchonpanda\.app\/updates\/orders\.en\.webp$/);
+  assert.match(photos[1].caption, /🇪🇸/);
+  assert.equal((await pgListUpdates(db)).length, 0, "seeing it is not publishing it");
+  // Published with the Telegram draft: the entry carries its picture.
+  await handleUpdate(d, press(`${CB_PUBLISH}${r.id}_0`));
+  const page = await pgListUpdates(db, "oldest");
+  assert.deepEqual(page.map((e) => e.imageUrl), ["/updates/orders.en.webp", null]);
+  // One file, one photo; an https picture is shown as it is.
+  assert.deepEqual(shotMessages([{ title: "Zoom", imageUrl: "/updates/zoom.webp" }, { title: "Fuera", imageUrl: "https://cdn.example.com/a.png" }], "https://launchonpanda.app/").map((m) => m.photo), ["https://launchonpanda.app/updates/zoom.webp", "https://cdn.example.com/a.png"]);
+});
+
+test("screenshots for entries already on the page need the admin's '✅ Publicar capturas' — and only touch the picture", async () => {
+  const { db, d } = await setup();
+  const clean = (over: Record<string, unknown> = {}): UpdateEntry => {
+    const c = checkEntry(entry(over));
+    if (!c.ok) throw new Error(c.problems.join());
+    return c.entry;
+  };
+  const [first, second] = await pgAddUpdates(db, [{ ...clean(), ts: NOW - 86_400_000 }, { ...clean({ title: { en: "Second thing", es: "Segunda cosa" } }), ts: NOW }], "history:test", NOW);
+  const unknown = await receiveImages(d, { images: [{ id: "2026-01-01-not-there", imageUrl: "/updates/a.webp" }] });
+  assert.ok(!unknown.ok && unknown.status === 422 && /there is no entry 2026-01-01-not-there/.test(unknown.problems!.join()));
+  const outside = await receiveImages(d, { images: [{ id: first, imageUrl: "/admin/secret.webp" }] });
+  assert.ok(!outside.ok && outside.status === 422);
+
+  const r = await receiveImages(d, { images: [{ id: first, imageUrl: "/updates/orders.en.webp" }, { id: second, imageUrl: "/updates/second.webp" }] });
+  if (!r.ok) throw new Error(JSON.stringify(r));
+  const sent = await queued(db, ADMIN_TG);
+  const dm = sent.find((m) => m.row.method === "sendMessage" && /Capturas para 2 entradas/.test(m.text ?? ""))!;
+  assert.match(dm.text!, /^<b>🌐 WEB · Historial · Borrador<\/b>\n\nCapturas para 2 entradas que ya están en la página Novedades/);
+  assert.match(dm.text!, /🖼 Ventas y stops en el gráfico\n🖼 Segunda cosa$/);
+  const buttons = (dm.payload.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] }).inline_keyboard;
+  assert.deepEqual(buttons.map((row) => row.map((b) => b.text)), [["✅ Publicar capturas", "❌ Descartar"]]);
+  assert.equal(sent.filter((m) => m.row.method === "sendPhoto").length, 3, "every picture itself: two languages of the first, one of the second");
+  assert.deepEqual((await pgListUpdates(db)).map((e) => e.imageUrl), [null, null], "nothing changes before the button");
+  assert.equal(await handleUpdate(d, press(buttons[0][0].callback_data, 424242)), "ignored");
+  assert.equal(await handleUpdate(d, press(buttons[0][0].callback_data)), "handled");
+  const before = await pgGetUpdate(db, first);
+  assert.equal(before?.imageUrl, "/updates/orders.en.webp");
+  assert.equal((await pgGetUpdate(db, second))?.imageUrl, "/updates/second.webp");
+  assert.equal(before?.title.en, "Sell and stop orders on the chart", "texts, tag and date are untouched");
+  assert.equal((await pgListUpdates(db)).length, 2);
+  assert.ok(d.audits.includes("updates.images.publish"));
+  assert.equal((await queued(db, ADMIN_TG)).at(-1)!.text, "✅ WEB: capturas añadidas a la página Novedades (2 entradas).\nhttps://launchonpanda.app/updates");
+  assert.equal((await handleChangelogCallback(d, { data: buttons[0][0].callback_data, fromId: ADMIN_TG, chatId: ADMIN_TG })).outcome, "already");
+  // null takes a picture away; an id that isn't there changes nothing.
+  assert.deepEqual(await pgSetUpdateImages(db, [{ id: second, imageUrl: null }, { id: "2026-01-01-nope", imageUrl: "/updates/a.webp" }]), [second]);
+  assert.equal((await pgGetUpdate(db, second))?.imageUrl, null);
+});
+
+test("on the page the screenshot sits inside the card, under the text, and a tap shows it large", () => {
+  const src = readFileSync("src/components/updates/UpdatesClient.tsx", "utf8");
+  const card = src.slice(src.indexOf("export function UpdateCard"));
+  assert.ok(card.indexOf("{entry.body[lang] ?? entry.body.en}") < card.indexOf("<Screenshot src={localizedImage(entry.imageUrl, lang)}"), "under the text");
+  assert.ok(card.indexOf("<Screenshot") < card.indexOf("<CopyLink"), "inside the card");
+  const shot = src.slice(src.indexOf("function Screenshot"), src.indexOf("export function UpdateCard"));
+  assert.ok(shot.includes('role="dialog"') && shot.includes('e.key === "Escape"') && shot.includes("onClick={() => setOpen(true)}"));
+  assert.ok(shot.includes('loading="lazy"') && shot.includes("onError"), "light to load, and a missing file leaves no broken picture");
 });

@@ -20,8 +20,8 @@ import { esc, tt } from "./text";
 import { buildChangelogText, buildExplanationText, checkChangelog, checkDraft, checkSummary, ES_LABEL, MAX_ITEMS, parseChangelogMarkdown, SECTIONS, VERSIONS, type DraftInput, type Level } from "./changelog-format";
 import { digestProblem, weeklyXVersions, xCostUsd, xFinalLength, xFinalText, xFingerprint, xTextProblem, X_MAX } from "@/lib/x/text";
 import { httpsUrl, type XDeps } from "@/lib/x/client";
-import { checkHistory, checkWebEntries, TAG_LABEL, type DatedEntry, type UpdateEntry } from "@/lib/updates/format";
-import { pgAddUpdates } from "@/lib/db/updates";
+import { checkHistory, checkImageAssignments, checkWebEntries, imageVariants, TAG_LABEL, type DatedEntry, type ImageAssignment, type UpdateEntry } from "@/lib/updates/format";
+import { pgAddUpdates, pgGetUpdate, pgSetUpdateImages } from "@/lib/db/updates";
 
 /**
  * Drafts that need an admin's approval before they are published (docs/TELEGRAM.md §9 and §10): the public changelog, to
@@ -72,6 +72,8 @@ export type DraftMeta = {
   web?: UpdateEntry[];
   /** A history draft: the dated entries that publishing it adds to the Updates page. */
   entries?: DatedEntry[];
+  /** A screenshots draft: pictures for entries that are already on the Updates page. */
+  images?: ImageAssignment[];
 };
 const metaOf = (row: Pick<ChangelogRow, "meta">): DraftMeta => (row.meta && typeof row.meta === "object" ? (row.meta as DraftMeta) : {});
 
@@ -109,7 +111,7 @@ export function approvalMessage(row: Pick<ChangelogRow, "id" | "versions" | "kin
     return {
       ...base,
       text: `<b>${LABEL.history}</b>\n\n${esc(v.en)}`,
-      reply_markup: { inline_keyboard: [[{ text: "✅ Publicar historial", callback_data: `${CB_PUBLISH}${row.id}_0` }, { text: "❌ Descartar", callback_data: `${CB_DISCARD}${row.id}` }]] },
+      reply_markup: { inline_keyboard: [[{ text: meta.images ? "✅ Publicar capturas" : "✅ Publicar historial", callback_data: `${CB_PUBLISH}${row.id}_0` }, { text: "❌ Descartar", callback_data: `${CB_DISCARD}${row.id}` }]] },
     };
   }
   if (kind === "changelog") {
@@ -165,11 +167,77 @@ export function webMessages(entries: UpdateEntry[], siteUrl: string): Record<str
   return texts.map((text) => ({ parse_mode: "HTML", link_preview_options: { is_disabled: true }, text }));
 }
 
+/** A site file ("/updates/x.webp") as a full address; an https one as it is. */
+export const absoluteImage = (siteUrl: string, image: string) => (image.startsWith("/") ? `${siteUrl.replace(/\/+$/, "")}${image}` : image);
+
+/**
+ * The screenshots themselves, so the admin SEES them before publishing: one photo per file (the English and the Spanish
+ * one when the screen's text changes), each saying which entry it belongs to. If Telegram can't show a photo, the queue
+ * sends its caption as text — and the caption carries the picture's address.
+ */
+export function shotMessages(shots: { title: string; imageUrl: string }[], siteUrl: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const s of shots) {
+    const files = imageVariants(s.imageUrl);
+    files.forEach((file, k) => {
+      const url = absoluteImage(siteUrl, file);
+      const lang = files.length > 1 ? (k === 0 ? " · 🇬🇧" : " · 🇪🇸") : "";
+      out.push({ photo: url, parse_mode: "HTML", caption: `<b>${WEB_LABEL} · Captura${lang}</b>\n${esc(s.title)}\n${esc(url)}` });
+    });
+  }
+  return out;
+}
+
+async function sendShots(d: DraftDeps, id: string, shots: { title: string; imageUrl: string }[], now: number): Promise<void> {
+  const photos = shotMessages(shots, d.cfg.siteUrl);
+  for (const admin of d.cfg.adminIds) {
+    for (let k = 0; k < photos.length; k++) await tgEnqueue(d.db, { chatId: String(admin), method: "sendPhoto", payload: photos[k], dedupeKey: `changelog-shot:${id}:${admin}:${k}` }, now);
+  }
+}
+
 async function sendWeb(d: DraftDeps, id: string, entries: UpdateEntry[], now: number): Promise<void> {
   const messages = webMessages(entries, d.cfg.siteUrl);
   for (const admin of d.cfg.adminIds) {
     for (let k = 0; k < messages.length; k++) await tgEnqueue(d.db, { chatId: String(admin), method: "sendMessage", payload: messages[k], dedupeKey: `changelog-web:${id}:${admin}:${k}` }, now);
   }
+  await sendShots(d, id, entries.filter((e) => e.imageUrl).map((e) => ({ title: e.title.es, imageUrl: e.imageUrl as string })), now);
+}
+
+export type ImagesResult = { ok: true; id: string; images: number; sentTo: number } | { ok: false; status: number; error: string; problems?: string[] };
+
+/**
+ * Screenshots for entries that are ALREADY on the Updates page (the history, above all). Like everything else on that
+ * page, they only get there with an admin's approval: this stores one draft, sends the admins a summary with
+ * "✅ Publicar capturas" and every picture itself, and changes nothing until that button is pressed.
+ */
+export async function receiveImages(d: DraftDeps, input: unknown): Promise<ImagesResult> {
+  if (!d.cfg.changelogEnabled) return { ok: false, status: 404, error: "Not found." };
+  if (!d.cfg.enabled || !d.cfg.hasToken) return { ok: false, status: 503, error: "The Telegram bot isn't switched on." };
+  if (d.cfg.adminIds.size === 0) return { ok: false, status: 503, error: "No Telegram admin is configured to approve it." };
+  const now = d.now();
+  const checked = checkImageAssignments((input as { images?: unknown })?.images);
+  if (!checked.ok) return { ok: false, status: 422, error: "These screenshots can't be published as written.", problems: checked.problems };
+  const shots: { title: string; imageUrl: string }[] = [];
+  const lines: string[] = [];
+  const missing: string[] = [];
+  for (const it of checked.items) {
+    const entry = await pgGetUpdate(d.db, it.id);
+    if (!entry) {
+      missing.push(`Image: there is no entry ${it.id} on the Updates page.`);
+      continue;
+    }
+    lines.push(`${it.imageUrl ? "🖼" : "✖️ sin captura"} ${entry.title.es}`);
+    if (it.imageUrl) shots.push({ title: entry.title.es, imageUrl: it.imageUrl });
+  }
+  if (missing.length) return { ok: false, status: 422, error: "These screenshots can't be published as written.", problems: missing };
+  const summary = `Capturas para ${checked.items.length} entradas que ya están en la página Novedades (/updates). Las ves una a una debajo de este mensaje. Al publicarlas, cada una aparece dentro de su tarjeta.\n\n${lines.join("\n")}`;
+  if (summary.length > 3400) return { ok: false, status: 422, error: "Too many screenshots for one message: send them in two parts.", problems: [] };
+  const id = newId();
+  const row = { id, kind: "history", versions: [{ en: summary, es: null }], meta: { images: checked.items } satisfies DraftMeta };
+  await tgInsertChangelog(d.db, { ...row, now });
+  await sendDraft(d, row, now);
+  await sendShots(d, id, shots, now);
+  return { ok: true, id, images: checked.items.length, sentTo: d.cfg.adminIds.size };
 }
 
 export type HistoryResult = { ok: true; id: string; entries: number; sentTo: number } | { ok: false; status: number; error: string; problems?: string[] };
@@ -454,6 +522,14 @@ export async function handleChangelogCallback(d: ApprovalDeps, p: { data: string
   if (kind === "x") return publishOnX(d, { row, meta, version, k, by: p.fromId, now, reply, closed, edit, view, decided });
 
   const page = `${d.cfg.siteUrl}/updates`;
+  if (kind === "history" && meta.images) {
+    if (!(await tgMoveChangelog(d.db, id, ["pending"], "published", { by: p.fromId, now, version: 0 }))) return decided((await tgGetChangelog(d.db, id))?.status ?? "published");
+    const changed = await pgSetUpdateImages(d.db, meta.images);
+    await closed(`✅ WEB · Capturas publicadas · ${changed.length} entradas`, version.en);
+    await reply(`✅ WEB: capturas añadidas a la página Novedades (${changed.length} entradas).\n${page}`);
+    await d.audit("updates.images.publish", id, { by: p.fromId, entries: changed.length });
+    return { outcome: "published", toast: "Capturas publicadas ✅" };
+  }
   if (kind === "history") {
     const entries = meta.entries ?? [];
     if (!(await tgMoveChangelog(d.db, id, ["pending"], "published", { by: p.fromId, now, version: 0 }))) return decided((await tgGetChangelog(d.db, id))?.status ?? "published");
