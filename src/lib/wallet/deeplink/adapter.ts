@@ -12,7 +12,8 @@ import {
 } from "@solana/wallet-adapter-base";
 import { PublicKey, Transaction, VersionedTransaction, type Connection, type TransactionSignature, type TransactionVersion } from "@solana/web3.js";
 import bs58 from "bs58";
-import { connectUrl, DeepLinkError, newDappKeys, newRelayId, PROVIDERS, readConnect, readResult, redirectUrl, requestUrl, type DappKeys, type DeepLinkMethod, type DeepLinkProvider, type WalletSession } from "./protocol";
+import { deepLinkBridge, DeepLinkFlowError, DEEPLINK_WALLET_NAMES, LOGIN_KEY, type DeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "./bridge";
+import { connectUrl, DeepLinkError, newDappKeys, newRelayId, readConnect, readResult, redirectUrl, requestUrl, type DappKeys, type DeepLinkMethod, type DeepLinkProvider, type WalletSession } from "./protocol";
 
 /**
  * A wallet adapter that talks to the user's own wallet APP through its official deep links (./protocol.ts), for the
@@ -33,43 +34,6 @@ import { connectUrl, DeepLinkError, newDappKeys, newRelayId, PROVIDERS, readConn
  *    simply collected when the user is back.
  */
 
-/** Why a wallet step did not finish — the Mini App says each one in its own language. */
-export type FlowCode = "start" | "session" | "timeout" | "rejected" | "unreadable" | "outside";
-export class DeepLinkFlowError extends Error {
-  constructor(public code: FlowCode, message: string) {
-    super(message);
-  }
-}
-
-/**
- * `opened`: the wallet's link was already opened when the sheet appears. `auto`: it was opened WITHOUT a tap (the second
- * step of signing in, straight after connecting) — Telegram may have ignored it, so the sheet offers its button again
- * if the app is still on screen a moment later.
- */
-export type WalletStep = { provider: DeepLinkProvider; kind: "connect" | "sign" | "login"; url: string; opened: boolean; auto?: boolean };
-/** The sheet the Mini App shows during a wallet step. `ready` resolves once the wallet link has been opened by a tap. */
-export type WalletStepUi = { ready: Promise<void>; cancelled: () => boolean; end: (outcome: "ok" | "error" | "timeout") => void };
-
-/** What the Mini App's shell provides. */
-export type DeepLinkBridge = {
-  /** fetch with the Mini App's session (it signs in again by itself when the session ran out). */
-  api: (path: string, init?: { method?: string; body?: unknown; keepalive?: boolean }) => Promise<Response>;
-  signedIn: () => boolean;
-  /** Telegram's own way of opening a link outside its browser. Only works inside a tap. */
-  openLink: (url: string) => void;
-  siteUrl: string;
-  /** The message for a failure, in the app's language. */
-  text: (code: FlowCode) => string;
-  begin: (step: WalletStep) => WalletStepUi;
-  /** Where the wallet should bring the user back to (the coin being looked at), or null. */
-  back: () => string | null;
-};
-let bridge: DeepLinkBridge | null = null;
-export function setDeepLinkBridge(b: DeepLinkBridge | null): void {
-  bridge = b;
-}
-
-export const DEEPLINK_WALLET_NAMES: Record<DeepLinkProvider, string> = { phantom: "Phantom · Telegram", solflare: "Solflare · Telegram" };
 const ICON =
   "data:image/svg+xml;base64," +
   btoaSafe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1c1c17"/><path d="M9 12.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h11" fill="none" stroke="#f4f1e8" stroke-width="1.8" stroke-linecap="round"/><circle cx="21" cy="18" r="1.4" fill="#c8dc4a"/></svg>');
@@ -80,7 +44,6 @@ function btoaSafe(s: string): string {
 
 const SESSION_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}`;
 const PENDING_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.pending`;
-const LOGIN_KEY = (p: DeepLinkProvider) => `panda.tg.wallet.${p}.signin`;
 const PENDING_MAX_AGE_MS = 10 * 60_000;
 /** How long the Mini App waits for the wallet's answer before it stops and says what to do. */
 export const RELAY_WAIT_MS = 2 * 60_000;
@@ -177,7 +140,7 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
     this._connecting = true;
     try {
       // The shell signs in a moment after the page opens: give it that moment.
-      for (let i = 0; i < 20 && !bridge?.signedIn(); i++) await sleep(500);
+      for (let i = 0; i < 20 && !deepLinkBridge()?.signedIn(); i++) await sleep(500);
       const answer = await this.collect(pending.relayId, 30_000, () => false);
       this.adopt(readConnect(this.provider, pending.dapp, answer));
     } catch {
@@ -319,10 +282,11 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
 
   // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
   private say(code: FlowCode): string {
-    return bridge?.text(code) ?? code;
+    return deepLinkBridge()?.text(code) ?? code;
   }
 
   private requireBridge(): DeepLinkBridge {
+    const bridge = deepLinkBridge();
     if (!bridge || !bridge.signedIn()) throw new DeepLinkFlowError("outside", this.say("outside"));
     return bridge;
   }
@@ -381,7 +345,7 @@ export class DeepLinkWalletAdapter extends BaseMessageSignerWalletAdapter {
    * freeze this page) before it is sent, and the relay accepts the wallet's answer either way.
    */
   private openSlot(id: string): void {
-    bridge?.api("/api/tg/relay", { method: "POST", body: { id }, keepalive: true }).catch(() => undefined);
+    deepLinkBridge()?.api("/api/tg/relay", { method: "POST", body: { id }, keepalive: true }).catch(() => undefined);
   }
 
   /** Asks the relay every couple of seconds until the wallet's answer is there (the user is in the wallet app meanwhile). */
@@ -415,4 +379,5 @@ function deserialize<T extends Transaction | VersionedTransaction>(raw: string, 
   return (isVersionedTransaction(like) ? VersionedTransaction.deserialize(bytes) : Transaction.from(bytes)) as T;
 }
 
-export const deepLinkProviders = Object.keys(PROVIDERS) as DeepLinkProvider[];
+
+export { DeepLinkFlowError, DEEPLINK_WALLET_NAMES, deepLinkProviders, setDeepLinkBridge, type DeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "./bridge";

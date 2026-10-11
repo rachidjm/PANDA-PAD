@@ -1,18 +1,21 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import type { WalletName } from "@solana/wallet-adapter-base";
 import bs58 from "bs58";
 import Logo from "@/components/Logo";
-import { setSessionDelegate } from "@/lib/auth/useWalletSession";
+import { setSessionDelegate } from "@/lib/auth/session-delegate";
 import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
-import { DEEPLINK_WALLET_NAMES, deepLinkProviders, setDeepLinkBridge, type DeepLinkWalletAdapter, type FlowCode, type WalletStep, type WalletStepUi } from "@/lib/wallet/deeplink/adapter";
+import type { DeepLinkWalletAdapter } from "@/lib/wallet/deeplink/adapter";
+import { DEEPLINK_WALLET_NAMES, deepLinkProviders, hasPendingLogin, setDeepLinkBridge, type FlowCode, type WalletStep, type WalletStepUi } from "@/lib/wallet/deeplink/bridge";
 import { PROVIDERS, type DeepLinkProvider } from "@/lib/wallet/deeplink/protocol";
+import { FIRST_LISTS, isListPath, refresh } from "./cache";
+import { ScreenSkeleton } from "./TgSkeleton";
+import type { WalletKit } from "./TgWalletRoot";
 import { appSession, endWalletTrip, installSessionFetch, inWalletTrip, startWalletTrip, takeTicket, type AppSession } from "./session";
 
 /**
@@ -61,6 +64,15 @@ export function applySafeAreas(tg: Pick<TgWebApp, "safeAreaInset" | "contentSafe
     root.style.setProperty(`--tg-content-safe-area-inset-${e}`, px(tg.contentSafeAreaInset?.[e]));
   }
 }
+
+// The wallet libraries are the heavy part of the app. They are downloaded once the first screen is already on the
+// phone (the start asks for them right away, in the background) and every other screen is rendered inside them.
+const loadWalletRoot = () => import("./TgWalletRoot");
+const TgWalletRoot = lazy(loadWalletRoot);
+
+/** What the page's first lines already started while the rest of the app was still downloading (src/app/tg/layout.tsx). */
+type EarlyBoot = { initData: string; session: Promise<{ ok: boolean; data: unknown } | null> };
+const earlyBoot = (): EarlyBoot | null => (window as unknown as { __tgBoot?: EarlyBoot }).__tgBoot ?? null;
 
 const TG_SCRIPT = "https://telegram.org/js/telegram-web-app.js";
 const webApp = (): TgWebApp | null => (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp ?? null;
@@ -181,7 +193,6 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
   const { t, setLang } = useLanguage();
   const pathname = usePathname();
   const router = useRouter();
-  const { wallets, select, disconnect } = useWallet();
   const [status, setStatus] = useState<Status>("loading");
   /** True until the start has also looked for a session to pick up again (back from the wallet after a restart). */
   const [booting, setBooting] = useState(true);
@@ -193,36 +204,58 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
   const authed = useSyncExternalStore(appSession.subscribe, () => !!appSession.get(), () => false);
   const session = useRef<Session | null>(null);
   const signingIn = useRef<Promise<boolean> | null>(null);
+  const usedEarly = useRef(false);
   const challenge = useRef<LoginChallenge | null>(null);
   const lastHidden = useRef(0);
   // The latest translator, path and wallets, for what lives outside React (the wallet bridge, the start).
   const tRef = useRef(t);
   const pathRef = useRef(pathname);
-  const walletsRef = useRef({ wallets, select });
+  // The wallets, once their code has arrived (TgWalletRoot hands them over).
+  const [kit, setKit] = useState<WalletKit | null>(null);
+  const kitRef = useRef<WalletKit | null>(null);
+  const kitWaiters = useRef<((k: WalletKit) => void)[]>([]);
+  const onKit = useCallback((k: WalletKit | null) => {
+    kitRef.current = k;
+    setKit(k);
+    if (k) kitWaiters.current.splice(0).forEach((w) => w(k));
+  }, []);
   useEffect(() => {
     tRef.current = t;
     pathRef.current = pathname;
-    walletsRef.current = { wallets, select };
-  }, [t, pathname, wallets, select]);
+  }, [t, pathname]);
 
   const signIn = useCallback((): Promise<boolean> => {
     if (signingIn.current) return signingIn.current;
     const run = (async () => {
-      await loadScript();
-      const tg = webApp();
-      if (!tg || !tg.initData) {
-        setStatus("outside");
-        return false;
+      type Answer = { token?: string; wallet?: string | null; lang?: string; code?: string } | null;
+      // Used once: the request the page's first lines sent while the app was still downloading.
+      const early = usedEarly.current ? null : earlyBoot();
+      usedEarly.current = true;
+      let initData = early?.initData ?? "";
+      let answer = early ? await early.session : null;
+      if (!answer?.ok) {
+        await loadScript();
+        const tg = webApp();
+        if (!tg || !tg.initData) {
+          setStatus("outside");
+          return false;
+        }
+        initData = tg.initData;
+        answer = null;
       }
       try {
-        const res = await fetch("/api/tg/session", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initData: tg.initData }) });
-        const data = (await res.json().catch(() => null)) as { token?: string; wallet?: string | null; lang?: string; code?: string } | null;
+        let res: { ok: boolean; data: unknown } | null = answer;
+        if (!res) {
+          const r = await fetch("/api/tg/session", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initData }) });
+          res = { ok: r.ok, data: (await r.json().catch(() => null)) as unknown };
+        }
+        const data = res.data as Answer;
         if (!res.ok || !data?.token) {
           setStatus(data?.code === "expired" ? "expired" : "error");
           return false;
         }
         session.current = { token: data.token, wallet: data.wallet ?? null };
-        appSession.setInitData(tg.initData);
+        appSession.setInitData(initData);
         setWallet(data.wallet ?? null);
         if (data.lang === "es" || data.lang === "en") setLang(data.lang);
         setStatus("ready");
@@ -307,9 +340,9 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
    * itself when the user is back (and offers its button if Telegram didn't let it).
    */
   function startLogin(p: DeepLinkProvider) {
-    if (login.busy || !wallet) return;
+    if (login.busy || !wallet || !kit) return;
     const name = DEEPLINK_WALLET_NAMES[p] as WalletName;
-    const adapter = wallets.find((w) => w.adapter.name === name)?.adapter as DeepLinkWalletAdapter | undefined;
+    const adapter = kit.wallets.find((w) => w.adapter.name === name)?.adapter as DeepLinkWalletAdapter | undefined;
     if (!adapter) return;
     const linked = wallet;
     const ready = usable(challenge.current);
@@ -335,7 +368,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
       const signature = await adapter.signLogin(new TextEncoder().encode(c.message), c.nonce, open);
       await finishLogin(c.nonce, signature);
     })();
-    select(name);
+    kit.select(name);
     run.then(
       () => setLogin({ busy: false, error: null }),
       (e: unknown) => {
@@ -347,8 +380,8 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
 
   const logout = useCallback(() => {
     closeSession();
-    disconnect().catch(() => undefined);
-  }, [closeSession, disconnect]);
+    kitRef.current?.disconnect().catch(() => undefined);
+  }, [closeSession]);
   const askLogin = useCallback(() => setBrowse(false), []);
 
   /** The sheet of a wallet step, as the wallet adapter drives it. */
@@ -433,16 +466,21 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         const data = res?.ok ? ((await res.json().catch(() => null)) as Partial<AppSession> | null) : null;
         if (data?.token && data.jti && data.resume && data.wallet && data.expiresAt) return appSession.set({ token: data.token, jti: data.jti, resume: data.resume, wallet: data.wallet, expiresAt: data.expiresAt });
       }
-      for (const w of walletsRef.current.wallets) {
+      // Only when a sign-in was in the wallet: that needs the wallet code, so the start waits for it (not otherwise).
+      if (!hasPendingLogin()) return;
+      const k = kitRef.current ?? (await Promise.race([new Promise<WalletKit>((resolve) => kitWaiters.current.push(resolve)), new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000))]));
+      for (const w of k?.wallets ?? []) {
         const adapter = w.adapter as Partial<DeepLinkWalletAdapter> & { name: WalletName };
         const found = await adapter.resumeLogin?.();
         if (!found) continue;
         await finishLogin(found.nonce, found.signature).catch(() => undefined);
-        if (appSession.get()) walletsRef.current.select(adapter.name);
+        if (appSession.get()) k?.select(adapter.name);
         return;
       }
     };
 
+    loadWalletRoot().catch(() => undefined); // in the background, from the very start
+    const started = signIn();
     loadScript().then(() => {
       if (cancelled) return;
       const tg = webApp();
@@ -462,9 +500,10 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
         onSafe();
         for (const e of SAFE_EVENTS) tg.onEvent?.(e, onSafe);
       }
-      signIn().then(async (ok) => {
+      started.then(async (ok) => {
         if (ok) {
           // A website cookie left in this browser never stands in for the app's session.
+          for (const key of FIRST_LISTS) refresh(api, key); // the first lists, on their way before any screen asks
           fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
           await pickUp().catch(() => undefined);
         }
@@ -587,7 +626,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
                   <p className="mt-2 text-xs text-panda-grey">{t("tg.wallet.linked", { address: truncateAddress(wallet) })}</p>
                   <div className="mt-5 grid gap-2">
                     {deepLinkProviders.map((p, i) => (
-                      <button key={p} type="button" onClick={() => startLogin(p)} disabled={login.busy} className={`${primary} ${i === 0 ? "bg-bamboo text-ink" : "bg-paper text-ink"}`}>
+                      <button key={p} type="button" onClick={() => startLogin(p)} disabled={login.busy || !kit} className={`${primary} ${i === 0 ? "bg-bamboo text-ink" : "bg-paper text-ink"}`}>
                         {login.busy ? t("tg.login.working") : t("tg.login.button", { wallet: PROVIDERS[p].label })}
                       </button>
                     ))}
@@ -605,12 +644,9 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
               </button>
               <p className="mt-1 text-[11px] leading-snug text-panda-grey">{t("tg.login.browseNote")}</p>
             </div>
-          ) : status === "ready" && !booting ? (
-            children
           ) : status === "loading" || status === "ready" ? (
-            <p className="py-16 text-center text-sm text-panda-grey" role="status">
-              {t("tg.loading")}
-            </p>
+            // Something on screen at once: the shape of the screen that is coming.
+            booting || status === "loading" ? <ScreenSkeleton /> : null
           ) : (
             <div className="mx-auto max-w-sm py-14 text-center">
               <h1 className="font-display text-xl font-bold">{t(status === "outside" ? "tg.outside.title" : "tg.error.title")}</h1>
@@ -635,6 +671,14 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
                 )}
               </div>
             </div>
+          )}
+          {/* The wallets and every screen. Mounted as soon as Telegram's sign-in is done — also behind the sign-in
+              screen, with nothing in it, so the wallets are ready for the tap on "Connect and sign in". */}
+          {status === "ready" && (
+            // Until the wallet code is here, the screens that don't need it (the lists) are shown as they are.
+            <Suspense fallback={gate || booting ? null : isListPath(pathname) ? children : <ScreenSkeleton />}>
+              <TgWalletRoot onKit={onKit}>{gate || booting ? null : children}</TgWalletRoot>
+            </Suspense>
           )}
         </div>
 

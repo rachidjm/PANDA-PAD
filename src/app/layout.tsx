@@ -2,22 +2,9 @@ import { publicBotUsername } from "@/lib/telegram/public";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import ProtocolBanner from "@/components/ProtocolBanner";
-import WalletProvider from "@/components/providers/WalletProvider";
+import AppFrame from "@/components/AppFrame";
 import MotionProvider from "@/components/providers/MotionProvider";
 import { FeaturesProvider } from "@/components/providers/FeaturesProvider";
-import MobileTabBar from "@/components/MobileTabBar";
-import SkipLink from "@/components/SkipLink";
-import OutsideTg from "@/components/tg/OutsideTg";
-import ReferralCapture from "@/components/ReferralCapture";
-import ReferralAutoBind from "@/components/ReferralAutoBind";
-import ReferralWelcomeBanner from "@/components/ReferralWelcomeBanner";
-import { AIAssistantProvider } from "@/components/ai/AIAssistantProvider";
-import { DrawTradeAIBridgeProvider } from "@/components/ai/DrawTradeAIBridge";
-import AIAssistantModal from "@/components/ai/AIAssistantModal";
-import AIAssistantFab from "@/components/ai/AIAssistantFab";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { isEnabled } from "@/lib/config/flags";
 import { connection } from "next/server";
@@ -54,7 +41,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // A nonce only exists per request, so with a CSP on every page is rendered per request (not prerendered at build).
   if (cspMode() !== "off") await connection();
   return (
-    <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`}>
+    // Inside Telegram, Telegram's own script writes its colours and safe areas onto <html> before the app starts: expected, not a mismatch.
+    <html lang="en" className={`${bricolage.variable} ${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="flex min-h-full flex-col pb-16 sm:pb-0">
         <LanguageProvider>
           <MotionProvider>
@@ -76,30 +64,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 telegramBot: publicBotUsername(),
               }}
             >
-              <WalletProvider>
-                <DrawTradeAIBridgeProvider>
-                  <AIAssistantProvider>
-                    <ReferralCapture />
-                    {/* The Telegram Mini App (/tg) has its own frame: none of the website's header, footer or bars. */}
-                    <OutsideTg>
-                      <ReferralAutoBind />
-                      <ReferralWelcomeBanner />
-                      <SkipLink />
-                      <Navbar />
-                    </OutsideTg>
-                    <ProtocolBanner />
-                    <main id="main" tabIndex={-1} className="flex-1 outline-none">
-                      {children}
-                    </main>
-                    <OutsideTg>
-                      <Footer />
-                      <MobileTabBar />
-                      <AIAssistantFab />
-                    </OutsideTg>
-                    <AIAssistantModal />
-                  </AIAssistantProvider>
-                </DrawTradeAIBridgeProvider>
-              </WalletProvider>
+              <AppFrame>{children}</AppFrame>
             </FeaturesProvider>
           </MotionProvider>
         </LanguageProvider>

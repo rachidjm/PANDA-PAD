@@ -1,18 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useWallet } from "@solana/wallet-adapter-react";
 import CoinAvatar from "@/components/CoinAvatar";
 import RugBadge from "@/components/RugBadge";
-import PriceChart from "@/components/coin/PriceChart";
-import TradingPanel from "@/components/coin/TradingPanel";
 import { truncateAddress } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import type { Coin } from "@/lib/types";
-import { alertText, Change, money, priceLabel, type TgAlert } from "./TgScreens";
+import { putCached } from "./cache";
+import { ALERTS, alertText, Change, money, priceLabel, WATCHLIST, type TgAlert } from "./TgScreens";
 import { cleanError, useTg } from "./TgShell";
+import { ChartSkeleton } from "./TgSkeleton";
+import { useTgData } from "./useTgData";
+
+// The chart (with Draw Your Trade inside it) and the trading panel are the website's own, and the heaviest parts of
+// this screen: each is downloaded when it is about to be shown, with the rest of the coin already on screen.
+const PriceChart = dynamic(() => import("@/components/coin/PriceChart"), { ssr: false, loading: () => <ChartSkeleton /> });
+const TradingPanel = dynamic(() => import("@/components/coin/TradingPanel"), { ssr: false, loading: () => <div className="h-72 w-full animate-pulse rounded-2xl bg-paper/10" aria-hidden /> });
 
 /**
  * A coin inside the Mini App: the website's own chart and data, the watchlist and alert controls of the bot, and —
@@ -78,34 +85,24 @@ export default function TgCoin({ coin, holderCount }: { coin: Coin; holderCount:
 function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
   const { t } = useLanguage();
   const { api } = useTg();
-  const [watched, setWatched] = useState<boolean | null>(null);
-  const [alerts, setAlerts] = useState<TgAlert[]>([]);
+  // The same two lists the Watchlist and Alerts screens show, from the same memory: no request of its own when they are already there.
+  const watch = useTgData<{ items?: { mint: string }[] }>(WATCHLIST);
+  const alert = useTgData<{ alerts?: TgAlert[] }>(ALERTS);
+  const watched = watch.data?.items ? watch.data.items.some((x) => x.mint === coin.mint) : null;
+  const alerts = (alert.data?.alerts ?? []).filter((x) => x.mint === coin.mint);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
   const [metric, setMetric] = useState<"price" | "mcap">("price");
   const [direction, setDirection] = useState<"above" | "below">("above");
   const [value, setValue] = useState("");
 
-  const load = useCallback(async () => {
-    const [w, a] = await Promise.all([api("/api/tg/watchlist"), api("/api/tg/alerts")]);
-    const wd = (await w.json().catch(() => null)) as { items?: { mint: string }[] } | null;
-    const ad = (await a.json().catch(() => null)) as { alerts?: TgAlert[] } | null;
-    if (w.ok && wd?.items) setWatched(wd.items.some((x) => x.mint === coin.mint));
-    if (a.ok && ad?.alerts) setAlerts(ad.alerts.filter((x) => x.mint === coin.mint));
-  }, [api, coin.mint]);
-  useEffect(() => {
-    Promise.resolve()
-      .then(load)
-      .catch(() => {});
-  }, [load]);
-
   async function toggleWatch() {
     setBusy(true);
     setNote(null);
     try {
-      const res = await api("/api/tg/watchlist", { method: watched ? "DELETE" : "POST", body: { mint: coin.mint } });
+      const res = await api(WATCHLIST, { method: watched ? "DELETE" : "POST", body: { mint: coin.mint } });
       const data = (await res.json().catch(() => null)) as { code?: string } | null;
-      if (res.ok || data?.code === "exists") setWatched(!watched || data?.code === "exists");
+      if (res.ok || data?.code === "exists") await watch.reload();
       else setNote({ text: t(data?.code === "full" ? "tg.watch.full" : "tg.unavailable"), bad: true });
     } finally {
       setBusy(false);
@@ -123,7 +120,7 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
       if (res.ok) {
         setValue("");
         setNote({ text: t("tg.alert.created"), bad: false });
-        await load();
+        await alert.reload();
       } else setNote({ text: t(data?.code === "already_true" ? "tg.alert.already" : data?.code === "full" ? "tg.alert.full" : data?.code === "invalid" ? "tg.alert.invalid" : "tg.unavailable"), bad: true });
     } finally {
       setBusy(false);
@@ -132,9 +129,10 @@ function WatchAndAlert({ coin, price }: { coin: Coin; price: number | null }) {
 
   async function removeAlert(id: string) {
     setBusy(true);
+    if (alert.data?.alerts) putCached(ALERTS, { alerts: alert.data.alerts.filter((a) => a.id !== id) });
     try {
-      await api("/api/tg/alerts", { method: "DELETE", body: { id } });
-      await load();
+      await api(ALERTS, { method: "DELETE", body: { id } });
+      await alert.reload();
     } finally {
       setBusy(false);
     }

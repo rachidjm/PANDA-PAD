@@ -1,26 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import CoinAvatar from "@/components/CoinAvatar";
-import { formatPrice, formatUsd } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DictKey } from "@/lib/i18n/translations";
+import { Change, money, priceLabel, shortMint as short } from "./bits";
+import { ALERTS, putCached, WATCHLIST } from "./cache";
+
+export { ALERTS, WATCHLIST };
+import { RowsSkeleton, ScreenSkeleton } from "./TgSkeleton";
 import { useTg } from "./TgShell";
+import { useTgData } from "./useTgData";
+
+export { Change, money, priceLabel };
 
 /** The Mini App's list screens: explore (trending / new on PANDA / search), the watchlist and the alerts. */
 
 export type TgCoinRow = { mint: string; ticker: string | null; name: string | null; image: string | null; priceUsd: number | null; marketCap: number | null; change24h: number | null; volume24h?: number | null };
 export type TgAlert = { id: string; mint: string; ticker: string; metric: "price" | "mcap"; direction: "above" | "below"; value: number };
-
-const short = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
-export const money = (n: number | null | undefined) => (n === null || n === undefined || !Number.isFinite(n) ? "—" : formatUsd(n));
-export const priceLabel = (n: number | null | undefined) => (n === null || n === undefined || !(n > 0) ? "—" : formatPrice(n));
-
-export function Change({ pct }: { pct: number | null | undefined }) {
-  if (pct === null || pct === undefined || !Number.isFinite(pct)) return <span className="text-panda-grey">—</span>;
-  return <span className={pct >= 0 ? "text-bamboo" : "text-clay-red"}>{`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`}</span>;
-}
 
 export function CoinRow({ c, right }: { c: TgCoinRow; right?: React.ReactNode }) {
   const { t } = useLanguage();
@@ -50,15 +49,12 @@ function Notice({ text }: { text: string }) {
   return <p className="py-12 text-center text-sm text-panda-grey">{text}</p>;
 }
 
-type Load<T> = { state: "loading" } | { state: "ok"; data: T } | { state: "error" };
 
 export function TgExplore() {
   const { t } = useLanguage();
-  const { api } = useTg();
   const [tab, setTab] = useState<"trending" | "new">("trending");
   const [query, setQuery] = useState("");
   const [typed, setTyped] = useState("");
-  const [list, setList] = useState<Load<TgCoinRow[]>>({ state: "loading" });
 
   // The search waits for a pause in typing.
   useEffect(() => {
@@ -66,20 +62,11 @@ export function TgExplore() {
     return () => clearTimeout(id);
   }, [typed]);
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve().then(() => !cancelled && setList({ state: "loading" }));
-    api(query ? `/api/tg/coins?q=${encodeURIComponent(query)}` : `/api/tg/coins?tab=${tab}`)
-      .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as { coins?: TgCoinRow[] } | null;
-        if (cancelled) return;
-        setList(res.ok && data?.coins ? { state: "ok", data: data.coins } : { state: "error" });
-      })
-      .catch(() => !cancelled && setList({ state: "error" }));
-    return () => {
-      cancelled = true;
-    };
-  }, [api, tab, query]);
+  // A list that was already seen is on screen at once (and brought up to date behind); the other tab is fetched too,
+  // so switching is instant.
+  const { data, failed } = useTgData<{ coins?: TgCoinRow[] }>(query ? `/api/tg/coins?q=${encodeURIComponent(query)}` : `/api/tg/coins?tab=${tab}`);
+  useTgData<unknown>(query ? null : `/api/tg/coins?tab=${tab === "trending" ? "new" : "trending"}`);
+  const coins = data?.coins;
 
   const tabs: { id: "trending" | "new"; label: DictKey }[] = [
     { id: "trending", label: "tg.tab.trending" },
@@ -106,15 +93,17 @@ export function TgExplore() {
           ))}
         </div>
       )}
-      {list.state === "loading" ? (
-        <Notice text={t("tg.loading")} />
-      ) : list.state === "error" ? (
-        <Notice text={t("tg.unavailable")} />
-      ) : list.data.length === 0 ? (
+      {!coins ? (
+        failed ? (
+          <Notice text={t("tg.unavailable")} />
+        ) : (
+          <RowsSkeleton />
+        )
+      ) : coins.length === 0 ? (
         <Notice text={t(query ? "tg.noResults" : "tg.empty")} />
       ) : (
         <ul className="mt-2">
-          {list.data.map((c) => (
+          {coins.map((c) => (
             <CoinRow key={c.mint} c={c} />
           ))}
         </ul>
@@ -127,27 +116,17 @@ export function TgExplore() {
 export function TgWatchlist() {
   const { t } = useLanguage();
   const { api } = useTg();
-  const [list, setList] = useState<Load<TgCoinRow[]>>({ state: "loading" });
+  const { data, failed, reload } = useTgData<{ items?: TgCoinRow[] }>(WATCHLIST);
+  const items = data?.items;
   const [busy, setBusy] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await api("/api/tg/watchlist");
-      const data = (await res.json().catch(() => null)) as { items?: TgCoinRow[] } | null;
-      setList(res.ok && data?.items ? { state: "ok", data: data.items } : { state: "error" });
-    } catch {
-      setList({ state: "error" });
-    }
-  }, [api]);
-  useEffect(() => {
-    Promise.resolve().then(load);
-  }, [load]);
 
   async function remove(mint: string) {
     setBusy(mint);
+    // Gone from the screen at once; the server is told behind, and the list is read again in case it said no.
+    if (items) putCached(WATCHLIST, { items: items.filter((c) => c.mint !== mint) });
     try {
-      await api("/api/tg/watchlist", { method: "DELETE", body: { mint } });
-      await load();
+      await api(WATCHLIST, { method: "DELETE", body: { mint } });
+      await reload();
     } finally {
       setBusy(null);
     }
@@ -156,15 +135,17 @@ export function TgWatchlist() {
   return (
     <div>
       <h1 className="font-display text-xl font-bold">{t("tg.nav.watchlist")}</h1>
-      {list.state === "loading" ? (
-        <Notice text={t("tg.loading")} />
-      ) : list.state === "error" ? (
-        <Notice text={t("tg.unavailable")} />
-      ) : list.data.length === 0 ? (
+      {!items ? (
+        failed ? (
+          <Notice text={t("tg.unavailable")} />
+        ) : (
+          <RowsSkeleton rows={4} />
+        )
+      ) : items.length === 0 ? (
         <Notice text={t("tg.watch.empty")} />
       ) : (
         <ul className="mt-2">
-          {list.data.map((c) => (
+          {items.map((c) => (
             <CoinRow
               key={c.mint}
               c={c}
@@ -190,27 +171,16 @@ export function alertText(a: Pick<TgAlert, "metric" | "direction" | "value">, t:
 export function TgAlerts() {
   const { t } = useLanguage();
   const { api } = useTg();
-  const [list, setList] = useState<Load<TgAlert[]>>({ state: "loading" });
+  const { data, failed, reload } = useTgData<{ alerts?: TgAlert[] }>(ALERTS);
+  const alerts = data?.alerts;
   const [busy, setBusy] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await api("/api/tg/alerts");
-      const data = (await res.json().catch(() => null)) as { alerts?: TgAlert[] } | null;
-      setList(res.ok && data?.alerts ? { state: "ok", data: data.alerts } : { state: "error" });
-    } catch {
-      setList({ state: "error" });
-    }
-  }, [api]);
-  useEffect(() => {
-    Promise.resolve().then(load);
-  }, [load]);
 
   async function remove(id: string) {
     setBusy(id);
+    if (alerts) putCached(ALERTS, { alerts: alerts.filter((a) => a.id !== id) });
     try {
-      await api("/api/tg/alerts", { method: "DELETE", body: { id } });
-      await load();
+      await api(ALERTS, { method: "DELETE", body: { id } });
+      await reload();
     } finally {
       setBusy(null);
     }
@@ -220,15 +190,17 @@ export function TgAlerts() {
     <div>
       <h1 className="font-display text-xl font-bold">{t("tg.nav.alerts")}</h1>
       <p className="mt-1 text-xs text-panda-grey">{t("tg.alert.note")}</p>
-      {list.state === "loading" ? (
-        <Notice text={t("tg.loading")} />
-      ) : list.state === "error" ? (
-        <Notice text={t("tg.unavailable")} />
-      ) : list.data.length === 0 ? (
+      {!alerts ? (
+        failed ? (
+          <Notice text={t("tg.unavailable")} />
+        ) : (
+          <RowsSkeleton rows={3} />
+        )
+      ) : alerts.length === 0 ? (
         <Notice text={t("tg.alert.empty")} />
       ) : (
         <ul className="mt-3 space-y-2">
-          {list.data.map((a) => (
+          {alerts.map((a) => (
             <li key={a.id} className="flex items-center gap-3 rounded-2xl border border-paper/10 bg-ink-raised px-4 py-3">
               <Link href={`/tg/coin/${a.mint}`} className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-bold">${a.ticker}</span>
@@ -243,4 +215,16 @@ export function TgAlerts() {
       )}
     </div>
   );
+}
+
+/**
+ * The screen for the address on screen, straight away (src/app/tg/loading.tsx): tapping Explore, Watchlist or Alerts
+ * shows that screen at once — with what the app already has in memory — instead of waiting for the server to answer.
+ */
+export function TgInstant() {
+  const pathname = usePathname();
+  if (pathname === "/tg") return <TgExplore />;
+  if (pathname === "/tg/watchlist") return <TgWatchlist />;
+  if (pathname === "/tg/alerts") return <TgAlerts />;
+  return <ScreenSkeleton />;
 }

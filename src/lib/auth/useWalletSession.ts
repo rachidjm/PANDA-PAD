@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { sessionDelegate } from "@/lib/auth/session-delegate";
 import { ADMIN_FRESH_MS } from "@/lib/auth/admin-policy";
 import { clearPendingCode, clearPendingReferrer, pendingCode, pendingReferrer } from "@/lib/referrals/client";
 
@@ -32,16 +33,6 @@ async function retryPendingReferral(wallet: string): Promise<void> {
 }
 
 /**
- * Inside the Telegram Mini App the session is the app's own (src/components/tg/session.ts): in memory, sent in a
- * header, signed in once when the app opens. Its shell registers this, and from then on "make sure there is a session"
- * is answered by it — the website's cookie sign-in below never runs there.
- */
-let appDelegate: ((wallet: string) => Promise<void>) | null = null;
-export function setSessionDelegate(fn: ((wallet: string) => Promise<void>) | null): void {
-  appDelegate = fn;
-}
-
-/**
  * Proves the connected wallet is really the user's: asks the server for a
  * one-time challenge, has the wallet sign it (free, moves no funds), and lets
  * the server set an HttpOnly session cookie. The client never sees or stores
@@ -55,7 +46,8 @@ export function useWalletSession() {
   const ensureSession = useCallback(async (opts?: { adminFresh?: boolean }): Promise<void> => {
     if (!publicKey) throw new Error(t("auth.failed"));
     const wallet = publicKey.toBase58();
-    if (appDelegate) return appDelegate(wallet);
+    const app = sessionDelegate(); // the Telegram Mini App's own session (./session-delegate.ts)
+    if (app) return app(wallet);
 
     const current = await fetch("/api/auth/session", { cache: "no-store" })
       .then((r) => r.json())
