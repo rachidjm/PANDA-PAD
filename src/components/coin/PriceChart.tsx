@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { formatPct, formatPrice, formatCompact } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Coin } from "@/lib/types";
-import { CHART, clientYToChartY, domainFor, priceToY, yToPrice } from "@/lib/strategy/scale";
+import { CHART, clampView, clientYToChartY, DEFAULT_VIEW, domainFor, dragAxis, isDefaultView, panView, priceToY, rowToAnchor, viewDomain, yToPrice, zoomView, type ChartView } from "@/lib/strategy/scale";
 import { useDrawTrade } from "@/components/coin/draw/useDrawTrade";
 import DrawTradePanel from "@/components/coin/draw/DrawTradePanel";
 import { PriceTags, StrategyLines, type ChartOverlayData } from "@/components/coin/draw/ChartOverlay";
@@ -324,6 +324,8 @@ export default function PriceChart({
             tf={tf}
             hoverIndex={hoverIndex}
             onHover={setHoverIndex}
+            formatAxis={fmtDisplay}
+            resetLabel={t("chart.resetView")}
             overlay={overlay}
             myTrades={hasRealTimes ? myTrades : []}
             pandaExecutions={pandaExecutions}
@@ -415,8 +417,13 @@ function AreaChart({
   eurUsd,
   toDisplay,
   fromDisplay,
+  formatAxis,
+  resetLabel,
 }: {
   overlay?: ChartOverlayData;
+  /** How a value of the Y axis is written (price or market cap) — for the two small range labels of a moved view. */
+  formatAxis: (displayValue: number) => string;
+  resetLabel: string;
   candles: Candle[];
   positive: boolean;
   noDataLabel: string;
@@ -454,8 +461,51 @@ function AreaChart({
   // can be placed beyond the recent highs and lows.
   // Computed even with too little data to draw a curve (domainFor is safe with an empty/short list) so every hook below
   // can always run in the same order, whether or not there's a chart to show — React requires that either way.
-  const domain = domainFor(data, overlay?.drawing ? 0.25 : 0);
+  const base = domainFor(data, overlay?.drawing ? 0.25 : 0);
   const drawing = !!overlay?.drawing;
+
+  // The user's own view of the price axis (zoomed out to mark a sell above what the candles reach, zoomed in, moved up
+  // or down). It belongs to one timeframe: changing it starts from the normal view again. Everything below — the curve,
+  // the strategy lines, the price under the pointer — reads `domain`, so they all follow the view together.
+  const [viewOf, setViewOf] = useState<{ tf: Timeframe; view: ChartView }>({ tf, view: DEFAULT_VIEW });
+  const view = viewOf.tf === tf ? viewOf.view : DEFAULT_VIEW;
+  const changeView = (next: (v: ChartView, b: { min: number; max: number }) => ChartView) => {
+    const b = { min: base.min, max: base.max };
+    setViewOf((s) => ({ tf, view: clampView(b, next(s.tf === tf ? s.view : DEFAULT_VIEW, b)) }));
+  };
+  const domain = viewDomain(base, view);
+  const moved = !isDefaultView(view);
+
+  // Fingers / mouse button currently down on the chart, and what they are doing with the view.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<
+    | null
+    | { kind: "one"; id: number; x: number; y: number; lastY: number; axis: "x" | "y" | null }
+    | { kind: "pinch"; dist: number; midY: number }
+    | { kind: "done" }
+  >(null);
+  const [panning, setPanning] = useState(false);
+
+  // Mouse wheel: zoom around the price under the pointer. A non-passive listener, so the page doesn't scroll while the
+  // pointer is ON the chart; anywhere else the wheel scrolls the page as always.
+  const onWheel = useEffectEvent((e: WheelEvent) => {
+    const el = svgRef.current;
+    if (!el || e.ctrlKey) return; // ctrl + wheel is the browser's own page zoom
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * rect.height : e.deltaY;
+    const anchor = rowToAnchor(clientYToChartY(e.clientY, rect.top, rect.height));
+    changeView((v, b) => zoomView(b, v, Math.exp(Math.max(-120, Math.min(120, delta)) * 0.0018), anchor));
+  });
+  // With fewer than two candles no chart is rendered at all: the listener is attached when one appears.
+  const noChart = data.length < 2;
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const listener = (e: WheelEvent) => onWheel(e);
+    el.addEventListener("wheel", listener, { passive: false });
+    return () => el.removeEventListener("wheel", listener);
+  }, [noChart]);
 
   /** The price at a given screen Y, from the chart's own scale (the same one that draws the curve) — always
    *  converted back to a real USD price before it leaves this function, since that's the space every strategy
@@ -531,8 +581,72 @@ function AreaChart({
     return Math.max(0, Math.min(points.length - 1, idx));
   }
 
+  /** The fraction of the chart's height a vertical movement in screen pixels covers. */
+  const heightFraction = (dyClient: number) => {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return rect.height > 0 ? (dyClient / rect.height) * (height / (height - padding * 2)) : 0;
+  };
+
+  /** A second finger landed: whatever the first one was doing stops, and the two of them pinch. */
+  function startPinch() {
+    const [a, b] = [...pointers.current.values()];
+    gesture.current = { kind: "pinch", dist: Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1), midY: (a.y + b.y) / 2 };
+    if (drawing && dragPointerId !== null) {
+      // The line that first finger was placing is dropped, not committed.
+      overlay!.onPointer("leave", 0, { type: "touch", button: 0, pressed: false });
+      setDragPointerId(null);
+    }
+    onHover(null);
+    setPanning(false);
+  }
+
+  /** Moves the view with the fingers / the mouse. True when the movement was used for that (and for nothing else). */
+  function viewGestureMove(e: React.PointerEvent<SVGSVGElement>): boolean {
+    const g = gesture.current;
+    if (!g) return false;
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.kind === "done") return true;
+    if (g.kind === "pinch") {
+      const pts = [...pointers.current.values()];
+      if (pts.length < 2) return true;
+      const dist = Math.max(Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), 1);
+      const midY = (pts[0].y + pts[1].y) / 2;
+      const rect = svgRef.current!.getBoundingClientRect();
+      const anchor = rowToAnchor(clientYToChartY(midY, rect.top, rect.height));
+      // Fingers apart = closer (less on screen); the two of them sliding up or down moves the view.
+      const factor = g.dist / dist;
+      const slide = heightFraction(midY - g.midY);
+      gesture.current = { kind: "pinch", dist, midY };
+      changeView((v, b) => panView(b, zoomView(b, v, factor, anchor), slide));
+      return true;
+    }
+    if (g.id !== e.pointerId) return true;
+    if (!g.axis) {
+      g.axis = dragAxis(e.clientX - g.x, e.clientY - g.y, e.pointerType === "mouse" ? 4 : 8);
+      if (g.axis === "y") {
+        onHover(null);
+        setPanning(true);
+      }
+    }
+    if (g.axis !== "y") return false; // sideways (or not decided yet): the chart is being read, as always
+    const dy = e.clientY - g.lastY;
+    g.lastY = e.clientY;
+    changeView((v, b) => panView(b, v, heightFraction(dy)));
+    return true;
+  }
+
+  function endPointer(e: React.PointerEvent<SVGSVGElement>) {
+    pointers.current.delete(e.pointerId);
+    // After a pinch, the finger that stays down does nothing more until it is lifted too.
+    if (pointers.current.size === 0) gesture.current = null;
+    else if (gesture.current?.kind === "pinch") gesture.current = { kind: "done" };
+    else if (gesture.current?.kind === "one" && gesture.current.id === e.pointerId) gesture.current = null;
+    setPanning(false);
+  }
+
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
     if (!svgRef.current) return;
+    if (viewGestureMove(e)) return;
     if (drawing) {
       // While a drag is being tracked on `window` (above), that's the single source of truth — this
       // would otherwise double-fire for the same movement whenever the pointer is still over the SVG.
@@ -568,27 +682,38 @@ function AreaChart({
           else onHover(null);
         }}
         onPointerDown={(e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          try {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+          } catch {
+            // A pointer the browser no longer tracks can't be captured; its events still arrive while it is over the chart.
+          }
+          // Two fingers: pinch to zoom the price axis (and slide to move it) — while browsing and while drawing alike.
+          if (pointers.current.size === 2) return startPinch();
+          if (pointers.current.size > 2) return;
           if (drawing) {
             setDragPointerId(e.pointerId);
             overlay!.onPointer("down", priceAt(e), info(e));
             return;
           }
-          // Touch: keep receiving moves while the finger drags sideways, and show the point under the finger right away.
-          if (e.pointerType === "touch") {
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            onHover(hoverIndexAt(e));
-          }
+          // One finger / the mouse, browsing: sideways it reads the chart, up and down it moves the price axis.
+          gesture.current = { kind: "one", id: e.pointerId, x: e.clientX, y: e.clientY, lastY: e.clientY, axis: null };
+          // Touch: show the point under the finger right away.
+          if (e.pointerType === "touch") onHover(hoverIndexAt(e));
         }}
         onPointerUp={(e) => {
+          endPointer(e);
           if (!drawing && e.pointerType === "touch") onHover(null);
         }}
         onPointerCancel={(e) => {
+          endPointer(e);
           if (!drawing && e.pointerType === "touch") onHover(null);
         }}
-        className="h-[170px] w-full cursor-crosshair sm:h-[260px]"
+        className={`h-[170px] w-full sm:h-[260px] ${panning ? "cursor-grabbing" : "cursor-crosshair"}`}
         style={{
-          // Drawing: the finger moves the line, never the page. Browsing: sideways drags scan the chart, vertical ones still scroll the page.
-          touchAction: drawing ? "none" : "pan-y",
+          // Every gesture that starts ON the chart belongs to the chart (line, scan, zoom, move); the page scrolls from anywhere else.
+          touchAction: "none",
           WebkitTapHighlightColor: "transparent",
           WebkitUserSelect: "none",
           userSelect: "none",
@@ -648,6 +773,26 @@ function AreaChart({
           }
         `}</style>
       </svg>
+
+      {moved && (
+        <>
+          {/* A moved view says what it shows (top and bottom of the axis) and how to get back. */}
+          <span className="pointer-events-none absolute left-1.5 top-1 rounded bg-ink/70 px-1 text-[10px] tabular-nums text-panda-grey">{formatAxis(domain.max)}</span>
+          <span className="pointer-events-none absolute left-1.5 rounded bg-ink/70 px-1 text-[10px] tabular-nums text-panda-grey" style={{ top: svgHeight - 18 }}>
+            {formatAxis(domain.min)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setViewOf({ tf, view: DEFAULT_VIEW })}
+            className="absolute left-1/2 top-1 inline-flex min-h-7 -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-paper/15 bg-ink/85 px-2.5 text-[11px] font-semibold text-paper/90 backdrop-blur transition-colors hover:bg-ink hover:text-paper"
+          >
+            <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M2.2 6a3.8 3.8 0 1 0 1.2-2.8M2 1.8v2h2" />
+            </svg>
+            {resetLabel}
+          </button>
+        </>
+      )}
 
       {overlay && <PriceTags overlay={overlay} domain={domain} priceAtClientY={priceAtClientY} onGrabPointer={setDragPointerId} />}
       {myTrades.length > 0 && (

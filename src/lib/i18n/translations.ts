@@ -2095,6 +2095,7 @@ export const dict = {
   "coin.pool.sourcePumpSwap": { en: "PumpSwap (graduated)", es: "PumpSwap (graduada)" },
 
   // Chart
+  "chart.resetView": { en: "Reset view", es: "Restablecer vista" },
   "chart.low": { en: "Low {value}", es: "Mínimo {value}" },
   "chart.high": { en: "High {value}", es: "Máximo {value}" },
   "chart.noData": { en: "No chart data yet", es: "Aún no hay datos del gráfico" },

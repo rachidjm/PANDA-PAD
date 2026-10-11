@@ -75,3 +75,64 @@ export function spreadLabels(ys: number[], minGap: number, max: number): number[
   order.forEach((o, k) => (out[o.i] = placed[k]));
   return out;
 }
+
+// ── the user's own view of the price axis: zoomed in or out, moved up or down ────────────────────────────────────────
+/**
+ * `scale` is how much of the fitted range is on screen (1 = the normal view, 2 = twice as much: zoomed OUT, 0.5 = half:
+ * zoomed IN); `pan` moves the middle of the view, in units of that fitted range (+1 = one whole normal view higher).
+ * Being relative to the fitted range, a view survives new candles and the price / market-cap switch unchanged.
+ */
+export type ChartView = { scale: number; pan: number };
+export const DEFAULT_VIEW: ChartView = { scale: 1, pan: 0 };
+export const VIEW_LIMITS = { minScale: 0.1, maxScale: 20, maxPan: 30 } as const;
+export const isDefaultView = (v: ChartView) => Math.abs(v.scale - 1) < 1e-6 && Math.abs(v.pan) < 1e-6;
+
+const clampNum = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** The view kept inside its limits — and never below a price of zero: reaching the floor stops the move, it doesn't distort the scale. */
+export function clampView(base: Domain, v: ChartView): ChartView {
+  const scale = clampNum(Number.isFinite(v.scale) ? v.scale : 1, VIEW_LIMITS.minScale, VIEW_LIMITS.maxScale);
+  const range = base.max - base.min || 1;
+  // min of the view = centre − half = (base centre + pan·range) − scale·range/2 ≥ 0
+  const floorPan = scale / 2 - (base.min + base.max) / 2 / range;
+  const pan = clampNum(Number.isFinite(v.pan) ? v.pan : 0, Math.min(floorPan, VIEW_LIMITS.maxPan), VIEW_LIMITS.maxPan);
+  return { scale, pan };
+}
+
+/** The prices on screen for this view of the fitted domain. With the default view it IS the fitted domain. */
+export function viewDomain(base: Domain, view: ChartView): Domain {
+  if (isDefaultView(view)) return base;
+  const v = clampView(base, view);
+  const range = base.max - base.min || 1;
+  const centre = (base.min + base.max) / 2 + v.pan * range;
+  const half = (range * v.scale) / 2;
+  return { min: Math.max(centre - half, 0), max: centre + half };
+}
+
+/**
+ * Zooms by `factor` (>1 = out, <1 = in) keeping the price under the pointer where it is. `anchor` is where the pointer
+ * is on the axis: 0 = the bottom of the chart, 1 = the top.
+ */
+export function zoomView(base: Domain, v: ChartView, factor: number, anchor: number): ChartView {
+  if (!Number.isFinite(factor) || factor <= 0) return v;
+  const a = clampNum(anchor, 0, 1) - 0.5;
+  const scale = clampNum(v.scale * factor, VIEW_LIMITS.minScale, VIEW_LIMITS.maxScale);
+  return clampView(base, { scale, pan: v.pan + a * v.scale - a * scale });
+}
+
+/** Moves the view by a fraction of the chart's height: +0.5 = the content slides DOWN half a chart (higher prices come into view). */
+export function panView(base: Domain, v: ChartView, heightFraction: number): ChartView {
+  if (!Number.isFinite(heightFraction)) return v;
+  return clampView(base, { scale: v.scale, pan: v.pan + heightFraction * v.scale });
+}
+
+/** Where a pixel row sits on the axis, 0 (bottom) to 1 (top) — the `anchor` of zoomView. */
+export function rowToAnchor(y: number, height: number = CHART.height, padding: number = CHART.padding): number {
+  return clampNum(1 - (y - padding) / (height - padding * 2), 0, 1);
+}
+
+/** What a finger or the mouse is doing on the chart once it has moved: scanning sideways, or moving the price axis. */
+export function dragAxis(dx: number, dy: number, threshold = 8): "x" | "y" | null {
+  if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return null;
+  return Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+}
