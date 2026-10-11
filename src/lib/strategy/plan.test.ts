@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   amountToUsd,
   chooseFunding,
+  chooseTokenFunding,
   convertAmount,
   defaultStop,
   MIN_ORDER_USD,
@@ -197,4 +198,18 @@ test("pctVsBuy: the live % a price sits from the buy target", () => {
   assert.ok(Math.abs(pctVsBuy(0.84, 1)! - -16) < 1e-9);
   assert.equal(pctVsBuy(1, undefined), null);
   assert.equal(pctVsBuy(1, 0), null);
+});
+
+test("paying with another coin: the order is a SOL order, and the COIN must cover the amount, the fee and the conversion margin", () => {
+  const rates = { solUsd: 200, usdcUsd: 1, eurUsd: 1.1 };
+  const token = { mint: "Tok", symbol: "TOK", decimals: 6, balance: 1_000, priceUsd: 0.5 }; // worth $500
+  const ok = chooseTokenFunding({ unit: "USD", value: 100, rates, token, feeBps: 100 });
+  assert.ok(ok.ok && ok.funding.asset === "SOL" && ok.funding.ui === 0.5, "$100 is 0.5 SOL — whatever SOL the wallet has");
+  const sol = chooseTokenFunding({ unit: "SOL", value: 1, rates, token, feeBps: 100 });
+  assert.ok(sol.ok && sol.funding.raw === "1000000000");
+  // $460 + 1% fee = $464.6, +8% margin = $501.77 > $500.
+  const short = chooseTokenFunding({ unit: "USD", value: 460, rates, token, feeBps: 100 });
+  assert.ok(!short.ok && short.reason === "insufficient" && Math.abs((short.shortfallUsd ?? 0) - 1.768) < 0.01);
+  assert.deepEqual(chooseTokenFunding({ unit: "USD", value: 10, rates, token: { ...token, priceUsd: 0 } }), { ok: false, reason: "price_unavailable" });
+  assert.deepEqual(chooseTokenFunding({ unit: "USD", value: 0, rates, token }), { ok: false, reason: "invalid_amount" });
 });

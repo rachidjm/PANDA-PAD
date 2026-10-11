@@ -27,7 +27,7 @@ test("the signature matches X's own published example (\"Creating a signature\")
 
 test("settings: off unless the flag is exactly true; a missing credential is named (never shown); one post a day by default", () => {
   const off = xConfig({});
-  assert.deepEqual([off.enabled, off.creds, off.maxPerDay, off.defaultImageUrl], [false, null, 1, null]);
+  assert.deepEqual([off.enabled, off.creds, off.maxPerDay, off.defaultImageUrl], [false, null, 1, "https://launchonpanda.app/logo.png"]);
   assert.deepEqual(off.missing, [...X_ENV]);
   const env = { FEATURE_X_POSTING: "true", X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_TOKEN_SECRET: "ts", X_MAX_POSTS_PER_DAY: "3", X_DEFAULT_IMAGE_URL: "https://launchonpanda.app/og.png" };
   const on = xConfig(env);
@@ -35,7 +35,8 @@ test("settings: off unless the flag is exactly true; a missing credential is nam
   assert.deepEqual(xConfig({ ...env, X_ACCESS_TOKEN: " " }).missing, ["X_ACCESS_TOKEN"]);
   assert.equal(xConfig({ ...env, X_ACCESS_TOKEN: " " }).creds, null);
   for (const bad of ["0", "-1", "abc", "1.5", "999"]) assert.equal(xConfig({ ...env, X_MAX_POSTS_PER_DAY: bad }).maxPerDay, 1, bad);
-  for (const bad of ["http://launchonpanda.app/a.png", "javascript:alert(1)", "https://localhost/a.png", "https://10.0.0.1/a.png", "nope"]) assert.equal(xConfig({ ...env, X_DEFAULT_IMAGE_URL: bad }).defaultImageUrl, null, bad);
+  for (const bad of ["http://launchonpanda.app/a.png", "javascript:alert(1)", "https://localhost/a.png", "https://10.0.0.1/a.png", "nope"]) assert.equal(xConfig({ ...env, X_DEFAULT_IMAGE_URL: bad }).defaultImageUrl, "https://launchonpanda.app/logo.png", `${bad}: an unusable address falls back to PANDA's logo`);
+  assert.equal(xConfig({ NEXT_PUBLIC_SITE_URL: "https://staging.example.com/" }).defaultImageUrl, "https://staging.example.com/logo.png");
 });
 
 // ── what a post may look like ───────────────────────────────────────────────────────────────────────────────────────

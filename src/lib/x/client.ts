@@ -35,6 +35,9 @@ export const httpsUrl = (v: string | undefined | null): string | null => {
   }
 };
 
+/** The image a post carries when its draft brings none and X_DEFAULT_IMAGE_URL isn't set: PANDA's own logo, already on the site. */
+export const X_FALLBACK_IMAGE_PATH = "/logo.png";
+
 export function xConfig(env: Env = process.env): XConfig {
   const get = (name: string) => env[name]?.trim() ?? "";
   const missing = X_ENV.filter((n) => !get(n));
@@ -44,7 +47,7 @@ export function xConfig(env: Env = process.env): XConfig {
     creds: missing.length ? null : { apiKey: get("X_API_KEY"), apiSecret: get("X_API_SECRET"), accessToken: get("X_ACCESS_TOKEN"), accessTokenSecret: get("X_ACCESS_TOKEN_SECRET") },
     missing: [...missing],
     maxPerDay: Number.isInteger(max) && max >= 1 && max <= 50 ? max : 1,
-    defaultImageUrl: httpsUrl(env.X_DEFAULT_IMAGE_URL),
+    defaultImageUrl: httpsUrl(env.X_DEFAULT_IMAGE_URL) ?? httpsUrl(`${(httpsUrl(env.NEXT_PUBLIC_SITE_URL) ?? "https://launchonpanda.app/").replace(/\/+$/, "")}${X_FALLBACK_IMAGE_PATH}`),
   };
 }
 

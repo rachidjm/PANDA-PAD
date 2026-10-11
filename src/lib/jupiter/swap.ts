@@ -110,3 +110,38 @@ export async function buildJupiterSwapTransaction({
   const newMessage = message.compileToV0Message(lookupTableAccounts);
   return new VersionedTransaction(newMessage);
 }
+
+/** How much more than the bare figure a conversion sells, to absorb the route's spread and slippage: +3%, then +8%. */
+export const CONVERT_MARGINS_BPS = [300, 800] as const;
+export const CONVERT_SLIPPAGE_BPS = 100;
+/** The most a single conversion may be asked to produce (1,000 SOL): a typo guard, not a business rule. */
+export const MAX_CONVERT_LAMPORTS = BigInt(1_000) * BigInt(1_000_000_000);
+
+/** Pure: the token amount to sell for a quote that says `tokens` are worth the SOL needed, with a margin on top. */
+export function withMargin(tokens: bigint, marginBps: number): bigint {
+  return (tokens * BigInt(10_000 + marginBps)) / BigInt(10_000) + BigInt(1);
+}
+
+/**
+ * Converts a token of the wallet into SOL, so a Draw Your Trade buy order can be paid with any coin: the swap goes in
+ * the same signing batch as the order's deposit and is sent first. It sells just enough for the swap's guaranteed
+ * minimum (after slippage) to cover `lamports`; if no route guarantees that, nothing is built. No PANDA fee here: the
+ * order's own fee is the same whatever it is paid with.
+ */
+export async function buildConvertToSolTransaction({ user, payMint, lamports }: { user: PublicKey; payMint: PublicKey; lamports: bigint }): Promise<{ transaction: VersionedTransaction; inAmount: string; minOutLamports: string }> {
+  const input = payMint.toBase58();
+  if (input === SOL_MINT) throw new Error("SOL needs no conversion.");
+  if (lamports <= BigInt(0) || lamports > MAX_CONVERT_LAMPORTS) throw new Error("Invalid amount to convert.");
+  // What the SOL needed costs in this token, read the other way round (SOL -> token)…
+  const reverse = await getJupiterQuote({ inputMint: SOL_MINT, outputMint: input, amount: lamports.toString(), slippageBps: CONVERT_SLIPPAGE_BPS });
+  const tokens = BigInt(reverse.outAmount);
+  if (tokens <= BigInt(0)) throw new Error("No route found for this trade.");
+  // …then sold with a margin until the guaranteed minimum covers it.
+  for (const margin of CONVERT_MARGINS_BPS) {
+    const quote = await getJupiterQuote({ inputMint: input, outputMint: SOL_MINT, amount: withMargin(tokens, margin).toString(), slippageBps: CONVERT_SLIPPAGE_BPS });
+    if (BigInt(quote.otherAmountThreshold) < lamports) continue;
+    const base64 = await getJupiterSwapTransaction({ quote, userPublicKey: user.toBase58(), dynamicSlippage: false });
+    return { transaction: VersionedTransaction.deserialize(Buffer.from(base64, "base64")), inAmount: quote.inAmount, minOutLamports: quote.otherAmountThreshold };
+  }
+  throw new Error("This coin can't be converted to SOL at a fair price right now — pay with SOL or USDC instead.");
+}

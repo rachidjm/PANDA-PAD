@@ -13,6 +13,7 @@ import {
   amountToUsd,
   type AmountUnit,
   chooseFunding,
+  chooseTokenFunding,
   preferredFunding,
   roundPrice,
   strategyMetrics,
@@ -21,6 +22,7 @@ import {
   validateStrategy,
   type FundingAsset,
   type FundingResult,
+  type PayTokenRef,
   type Rates,
   type StrategyIssue,
   type StrategyMetrics,
@@ -70,7 +72,12 @@ export type Draft = {
   unit: BuyUnit;
   /** The coin that pays when the amount is in dollars or euros. null = the one the wallet holds most of. */
   pay: FundingAsset | null;
+  /** Paying a buy with another coin of the wallet: it is swapped to SOL in the same signing batch, before the order. */
+  payToken?: PayTokenRef | null;
 };
+
+/** The SOL a wallet should keep for network costs after paying an order with another coin (0.006 SOL, as limits.ts). */
+const CONVERT_BUFFER_LAMPORTS = 6_000_000;
 
 export type BuyUnit = Extract<AmountUnit, "SOL" | "USD" | "EUR">;
 
@@ -107,7 +114,7 @@ export const orderEditKey = (groupId: string, trancheId: string) => `${groupId}:
 
 export type Quote = Rates & { tokenUsd: number | null; liquidityUsd: number | null; priceChangeH1Pct: number | null; engine: boolean };
 
-export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "signOrders" | "create" | "cancel" | "done" | "doneOrders";
+export type Step = "idle" | "session" | "jupiter" | "prepare" | "setup" | "sign" | "convert" | "signOrders" | "create" | "cancel" | "done" | "doneOrders";
 
 
 /** One percentage tranche's own order shape, issues and readiness (allocation.ts's rules). */
@@ -460,7 +467,12 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
       drafts.map((draft) => {
         const value = parseFloat(draft.amount);
         const amountUsd = Number.isFinite(value) ? amountToUsd(draft.unit, value, rates) : null;
-        const funding = value > 0 ? chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS }) : null;
+        const funding =
+          value > 0
+            ? draft.payToken
+              ? chooseTokenFunding({ unit: draft.unit, value, rates, token: draft.payToken, feeBps: STRATEGY_FEE_BPS })
+              : chooseFunding({ unit: draft.unit, value, rates, balances, preferred: draft.pay, feeBps: STRATEGY_FEE_BPS })
+            : null;
         const asset: FundingAsset = funding?.ok ? funding.funding.asset : draft.unit === "SOL" ? "SOL" : draft.pay ?? preferredFunding(balances, rates);
 
         if (draft.buy === undefined) {
@@ -861,16 +873,46 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         const deposit = base64ToVersionedTransaction(p.transaction);
         const feeTx = p.feeTransaction ? base64ToTransaction(p.feeTransaction) : null;
 
+        // Paid with another coin: a Jupiter swap turns just enough of it into SOL for the order and its fee. It is
+        // signed in the same batch and sent FIRST; if it fails, nothing else is sent and no order is created.
+        let swap: VersionedTransaction | null = null;
+        if (d.payToken && publicKey) {
+          const rec = p.strategy as StrategyRecord;
+          if (rec.fundingAsset !== "SOL") throw new ApiError("That coin can only pay an order funded in SOL.", "convert_failed");
+          // The SOL the wallet already has stays as it is, except what it lacks to keep the network buffer.
+          const have = await readConnection.getBalance(publicKey).catch(() => 0);
+          const lamports = BigInt(rec.inputAmountRaw) + BigInt(rec.feeLamports) + BigInt(Math.max(0, CONVERT_BUFFER_LAMPORTS - have));
+          const conv = await fetch("/api/jupiter/convert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user: publicKey.toBase58(), payMint: d.payToken.mint, lamports: lamports.toString() }) });
+          const c = await conv.json();
+          if (!conv.ok) throw new ApiError(c.error, "convert_failed");
+          swap = base64ToVersionedTransaction(c.transaction);
+        }
+
         setStep("sign");
         let signedDeposit: VersionedTransaction;
         let signedFee: Transaction | null = null;
-        if (signAllTransactions && feeTx) {
-          const [sd, sf] = await signAllTransactions([deposit, feeTx]);
-          signedDeposit = sd as VersionedTransaction;
-          signedFee = sf as Transaction;
+        let signedSwap: VersionedTransaction | null = null;
+        const batch: (Transaction | VersionedTransaction)[] = [...(swap ? [swap] : []), deposit, ...(feeTx ? [feeTx] : [])];
+        if (signAllTransactions && batch.length > 1) {
+          const out = await signAllTransactions(batch);
+          let k = 0;
+          if (swap) signedSwap = out[k++] as VersionedTransaction;
+          signedDeposit = out[k++] as VersionedTransaction;
+          if (feeTx) signedFee = out[k++] as Transaction;
         } else {
+          if (swap) signedSwap = await signTransaction(swap);
           signedDeposit = await signTransaction(deposit);
           if (feeTx) signedFee = await signTransaction(feeTx);
+        }
+
+        if (signedSwap) {
+          setStep("convert");
+          try {
+            const sig = await connection.sendRawTransaction(signedSwap.serialize(), { maxRetries: 3, preflightCommitment: "confirmed" });
+            await waitForSignature(connection, sig);
+          } catch (err) {
+            throw new ApiError(err instanceof Error ? err.message : String(err), "convert_failed");
+          }
         }
 
         setStep("create");
@@ -893,7 +935,7 @@ export function useDrawTrade(coin: Coin | null, chartPrice: number) {
         setError(err instanceof ApiError ? { message: err.message, code: err.code, issues: err.issues } : { message: err instanceof Error ? err.message : String(err), code: /reject|cancel|denied/i.test(String(err)) ? "REJECTED" : undefined });
       }
     },
-    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions]
+    [coin, ensureJwt, ensureSession, signTransaction, signAllTransactions, publicKey, connection, readConnection]
   );
 
   // ── PANDA orders: sign every sell / stop of a held-coin draft at once; PANDA keeps them (encrypted) and sends them

@@ -289,3 +289,23 @@ export function preferredFunding(balances: { sol: number | null; usdc: number | 
   if (sol === null && usdc === null) return "SOL";
   return (usdc ?? -1) > (sol ?? -1) ? "USDC" : "SOL";
 }
+
+/** A buy order paid with another coin of the wallet: a snapshot of that coin when it was picked. */
+export type PayTokenRef = { mint: string; symbol: string; decimals: number; balance: number; priceUsd: number };
+
+/** What a conversion to SOL may cost on top (route spread + slippage): the coin must be worth this much more. */
+export const PAY_TOKEN_MARGIN_BPS = 800;
+
+/**
+ * Paying with another coin: it is swapped to SOL first, so the order itself is a SOL order. The wallet's SOL doesn't
+ * have to cover it — the coin does, for the amount, PANDA's fee and the conversion's margin.
+ */
+export function chooseTokenFunding(i: { unit: AmountUnit; value: number; rates: Rates; token: PayTokenRef; feeBps?: number }): FundingResult {
+  const base = chooseFunding({ unit: i.unit, value: i.value, rates: i.rates, balances: { sol: null, usdc: null }, preferred: i.unit === "USDC" ? null : "SOL", feeBps: i.feeBps });
+  if (!base.ok) return base;
+  if (!(i.token.priceUsd > 0) || !(i.token.balance >= 0)) return { ok: false, reason: "price_unavailable" };
+  const needUsd = ((base.funding.usd + base.funding.feeUsd) * (10_000 + PAY_TOKEN_MARGIN_BPS)) / 10_000;
+  const haveUsd = i.token.balance * i.token.priceUsd;
+  if (needUsd > haveUsd + 1e-9) return { ok: false, reason: "insufficient", shortfallUsd: needUsd - haveUsd };
+  return base;
+}

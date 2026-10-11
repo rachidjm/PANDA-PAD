@@ -183,6 +183,10 @@ test("/watch, /unwatch, /watchlist: addresses only, no duplicates, a cap of 20",
   assert.match(await last(u), /already/);
   await handleMessage(d, dm(u, "/watchlist"));
   assert.match(await last(u), /Your watchlist/);
+  assert.match(await last(u), />\$TST<\/a>/, "the ticker, as /token shows it — not the shortened address");
+  // The quotes don't always bring a ticker: the coin's own data fills it in, and the address is only the last resort.
+  await handleMessage(botDeps(db, { market: fakeMarket({ quotesMap: new Map() }) }), dm(u, "/watchlist"));
+  assert.match(await last(u), />\$TST<\/a>/);
   await handleMessage(d, dm(u, `/unwatch ${OTHER}`));
   assert.match(await last(u), /Removed/);
   await handleMessage(d, dm(u, "/watchlist"));

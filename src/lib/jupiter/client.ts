@@ -45,9 +45,12 @@ export async function getJupiterQuote({
 export async function getJupiterSwapTransaction({
   quote,
   userPublicKey,
+  dynamicSlippage = true,
 }: {
   quote: JupiterQuote;
   userPublicKey: string;
+  /** false = keep exactly the quote's own minimum out (a conversion that must cover a known amount). */
+  dynamicSlippage?: boolean;
 }): Promise<string> {
   const res = await fetch(`${JUP_BASE}/swap/v1/swap`, {
     method: "POST",
@@ -56,7 +59,7 @@ export async function getJupiterSwapTransaction({
       quoteResponse: quote,
       userPublicKey,
       dynamicComputeUnitLimit: true,
-      dynamicSlippage: true,
+      dynamicSlippage,
       // Ask for a priority fee (at most 0.0002 SOL) so the swap lands when the network is busy.
       prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 200_000, priorityLevel: "high" } },
     }),

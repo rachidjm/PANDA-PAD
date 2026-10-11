@@ -281,9 +281,20 @@ async function watchlist(d: BotDeps, m: Incoming): Promise<void> {
   } catch {
     quotes = new Map();
   }
+  // The coin's ticker, as /token shows it: from the quotes when they bring it, otherwise from the coin's own data; the
+  // short address is only the last resort (a coin no source knows).
+  const tickers = new Map<string, string>();
+  await Promise.all(
+    mints.map(async (mint) => {
+      const known = quotes.get(mint)?.ticker?.trim();
+      const ticker = known || (await d.market.coin(mint).catch(() => null))?.ticker?.trim();
+      if (ticker && ticker !== "?") tickers.set(mint, ticker);
+    })
+  );
   const lines = mints.map((mint) => {
     const q = quotes.get(mint);
-    return `• <a href="${coinUrl(d.cfg, mint)}">${shortAddr(mint)}</a> · ${price(q?.priceUsd ?? null, m.lang)} · ${tt(m.lang, "mcap")} ${usd(q?.marketCap ?? null, m.lang)}`;
+    const ticker = tickers.get(mint);
+    return `• <a href="${coinUrl(d.cfg, mint)}">${ticker ? `$${esc(ticker)}` : shortAddr(mint)}</a> · ${price(q?.priceUsd ?? null, m.lang)} · ${tt(m.lang, "mcap")} ${usd(q?.marketCap ?? null, m.lang)}`;
   });
   await say(d, m, [tt(m.lang, "watchlistTitle"), ...lines, "", tt(m.lang, "nfa")].join("\n"));
 }

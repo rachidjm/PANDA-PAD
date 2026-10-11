@@ -66,8 +66,9 @@ export const realMarket: Market = {
     for (let i = 0; i < unique.length && i < 300; i += 30) {
       const pairs = await fetchDexTokensBatch(unique.slice(i, i + 30));
       for (const mint of unique.slice(i, i + 30)) {
-        const q = bestPairQuote(pairs.filter((p) => p.baseToken.address === mint));
-        if (q) out.set(mint, q);
+        const own = pairs.filter((p) => p.baseToken.address === mint);
+        const q = bestPairQuote(own);
+        if (q) out.set(mint, { ...q, ticker: own[0]?.baseToken.symbol?.trim() || null });
       }
     }
     return out;

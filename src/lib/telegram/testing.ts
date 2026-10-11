@@ -33,7 +33,7 @@ export function fakeMarket(over: Partial<Market> & { coins?: Record<string, Coin
     coin: async (mint) => coins[mint] ?? null,
     search: async () => [],
     mostTraded: async (n) => Object.values(coins).slice(0, n),
-    quotes: async (mints) => over.quotesMap ?? new Map(mints.filter((m) => coins[m]).map((m) => [m, { priceUsd: coins[m].priceUsd, marketCap: coins[m].marketCap }])),
+    quotes: async (mints) => over.quotesMap ?? new Map(mints.filter((m) => coins[m]).map((m) => [m, { priceUsd: coins[m].priceUsd, marketCap: coins[m].marketCap, ticker: coins[m].ticker }])),
     pandaLaunches: async () => [],
     ...over,
   };

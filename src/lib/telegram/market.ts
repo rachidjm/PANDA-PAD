@@ -13,7 +13,8 @@ export type CoinInfo = {
   pool?: string | null;
 };
 
-export type Quote = { priceUsd: number | null; marketCap: number | null };
+/** `ticker` comes with the same read when the source knows it (the watchlist shows it instead of the address). */
+export type Quote = { priceUsd: number | null; marketCap: number | null; ticker?: string | null };
 
 /**
  * The data the bot reads (src/lib/telegram/deps.ts wires the real one; tests a fake). Sources are listed in docs/TELEGRAM.md §0.

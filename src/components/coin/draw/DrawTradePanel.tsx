@@ -41,6 +41,7 @@ const STEP_KEYS: Record<string, DictKey> = {
   prepare: "draw.step.prepare",
   setup: "draw.step.setup",
   sign: "draw.step.sign",
+  convert: "draw.step.convert",
   signOrders: "draw.step.signOrders",
   doneOrders: "draw.step.doneOrders",
   create: "draw.step.create",
@@ -180,7 +181,21 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
   const showPct = !showBuy && draw.pandaMode && (draw.heldStatus === "has" || heldLines);
 
   return (
-    <section className="mt-4 border-t border-paper/10 pt-4 sm:mt-5 sm:pt-5" aria-labelledby="draw-title">
+    <section className="mt-4 border-t border-paper/10 pt-2 sm:mt-5 sm:pt-3" aria-labelledby="draw-title">
+      {/* "? Cómo funciona" sits right above the title, on the left: between the chart's Mínimo / Máximo line and the title. */}
+      <button
+        type="button"
+        onClick={() => {
+          setUserOpen(true);
+          setTutorial(true);
+        }}
+        className="inline-flex min-h-9 items-center gap-1.5 text-xs font-semibold text-panda-grey transition-colors hover:text-paper"
+      >
+        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] leading-none" aria-hidden>
+          ?
+        </span>
+        {t("tutorial.open")}
+      </button>
       <button type="button" onClick={() => setUserOpen(!open)} aria-expanded={open} className="flex w-full items-center justify-between text-left sm:hidden">
         <span className="font-display text-base font-bold">
           {t("draw.title")}
@@ -193,18 +208,10 @@ export default function DrawTradePanel({ draw, coin, unit, toDisplay, fromDispla
       {open && (
       <>
       {tutorial && <DrawTutorial onClose={closeTutorial} onTry={tryIt} />}
-      <div className="mt-3 sm:mt-0">
-        <div className="flex items-center justify-between gap-3">
-          <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
-            {t("draw.title")}
-          </h2>
-          <button type="button" onClick={() => setTutorial(true)} className="ml-auto inline-flex min-h-9 items-center gap-1.5 text-xs font-semibold text-panda-grey transition-colors hover:text-paper">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] leading-none" aria-hidden>
-              ?
-            </span>
-            {t("tutorial.open")}
-          </button>
-        </div>
+      <div className="mt-2 sm:mt-0">
+        <h2 id="draw-title" className="hidden font-display text-base font-bold sm:block">
+          {t("draw.title")}
+        </h2>
         <p className="mt-0.5 text-xs text-panda-grey">{t("draw.subtitle")}</p>
       </div>
 
@@ -352,6 +359,11 @@ function ErrorNote({ error }: { error: NonNullable<DrawApi["error"]> }) {
         t("draw.err.rejected")
       ) : error.code === "conflict" ? (
         t("draw.err.conflict")
+      ) : error.code === "convert_failed" ? (
+        <>
+          {t("draw.err.convert")}
+          <span className="mt-1 block opacity-80">{error.message}</span>
+        </>
       ) : error.code === "BATCH_ROLLED_BACK" ? (
         t("draw.err.batchRolledBack")
       ) : error.code && PANDA_ERR.includes(error.code) ? (
@@ -741,8 +753,8 @@ const UNIT_SYMBOL: Record<BuyUnit, string> = { SOL: "SOL", USD: "$", EUR: "€" 
 
 /**
  * Compra is an amount of money, never a %: a box with SOL / $ / €, quick amounts (the same as "Tu primera compra" when
- * creating a coin) and PANDA's own "Pagar con" list of what the wallet holds. A Draw Your Trade buy order is paid
- * with SOL or USDC (that's what the order is built from), so the wallet's other coins are listed but locked.
+ * creating a coin) and PANDA's own "Pagar con" list of what the wallet holds. The order itself is built from SOL or
+ * USDC; any other coin of the wallet is swapped to SOL (Jupiter) in the same signing batch, right before the order.
  */
 function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi; coin: Coin; busy: boolean }) {
   const { t, lang } = useLanguage();
@@ -775,7 +787,7 @@ function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi;
       .filter((tk) => tk.mint !== SOL_MINT && tk.mint !== USDC_MINT && tk.mint !== coin.mint)
       .map((tk) => ({ mint: tk.mint, symbol: tk.symbol, image: tk.image, balance: tk.amount, decimals: tk.decimals, priceUsd: tk.priceUsd })),
   ];
-  const payMint = draft.unit === "SOL" ? SOL_MINT : FUNDING[view.asset].mint;
+  const payMint = draft.payToken ? draft.payToken.mint : draft.unit === "SOL" ? SOL_MINT : FUNDING[view.asset].mint;
 
   function pickUnit(u: BuyUnit) {
     if (u === draft.unit) return;
@@ -785,13 +797,18 @@ function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi;
     draw.patchDraft(draft.id, { unit: u, amount: converted !== null ? String(Number(converted.toFixed(u === "SOL" ? 4 : 2))) : "" });
   }
   function pickPay(mint: string) {
-    if (mint === USDC_MINT && draft.unit === "SOL") {
+    if (mint !== SOL_MINT && mint !== USDC_MINT) {
+      // Any other coin: it will be converted to SOL first, so the order stays a SOL order.
+      const o = options.find((x) => x.mint === mint);
+      if (!o || o.balance === null || !o.priceUsd) return;
+      draw.patchDraft(draft.id, { pay: "SOL", payToken: { mint, symbol: o.symbol, decimals: o.decimals, balance: o.balance, priceUsd: o.priceUsd } });
+    } else if (mint === USDC_MINT && draft.unit === "SOL") {
       // An amount typed in SOL is paid in SOL: paying with USDC switches the box to dollars, same amount.
       const value = parseFloat(draft.amount);
       const converted = value > 0 ? convertAmount("SOL", value, "USD", rates) : null;
       rememberUnit("USD");
-      draw.patchDraft(draft.id, { unit: "USD", pay: "USDC", amount: converted !== null ? String(Number(converted.toFixed(2))) : "" });
-    } else draw.patchDraft(draft.id, { pay: mint === USDC_MINT ? "USDC" : "SOL" });
+      draw.patchDraft(draft.id, { unit: "USD", pay: "USDC", payToken: null, amount: converted !== null ? String(Number(converted.toFixed(2))) : "" });
+    } else draw.patchDraft(draft.id, { pay: mint === USDC_MINT ? "USDC" : "SOL", payToken: null });
   }
 
   // The same amount in the other two currencies, so "10" always means something.
@@ -854,12 +871,11 @@ function BuyAmount({ view, draw, coin, busy }: { view: DraftView; draw: DrawApi;
             onChange={pickPay}
             disabled={busy || !connected}
             loading={loading}
-            allowed={(m) => m === SOL_MINT || m === USDC_MINT}
-            lockedNote={t("draw.payOnlySolUsdc")}
           />
         </span>
         {others.length > 0 && <span>≈ {others.join(" · ≈ ")}</span>}
       </div>
+      {draft.payToken && <p className="mt-1.5 text-[11px] leading-snug text-panda-grey">{t("draw.payConverted", { symbol: draft.payToken.symbol })}</p>}
     </div>
   );
 }

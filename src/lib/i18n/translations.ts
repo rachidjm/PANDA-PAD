@@ -1086,7 +1086,9 @@ export const dict = {
   "draw.heldHint": { en: "You hold {ticker}: tap Sell or Stop to set your exit on the chart — no purchase needed.", es: "Tienes {ticker}: toca Venta o Stop para fijar tu salida en el gráfico, sin comprar." },
   // Draw Your Trade — the simple layout: one row of %, one message, one button
   "draw.pctLabel": { en: "Share of your balance for each new line", es: "Parte de tu saldo para cada línea nueva" },
-  "draw.payOnlySolUsdc": { en: "Draw Your Trade buy orders are paid with SOL or USDC.", es: "Las órdenes de compra de Draw Your Trade se pagan con SOL o USDC." },
+  "draw.payConverted": { en: "{symbol} is swapped to SOL with Jupiter in the same signature, right before the order. If the swap fails, no order is created.", es: "{symbol} se cambia a SOL con Jupiter en la misma firma, justo antes de la orden. Si el cambio falla, no se crea ninguna orden." },
+  "draw.step.convert": { en: "Swapping to SOL…", es: "Cambiando a SOL…" },
+  "draw.err.convert": { en: "The swap to SOL didn't go through, so no order was created. Your coins are untouched.", es: "El cambio a SOL no se ha completado, así que no se ha creado ninguna orden. Tus monedas siguen intactas." },
   "draw.access.checking": { en: "Checking your PANDA orders…", es: "Comprobando tus órdenes PANDA…" },
   "draw.access.signin": { en: "Sign in to place sells and stops.", es: "Inicia sesión para poner ventas y stops." },
   "draw.access.expired": { en: "Your session has expired: sign in again to place sells and stops.", es: "Tu sesión ha caducado: inicia sesión otra vez para poner ventas y stops." },
