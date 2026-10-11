@@ -20,13 +20,17 @@ import { DictKey } from "@/lib/i18n/translations";
 import { useFeatures } from "@/components/providers/FeaturesProvider";
 import { useCreationStatus } from "@/components/create/useCreationBlocked";
 import FirstBuyField from "@/components/create/FirstBuyField";
-import CreatePreviewCard from "@/components/create/CreatePreviewCard";
+import CreatePreview from "@/components/create/CreatePreview";
+import CostSummary from "@/components/create/CostSummary";
+import { useLaunchInfo } from "@/components/create/useLaunchInfo";
+import { DESCRIPTION_MAX, IMAGE_MAX_MB, NAME_MAX, TICKER_MAX, imageIssue, telegramLink, websiteLink, xLink } from "@/lib/create/fields";
+import { launchCost } from "@/lib/pump/launch-info";
+import { useFeeBps } from "@/lib/pump/useFeeBps";
 import { useRates } from "@/components/coin/useRates";
 import { firstBuyFromInput, type BuyUnit } from "@/lib/trading/amount";
 
 type Stage = "form" | "uploading" | "building" | "signing" | "confirming" | "fees" | "buying" | "done" | "error";
 
-const ACCEPTED_TYPES = ["image/gif", "image/png", "image/jpeg", "image/webp"];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 /**
@@ -62,6 +66,13 @@ export default function CreateClient({
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
   const [twitter, setTwitter] = useState("");
+  const [telegram, setTelegram] = useState("");
+  // The form is two steps (identity, then economics). Both stay mounted, so each remembers what was typed in it.
+  const [step, setStep] = useState<1 | 2>(1);
+  const [touched, setTouched] = useState<{ image?: boolean; name?: boolean; ticker?: boolean }>({});
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const launchFacts = useLaunchInfo();
+  const feeBps = useFeeBps(publicKey?.toBase58());
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
   const [firstBuyAmount, setFirstBuyAmount] = useState("");
@@ -81,9 +92,9 @@ export default function CreateClient({
     const aiDescription = searchParams.get("aiDescription");
     if (!aiName && !aiTicker && !aiDescription) return;
     Promise.resolve().then(() => {
-      if (aiName) setName(aiName.slice(0, 32));
-      if (aiTicker) setTicker(aiTicker.slice(0, 10));
-      if (aiDescription) setDescription(aiDescription.slice(0, 500));
+      if (aiName) setName(aiName.slice(0, NAME_MAX));
+      if (aiTicker) setTicker(aiTicker.slice(0, TICKER_MAX));
+      if (aiDescription) setDescription(aiDescription.slice(0, DESCRIPTION_MAX));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -99,8 +110,9 @@ export default function CreateClient({
 
   function handleFile(file: File | undefined) {
     if (!file) return;
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      setImageError(t("cr.imageType"));
+    const issue = imageIssue(file);
+    if (issue) {
+      setImageError(issue === "type" ? t("cr.imageType") : t("cr.imageSize", { mb: IMAGE_MAX_MB }));
       return;
     }
     setImageError("");
@@ -111,6 +123,7 @@ export default function CreateClient({
   // The split must be complete and valid: an empty or broken plan never falls through to "no fee distribution".
   const feeReady = !!feeResult && feeResult.lines.length > 0 && !feeResult.issue && !feeResult.invalidNumber;
   // The first buy is mandatory now, not optional — it must clear the configured minimum before Launch unlocks.
+  const identityReady = !!imageFile && name.trim().length > 0 && ticker.trim().length > 0;
   const canLaunch = imageFile && name.trim().length > 0 && ticker.trim().length > 0 && connected && feeReady && !creationBlocked && !firstBuy.noRate && firstBuy.sol >= minFirstBuySol;
 
   const kindLabel = (kind: "panda" | "creator" | "holders" | "burn" | "partner") =>
@@ -172,8 +185,9 @@ export default function CreateClient({
       form.set("name", name.trim());
       form.set("symbol", ticker.trim());
       form.set("description", description.trim());
-      if (website.trim()) form.set("website", website.trim());
-      if (twitter.trim()) form.set("twitter", twitter.trim());
+      if (websiteLink(website)) form.set("website", websiteLink(website));
+      if (xLink(twitter)) form.set("twitter", xLink(twitter));
+      if (telegramLink(telegram)) form.set("telegram", telegramLink(telegram));
 
       const uploadRes = await fetch("/api/upload-metadata", { method: "POST", body: form });
       const uploadData = await uploadRes.json();
@@ -276,6 +290,10 @@ export default function CreateClient({
     setDescription("");
     setWebsite("");
     setTwitter("");
+    setTelegram("");
+    setStep(1);
+    setTouched({});
+    setPreviewOpen(false);
     setFirstBuyAmount("");
     setBuyError("");
     setFeeResult(null);
@@ -387,12 +405,19 @@ export default function CreateClient({
     );
   }
 
+  const cost = launchCost(launchFacts, firstBuy.noRate ? 0 : firstBuy.sol, feeBps);
+  // What launching takes besides the purchase itself and its fee: the coin's accounts, the first buy's own account and the network fees.
+  const fixedCostSol = launchCost(launchFacts, 1, 0).network;
+  const splitText = feeReady && feeResult ? feeResult.lines.map((l) => `${kindLabel(l.kind)} ${formatBps(l.bps)}%`) : null;
+  const missing = [!imageFile && t("cr.s1.needImage"), !name.trim() && t("cr.s1.needName"), !ticker.trim() && t("cr.s1.needTicker")].filter((x): x is string => !!x);
+  const INPUT = "w-full rounded-2xl border border-paper/10 bg-ink px-4 py-3.5 text-base outline-none transition-colors placeholder:text-panda-grey/70 focus:border-bamboo/60";
+
   return (
     <div>
-      <div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">{t("cr.heading")}</h1>
-        <p className="mt-1.5 text-sm text-panda-grey">{t("cr.sub")}</p>
-      </div>
+      <header className="max-w-2xl">
+        <h1 className="font-display text-[2rem] font-bold leading-[1.05] tracking-tight sm:text-5xl">{t("cr.heading")}</h1>
+        <p className="mt-3 text-[15px] leading-relaxed text-panda-grey sm:text-base">{t("cr.sub")}</p>
+      </header>
 
       {creationBlocked && (
         <div className="mt-6 rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-sm leading-relaxed" role="alert">
@@ -412,181 +437,257 @@ export default function CreateClient({
           <OtcRewardsCreate blocked={creationBlocked} />
         </div>
       ) : (
-      <>
-      {/* Desktop: two columns — the image and the live showcase preview on the left (sticky), the form on the right.
-          Mobile: one column — image, fields, preview, and "Lanzar" pinned at the bottom. */}
-      <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start lg:gap-10">
-        <div className="lg:top-[calc(var(--header-h,68px)+16px)] [@media(min-width:1024px)_and_(min-height:860px)]:sticky">
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              handleFile(e.dataTransfer.files?.[0]);
-            }}
-            aria-label={t("cr.uploadImage")}
-            className={`mx-auto flex aspect-square w-full max-w-[240px] flex-col items-center justify-center gap-2 overflow-hidden rounded-[22px] border-2 border-dashed text-center transition-colors lg:max-w-none ${
-              imagePreview ? "border-solid border-paper/15 hover:border-paper/35" : dragOver ? "border-meme-orange bg-meme-orange/5" : "border-paper/20 px-6 hover:border-paper/35"
-            } ${dragOver ? "border-meme-orange" : ""}`}
-          >
-            {imagePreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imagePreview} alt={t("cr.previewAlt")} className="h-full w-full object-cover" />
-            ) : (
-              <>
-                <ImagePlaceholderIcon className="text-panda-grey" />
-                <span className="font-medium">{t("cr.uploadImage")}</span>
-                <span className="text-xs text-panda-grey">{t("cr.uploadHint")}</span>
-              </>
-            )}
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/gif,image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-          {imageError && <p className="mt-2 text-center text-sm text-clay-red lg:text-left">{imageError}</p>}
-          <div className="mt-6 hidden lg:block">
-            <CreatePreviewCard image={imagePreview} name={name.trim()} ticker={ticker} description={description} />
-          </div>
-        </div>
+        <>
+          {/* Desktop: the form card on the left, the live preview on the right (it stays in view while the form scrolls).
+              Phone and Mini App: the form, and the preview under it behind "See preview". */}
+          <div className="mt-7 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-start lg:gap-8">
+            <section className="rounded-[26px] border border-paper/10 bg-ink-raised p-4 sm:rounded-[28px] sm:p-8">
+              <ol className="flex items-center gap-3 text-sm">
+                {([1, 2] as const).map((n) => {
+                  const active = step === n;
+                  const locked = n === 2 && !identityReady;
+                  return (
+                    <li key={n} className="flex items-center gap-3">
+                      {n === 2 && <span className="h-px w-5 bg-paper/15 sm:w-8" aria-hidden />}
+                      <button
+                        type="button"
+                        onClick={() => setStep(n)}
+                        disabled={locked}
+                        aria-current={active ? "step" : undefined}
+                        className="flex items-center gap-2 rounded-full py-1 pr-1 transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${active ? "bg-bamboo text-ink" : n < step ? "bg-paper/15 text-paper" : "border border-paper/20 text-panda-grey"}`}>
+                          {n < step ? "✓" : n}
+                        </span>
+                        <span className={active ? "font-semibold" : "text-panda-grey"}>{t(n === 1 ? "cr.step1" : "cr.step2")}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
 
-        <div className="mt-6 space-y-5 lg:mt-0">
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] gap-3">
-            <Field label={t("cr.tokenName")}>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("cr.namePh")}
-                maxLength={32}
-                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-              />
-            </Field>
+              {/* Step 1 — identity */}
+              <div className={step === 1 ? "mt-5 space-y-6" : "hidden"}>
+                <h2 className="font-display text-xl font-bold sm:text-2xl">{t("cr.s1.title")}</h2>
 
-            <Field label={t("cr.ticker")}>
-              <div className="flex items-center gap-2 rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 focus-within:border-paper/40">
-                <span className="text-panda-grey">$</span>
-                <input
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
-                  placeholder="CAT"
-                  className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-panda-grey"
+                <div>
+                  <span className="mb-2 block text-sm font-medium text-paper/80">{t("cr.image")}</span>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => fileInput.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragOver(true);
+                      }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        handleFile(e.dataTransfer.files?.[0]);
+                      }}
+                      aria-label={t("cr.chooseImage")}
+                      className={`flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 transition-colors ${
+                        imagePreview ? "border-solid border-paper/15 hover:border-paper/35" : dragOver ? "border-dashed border-meme-orange bg-meme-orange/5" : "border-dashed border-paper/20 bg-ink hover:border-paper/40"
+                      }`}
+                    >
+                      {imagePreview ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={imagePreview} alt={t("cr.previewAlt")} className="h-full w-full object-cover" />
+                      ) : (
+                        <ImagePlaceholderIcon className="h-7 w-7 text-panda-grey" />
+                      )}
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-sm text-panda-grey">{t("cr.imageHint", { mb: IMAGE_MAX_MB })}</p>
+                      <button
+                        type="button"
+                        onClick={() => fileInput.current?.click()}
+                        className="mt-2 min-h-11 rounded-full border border-paper/25 px-5 text-sm font-semibold transition-colors hover:border-paper/50"
+                      >
+                        {t(imagePreview ? "cr.changeImage" : "cr.chooseImage")}
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/gif,image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleFile(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                  {imageError && (
+                    <p className="mt-2 text-sm text-clay-red" role="alert">
+                      {imageError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-3 sm:gap-4">
+                  <Field label={t("cr.tokenName")} count={`${name.length}/${NAME_MAX}`} error={touched.name && !name.trim() ? t("cr.s1.nameError") : undefined}>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onBlur={() => setTouched((x) => ({ ...x, name: true }))}
+                      placeholder={t("cr.namePh")}
+                      maxLength={NAME_MAX}
+                      className={INPUT}
+                    />
+                  </Field>
+                  <Field label={t("cr.ticker")} count={`${ticker.length}/${TICKER_MAX}`} error={touched.ticker && !ticker.trim() ? t("cr.s1.tickerError") : undefined}>
+                    <div className="flex items-center gap-1.5 rounded-2xl border border-paper/10 bg-ink px-4 transition-colors focus-within:border-bamboo/60">
+                      <span className="text-panda-grey">$</span>
+                      <input
+                        value={ticker}
+                        onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, TICKER_MAX))}
+                        onBlur={() => setTouched((x) => ({ ...x, ticker: true }))}
+                        placeholder="CAT"
+                        className="w-full min-w-0 bg-transparent py-3.5 text-base outline-none placeholder:text-panda-grey/70"
+                      />
+                    </div>
+                  </Field>
+                </div>
+
+                <Field label={t("cr.description")} count={`${description.length}/${DESCRIPTION_MAX}`}>
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("cr.descPh")} rows={3} maxLength={DESCRIPTION_MAX} className={`${INPUT} resize-none`} />
+                </Field>
+
+                <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
+                  <Field label="X" optional={t("cr.optional")}>
+                    <input value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder={t("cr.xPh")} autoCapitalize="none" autoCorrect="off" spellCheck={false} className={INPUT} />
+                  </Field>
+                  <Field label="Telegram" optional={t("cr.optional")}>
+                    <input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder={t("cr.tgPh")} autoCapitalize="none" autoCorrect="off" spellCheck={false} className={INPUT} />
+                  </Field>
+                  <Field label={t("cr.web")} optional={t("cr.optional")}>
+                    <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} className={INPUT} />
+                  </Field>
+                </div>
+
+                <div className="flex flex-col-reverse items-stretch gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-panda-grey" aria-live="polite">
+                    {missing.length > 0 ? t("cr.s1.missing", { list: missing.join(", ") }) : ""}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep(2);
+                      window.scrollTo({ top: 0 });
+                    }}
+                    disabled={!identityReady}
+                    className="min-h-14 shrink-0 rounded-full bg-paper px-10 text-base font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t("cr.continue")}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2 — economics. Kept mounted while step 1 is on screen, so the split and the first buy are remembered. */}
+              <div className={step === 2 ? "mt-5 space-y-6" : "hidden"}>
+                <h2 className="font-display text-xl font-bold sm:text-2xl">{t("cr.s2.title")}</h2>
+
+                <FirstBuyField value={firstBuyAmount} unit={firstBuyUnit} onValue={setFirstBuyAmount} onUnit={setFirstBuyUnit} rates={rates} description={t("cr.firstBuyDesc")} minSol={minFirstBuySol} />
+
+                {connected && publicKey ? (
+                  <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
+                ) : (
+                  <div>
+                    <span className="mb-1.5 block text-sm font-medium text-paper/80">{t("cr.feeDistribution")}</span>
+                    <p className="rounded-2xl bg-ink px-4 py-3.5 text-sm leading-relaxed text-panda-grey">{t("cr.feeConnect")}</p>
+                  </div>
+                )}
+
+                <CostSummary cost={cost} feeBps={feeBps} />
+
+                {referrals && <p className="text-xs leading-relaxed text-panda-grey">{t("cr.recruiterNote")}</p>}
+
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 pt-1 sm:flex sm:justify-between">
+                  <button type="button" onClick={() => setStep(1)} className="min-h-14 rounded-full border border-paper/25 px-7 text-base font-semibold transition-colors hover:border-paper/50">
+                    {t("cr.back")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    disabled={!canLaunch}
+                    className="min-h-14 rounded-full bg-paper px-10 text-base font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40 sm:min-w-52"
+                  >
+                    {t("cr.launch")}
+                  </button>
+                </div>
+                {!connected && <p className="text-right text-sm text-panda-grey">{t("cr.connectToLaunch")}</p>}
+                <p className="text-xs leading-relaxed text-panda-grey">{t("cr.mintNote")}</p>
+              </div>
+            </section>
+
+            <aside className="mt-4 lg:sticky lg:top-[calc(var(--header-h,68px)+20px)] lg:mt-0">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen((v) => !v)}
+                aria-expanded={previewOpen}
+                className="flex min-h-12 w-full items-center justify-between rounded-2xl border border-paper/10 bg-ink-raised px-4 text-sm font-semibold lg:hidden"
+              >
+                {t(previewOpen ? "cr.pv.hide" : "cr.pv.show")}
+                <span className={`text-panda-grey transition-transform ${previewOpen ? "rotate-180" : ""}`} aria-hidden>
+                  ▾
+                </span>
+              </button>
+              <div className={`${previewOpen ? "mt-3" : "hidden"} lg:mt-0 lg:block`}>
+                <p className="mb-2 hidden text-xs font-medium text-panda-grey lg:block">{t("cr.pv.label")}</p>
+                <CreatePreview
+                  image={imagePreview}
+                  name={name.trim()}
+                  ticker={ticker}
+                  description={description}
+                  supply={launchFacts.supply}
+                  graduationSol={launchFacts.graduationSol}
+                  split={splitText}
+                  costSol={fixedCostSol}
                 />
               </div>
-            </Field>
+            </aside>
           </div>
 
-          <Field label={t("cr.description")}>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("cr.descPh")}
-              rows={3}
-              maxLength={280}
-              className="w-full resize-none rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
+          {confirming && feeResult && (
+            <LaunchConfirm
+              name={name.trim()}
+              ticker={ticker.trim()}
+              imageSrc={imagePreview}
+              lines={feeResult.lines}
+              firstBuySol={firstBuy.sol}
+              firstBuyNote={firstBuyUnit !== "SOL" && firstBuy.sol > 0 ? `${firstBuyUnit === "USD" ? "$" : "€"}${firstBuyAmount}` : undefined}
+              singleTx={singleTx}
+              onBack={() => setConfirming(false)}
+              onConfirm={() => {
+                setConfirming(false);
+                launch();
+              }}
             />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("cr.website")}>
-              <input
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                placeholder="https://…"
-                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-              />
-            </Field>
-            <Field label={t("cr.xOpt")}>
-              <input
-                value={twitter}
-                onChange={(e) => setTwitter(e.target.value)}
-                placeholder="https://x.com/…"
-                className="w-full rounded-2xl border border-paper/15 bg-ink-raised px-4 py-3 text-sm outline-none placeholder:text-panda-grey focus:border-paper/40"
-              />
-            </Field>
-          </div>
-
-          <FirstBuyField
-            value={firstBuyAmount}
-            unit={firstBuyUnit}
-            onValue={setFirstBuyAmount}
-            onUnit={setFirstBuyUnit}
-            rates={rates}
-            description={t("cr.firstBuyDesc")}
-            minSol={minFirstBuySol}
-          />
-
-          {connected && publicKey ? (
-            <FeeDistributionStep creator={publicKey.toBase58()} onChange={setFeeResult} />
-          ) : (
-            <div className="rounded-2xl border border-paper/15 bg-ink-raised p-5">
-              <p className="font-medium">{t("cr.feeDistribution")}</p>
-              <p className="mt-1 text-sm text-panda-grey">{t("cr.feeConnect")}</p>
-            </div>
           )}
-
-          <div className="mx-auto max-w-[280px] lg:hidden">
-            <CreatePreviewCard image={imagePreview} name={name.trim()} ticker={ticker} description={description} />
-          </div>
-
-          {referrals && (
-            <p className="text-center text-xs text-panda-grey">{t("cr.recruiterNote")}</p>
-          )}
-
-          {/* "Lanzar" stays in reach: pinned to the bottom of the screen (above the phone's tab bar) while the form
-              runs past it. */}
-          <div className="sticky bottom-[var(--create-bar-bottom,calc(57px+env(safe-area-inset-bottom)))] z-30 -mx-4 border-t border-paper/10 bg-ink/95 px-4 py-3 backdrop-blur sm:bottom-[var(--create-bar-bottom,0px)] sm:-mx-5 sm:px-5 lg:mx-0 lg:rounded-b-2xl lg:px-0">
-            <button
-              onClick={() => setConfirming(true)}
-              disabled={!canLaunch}
-              className="w-full rounded-full bg-paper py-4 text-base font-bold text-ink transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("cr.launch")}
-            </button>
-            {!connected && imageFile && name.trim() && ticker.trim() && (
-              <p className="mt-2 text-center text-sm text-panda-grey">{t("cr.connectToLaunch")}</p>
-            )}
-          </div>
-          <p className="text-center text-xs text-panda-grey">
-            {t("cr.mintNote")}
-          </p>
-        </div>
-      </div>
-      {confirming && feeResult && (
-        <LaunchConfirm
-          name={name.trim()}
-          ticker={ticker.trim()}
-          imageSrc={imagePreview}
-          lines={feeResult.lines}
-          firstBuySol={firstBuy.sol}
-          firstBuyNote={firstBuyUnit !== "SOL" && firstBuy.sol > 0 ? `${firstBuyUnit === "USD" ? "$" : "€"}${firstBuyAmount}` : undefined}
-          singleTx={singleTx}
-          onBack={() => setConfirming(false)}
-          onConfirm={() => {
-            setConfirming(false);
-            launch();
-          }}
-        />
-      )}
-      </>
+        </>
       )}
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, optional, count, error, children }: { label: string; optional?: string; count?: string; error?: string; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-paper/80">{label}</span>
+    <label className="block min-w-0">
+      <span className="mb-2 flex items-baseline gap-1.5 text-sm font-medium text-paper/80">
+        {label}
+        {optional && <span className="text-xs font-normal text-panda-grey">{optional}</span>}
+      </span>
       {children}
+      {(count || error) && (
+        <span className="mt-1.5 flex items-start justify-between gap-2 text-xs">
+          <span className="text-clay-red" role={error ? "alert" : undefined}>
+            {error ?? ""}
+          </span>
+          {count && <span className="shrink-0 tabular-nums text-panda-grey">{count}</span>}
+        </span>
+      )}
     </label>
   );
 }

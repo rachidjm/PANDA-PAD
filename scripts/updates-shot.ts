@@ -23,6 +23,7 @@
  *   "pad": 12,                         extra pixels around the element (default 12)
  *   "maxHeight": 900,                  cuts a very tall element (default 900)
  *   "hide": ["css", …]                 elements to hide first (a sticky bar over the area, say)
+ *   "storage": { "key": "value" }      values put in the page's localStorage before its own code runs
  *   "mock": { "/api/x": {…} }          sample answers for the page's own data requests whose address contains the key
  *                                      (first match wins; "{lang}" in a text becomes the shot's language). For screens
  *                                      that need a session — the Telegram Mini App — so no real account is ever used.
@@ -52,6 +53,7 @@ type Shot = {
   maxHeight?: number;
   hide?: string[];
   mock?: Record<string, unknown>;
+  storage?: Record<string, string>;
 };
 
 const CHROME_PATHS = [
@@ -134,7 +136,7 @@ async function take(page: Page, base: string, shot: Shot, lang: "en" | "es" | nu
   await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await page.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   // Before any of the site's own code runs: its language, and the first-visit guide already seen.
-  const boot = `try { localStorage.setItem("panda-lang", ${JSON.stringify(lang ?? "en")}); localStorage.setItem("panda.draw.tutorial.seen", "1"); } catch {}`;
+  const boot = `try { localStorage.setItem("panda-lang", ${JSON.stringify(lang ?? "en")}); localStorage.setItem("panda.draw.tutorial.seen", "1"); for (const [k, v] of ${JSON.stringify(Object.entries(shot.storage ?? {}))}) localStorage.setItem(k, v); } catch {}`;
   const { identifier } = await page.send<{ identifier: string }>("Page.addScriptToEvaluateOnNewDocument", { source: boot });
   const mocks = Object.entries(shot.mock ?? {});
   page.onPaused = (requestId, url) => {

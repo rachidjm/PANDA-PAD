@@ -7,7 +7,7 @@ import TgConnect, { useLinkedWallet } from "./TgConnect";
 import { useTg } from "./TgShell";
 import { ScreenSkeleton } from "./TgSkeleton";
 
-// The website's own create form — the very same code: image, name, ticker, description, website and X, the first buy
+// The website's own create form — the very same code: the two steps (identity, then economics) with their live preview, the first buy
 // in SOL / $ / €, the fee split and its rules, and the same signatures. Downloaded when this screen is opened.
 const CreateClient = dynamic(() => import("@/app/create/CreateClient"), { ssr: false, loading: () => <ScreenSkeleton /> });
 
@@ -44,10 +44,7 @@ export default function TgCreate({ minFirstBuySol }: { minFirstBuySol: number })
   }
 
   return (
-    <div
-      // "Launch" stays above the app's own bottom bar and the phone's home bar.
-      style={{ "--create-bar-bottom": "calc(61px + var(--safe-bottom))" } as React.CSSProperties}
-    >
+    <div>
       <CreateClient minFirstBuySol={minFirstBuySol} coinHref={(mint) => `/tg/coin/${mint}`} onSigning={notePendingLaunch} onLaunched={clearPendingLaunch} />
       <p className="mt-3 text-center text-[11px] leading-snug text-panda-grey">{t("tg.create.signNote")}</p>
     </div>

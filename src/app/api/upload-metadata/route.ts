@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { put } from "@vercel/blob";
+import { IMAGE_MAX_MB, LINK_MAX, NAME_MAX, TICKER_MAX, imageIssue } from "@/lib/create/fields";
 
 /**
  * Uploads a coin's image + Metaplex-style off-chain metadata JSON to Vercel
@@ -34,15 +35,19 @@ export async function POST(req: Request) {
   try {
     const form = await req.formData();
     const image = form.get("image");
-    const name = String(form.get("name") || "").slice(0, 32);
-    const symbol = String(form.get("symbol") || "").slice(0, 10);
+    const name = String(form.get("name") || "").slice(0, NAME_MAX);
+    const symbol = String(form.get("symbol") || "").slice(0, TICKER_MAX);
     const description = String(form.get("description") || "").slice(0, 500);
-    const website = form.get("website") ? String(form.get("website")) : undefined;
-    const twitter = form.get("twitter") ? String(form.get("twitter")) : undefined;
-    const telegram = form.get("telegram") ? String(form.get("telegram")) : undefined;
+    const website = form.get("website") ? String(form.get("website")).slice(0, LINK_MAX) : undefined;
+    const twitter = form.get("twitter") ? String(form.get("twitter")).slice(0, LINK_MAX) : undefined;
+    const telegram = form.get("telegram") ? String(form.get("telegram")).slice(0, LINK_MAX) : undefined;
 
     if (!(image instanceof File)) {
       return NextResponse.json({ error: "Missing image file." }, { status: 400 });
+    }
+    const issue = imageIssue(image);
+    if (issue) {
+      return NextResponse.json({ error: issue === "type" ? "The image must be a GIF, PNG, JPG or WEBP." : `The image is over ${IMAGE_MAX_MB} MB.` }, { status: 400 });
     }
     if (!name || !symbol) {
       return NextResponse.json({ error: "Missing name or symbol." }, { status: 400 });
