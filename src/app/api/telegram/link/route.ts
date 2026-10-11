@@ -3,12 +3,29 @@ import { getDb } from "@/lib/db/client";
 import { sameOrigin } from "@/lib/auth/session";
 import { recordAudit } from "@/lib/audit/log";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { tgEnqueue, tgGetUser } from "@/lib/db/telegram";
+import { tgEnqueue, tgGetLinkCode, tgGetUser } from "@/lib/db/telegram";
 import { telegramConfig } from "@/lib/telegram/config";
-import { completeLink } from "@/lib/telegram/link";
+import { completeLink, hashLinkCode, isLinkCode } from "@/lib/telegram/link";
+import { linkCodeState } from "@/lib/telegram/link-page";
 import { realQueueDeps } from "@/lib/telegram/deps";
 import { processOutbox } from "@/lib/telegram/queue";
 import { shortAddr, tt } from "@/lib/telegram/text";
+
+/**
+ * ?code=<the one-time code>: whether that link can still be used — "ok", "expired" (used, or too old) or "invalid".
+ * Public and read-only: it tells the page what to show before anyone opens their wallet. It says nothing about whose
+ * code it is, and a code can only be guessed by someone who already has it (144 random bits).
+ */
+export async function GET(req: Request) {
+  const cfg = telegramConfig();
+  if (!cfg.enabled) return new NextResponse(null, { status: 404 });
+  if (await rateLimited(`tg-link-state:ip:${clientIp(req)}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  const code = new URL(req.url).searchParams.get("code");
+  const headers = { "Cache-Control": "no-store" };
+  if (!isLinkCode(code)) return NextResponse.json({ state: "invalid" }, { headers });
+  const rec = await tgGetLinkCode(getDb(), hashLinkCode(code));
+  return NextResponse.json({ state: linkCodeState(rec, Date.now()) }, { headers });
+}
 
 const STATUS = { invalid: 400, code_used_or_expired: 410, bad_signature: 401, linked_elsewhere: 409 } as const;
 

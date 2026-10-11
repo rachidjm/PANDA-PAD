@@ -311,6 +311,7 @@ export default function TgShell({ children, botUsername }: { children: React.Rea
       if (!res.ok) return undefined;
       const data = (await res.json().catch(() => null)) as { wallet?: string | null } | null;
       const w = data?.wallet ?? null;
+      if (w) linkUrl.current = null; // linked: the one-time link the app was holding is spent
       setWallet(w);
       return w;
     } catch {
