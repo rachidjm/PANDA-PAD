@@ -17,6 +17,9 @@ export function proxy(request: NextRequest) {
     if (!ok) hidden = true;
     else if (path.startsWith("/api/")) return NextResponse.next();
   }
+  // The Telegram Mini App's pages do not exist while its flag is off: a real 404, like any missing page.
+  const miniAppOn = process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";
+  if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet")) hidden = true;
   // The hidden 404 is a page like any other missing one, so it gets the same headers (an API path has none to give).
   const notFound = () => NextResponse.rewrite(new URL("/_hidden-404", request.url), { status: 404 });
   if (hidden && path.startsWith("/api/")) return notFound();
@@ -26,7 +29,7 @@ export function proxy(request: NextRequest) {
 
   const nonce = newNonce();
   // The Telegram Mini App's pages get Telegram's script and frame — only while its flag is on.
-  const telegram = isMiniAppPath(path) && process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";
+  const telegram = isMiniAppPath(path) && miniAppOn;
   const policy = buildCsp({ nonce, dev: process.env.NODE_ENV === "development", enforce: mode === "enforce", telegram });
   const header = cspHeaderName(mode);
 

@@ -218,7 +218,8 @@ test("only the Mini App's pages may be framed by Telegram and load Telegram's sc
   assert.match(app, /script-src 'self' 'nonce-n' 'strict-dynamic' https:\/\/telegram\.org/);
   assert.ok(!/script-src[^;]*'unsafe-inline'/.test(app));
   const proxy = readFileSync("src/proxy.ts", "utf8");
-  assert.ok(proxy.includes('isMiniAppPath(path) && process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true"'));
+  assert.ok(proxy.includes('const miniAppOn = process.env.FEATURE_TELEGRAM_BOT === "true" && process.env.FEATURE_TELEGRAM_MINIAPP === "true";') && proxy.includes("const telegram = isMiniAppPath(path) && miniAppOn;"));
+  assert.ok(proxy.includes('if (!miniAppOn && (isMiniAppPath(path) || path === "/telegram/wallet")) hidden = true;'), "flag off: the pages answer a real 404");
   const next = readFileSync("next.config.ts", "utf8");
   assert.ok(next.includes('if (!MINIAPP_ON) return [{ source: "/:path*", headers: securityHeaders }];'), "flag off: every page keeps X-Frame-Options: DENY");
 });
