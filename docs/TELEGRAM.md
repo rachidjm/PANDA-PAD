@@ -447,3 +447,22 @@ No hace falta `/setdomain` (eso es para el inicio de sesión web, que no se usa)
 - **Draw Your Trade está en la página de moneda de la Mini App** (compra, venta, stop, órdenes PANDA, guía y zoom), con las mismas reglas que en la web. Crear monedas y el resto de la web se abren en el navegador.
 - **Órdenes de Draw Your Trade:** cada paso que pide firma abre la wallet; crear órdenes por primera vez puede pedir hasta tres aprobaciones seguidas.
 - **Enlaces de reclutador:** la vinculación automática al conectar no se ejecuta dentro de la Mini App (pediría una firma extra por sorpresa). Quien ya tiene reclutador conserva su comisión reducida.
+
+---
+
+## 13. Capturas en las novedades (/updates)
+
+Cada entrada de la página Novedades puede llevar una captura de la pantalla donde está el cambio. Va dentro de la tarjeta, debajo del texto, y al tocarla se ve en grande.
+
+**Cómo se hacen**
+1. Después de desplegar el cambio, se añade una receta a `docs/updates-shots.json` (página, zona a recortar, pasos si hace falta).
+2. `npm run shot -- docs/updates-shots.json --only <nombre>` abre Chrome sin ventana, con un perfil vacío, y guarda el recorte en `public/updates/` como WebP.
+3. Si el texto de la pantalla cambia con el idioma salen dos archivos, `nombre.en.webp` y `nombre.es.webp`; la entrada guarda el inglés y quien lee en español ve el otro.
+4. Se mira cada captura antes de subirla y se despliega.
+
+**Qué nunca sale en una captura:** direcciones de wallets completas, saldos reales, `/admin`, variables ni datos personales. El perfil vacío no tiene wallet; las imágenes de monedas de terceros con caras de personas se descartan.
+
+**Cómo llegan a la página**
+- **Novedad nueva:** el bloque `# Web N` del borrador lleva una línea `Image: /updates/nombre.en.webp`. El bot enseña la captura (una foto por idioma) junto al mensaje "🌐 WEB", antes de que pulses "✅ Publicar".
+- **Entradas que ya están publicadas:** `npm run changelog -- capturas.json`, con `{ "images": [{ "id": "<id de la entrada>", "imageUrl": "/updates/nombre.en.webp" }] }`. El bot manda un resumen, cada foto y el botón "✅ Publicar capturas". Con `"imageUrl": null` se quita una captura.
+- Nada cambia en la página hasta que un admin pulsa el botón.
