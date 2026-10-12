@@ -32,6 +32,17 @@ export async function waitConfirmed(fetcher: Fetcher, signature: string, timeout
   }
 }
 
+/** Hands one signed transaction to the network. Its signature, or "" when the network refused it. */
+async function relaySigned(fetcher: Fetcher, url: string, base64: string): Promise<string> {
+  try {
+    const res = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendTransaction", params: [base64, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }] }) });
+    const data = (await res.json().catch(() => null)) as { result?: unknown } | null;
+    return typeof data?.result === "string" ? data.result : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function completeOp(op: PendingOp, answer: WalletAnswer, fetcher: Fetcher, confirmed: (signature: string) => Promise<boolean> = (s) => waitConfirmed(fetcher, s)): Promise<Resumed> {
   if (op.method === "signAndSendTransaction") {
     const signature = typeof answer.signature === "string" ? answer.signature : "";
@@ -45,6 +56,24 @@ export async function completeOp(op: PendingOp, answer: WalletAnswer, fetcher: F
   }
   if (op.method === "signAllTransactions" || op.method === "signTransaction") {
     const signed = Array.isArray(answer.transactions) ? answer.transactions : typeof answer.transaction === "string" ? [answer.transaction] : [];
+    const relay = op.then.find((s) => s.put === "send");
+    if (relay) {
+      // A launch and its first buy, approved together: delivered to the network as they are, in order. The network
+      // simulates each before accepting it (preflight), so one that would fail is not sent.
+      if (signed.length === 0 || signed.some((s) => typeof s !== "string")) return { phase: "error" };
+      let first = "";
+      let last = "";
+      for (const tx of signed as string[]) {
+        const signature = await relaySigned(fetcher, relay.url, toBase64(tx));
+        if (!signature || !(await confirmed(signature))) break;
+        first ||= signature;
+        last = signature;
+      }
+      // Nothing landed: it can be done again. The first landed: the coin exists, whatever happened to its buy.
+      if (!first) return { phase: "error" };
+      if (last !== first) for (const step of op.then) if (step.put === "signature") await post(fetcher, step, { signature: last }).catch(() => undefined);
+      return { phase: "sent", signature: first };
+    }
     const steps = op.then.filter((s) => s.put === "orders");
     // Signed, but the rest of that operation lived only in the copy of the app that is gone: nothing is delivered, and the screen says so.
     if (steps.length === 0) return { phase: "repeat" };

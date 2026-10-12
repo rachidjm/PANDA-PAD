@@ -103,8 +103,8 @@ test("a buy or sell the wallet already sent: the reopened app says so and record
   assert.deepEqual(await completeOp(op({ then: steps }), { signature: "5igNaTuRe" }, fetcher, async () => false), { phase: "sent", signature: "5igNaTuRe" });
   assert.deepEqual(calls, []);
   assert.deepEqual(await completeOp(op(), {}, fetcher), { phase: "error" });
-  // Nothing in what finishes an operation can send a transaction: it only calls the routes the note names.
-  assert.doesNotMatch(readFileSync("src/components/tg/resume.ts", "utf8"), /sendTransaction|sendRawTransaction|Keypair|signTransaction\(/);
+  // Nothing in what finishes an operation can sign anything: it only delivers what the wallet signed, to the places the note names.
+  assert.doesNotMatch(readFileSync("src/components/tg/resume.ts", "utf8"), /sendRawTransaction|Keypair|signTransaction\(|signAllTransactions\(/);
 });
 
 test("orders signed in the wallet (Draw Your Trade): the reopened app delivers them to the same route, in the same shape", async () => {
@@ -144,4 +144,60 @@ test("if the copy of the app that asked is still alive and finished it, the reop
   const draw = readFileSync("src/components/coin/draw/useDrawTrade.ts", "utf8");
   assert.ok(draw.includes('noteContinuation([{ url: "/api/panda-orders/submit", body: { groupId: d.id }, put: "orders", ids: p.orders.map((o) => o.id) }]);'));
   assert.ok(draw.includes('noteContinuation([{ url: "/api/panda-orders/closed", body: { nonceAccounts: data.nonceAccounts }, confirmed: true }]);'));
+});
+
+test("a launch approved together with its first buy: the reopened app sends both, in order, and never the buy before the launch has landed", async () => {
+  const raw = [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])];
+  const answer = { transactions: raw.map((b) => bs58.encode(b)) };
+  const steps = [
+    { url: "/api/rpc", body: {}, put: "send" as const },
+    { url: "/api/portfolio/record-trade", body: { mint: "M", side: "buy" }, put: "signature" as const, confirmed: true },
+  ];
+  const mk = (results: (string | null)[]) => {
+    const sent: string[] = [];
+    const recorded: unknown[] = [];
+    const fetcher = async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (url === "/api/rpc") {
+        assert.equal(body.method, "sendTransaction");
+        // Preflight on: the network simulates it before taking it.
+        assert.equal(body.params[1].skipPreflight, false);
+        sent.push(body.params[0]);
+        const r = results[sent.length - 1];
+        return new Response(JSON.stringify(r ? { result: r } : { error: { message: "would fail" } }));
+      }
+      recorded.push([url, body]);
+      return new Response("{}");
+    };
+    return { sent, recorded, fetcher };
+  };
+  const b64 = raw.map((b) => Buffer.from(b).toString("base64"));
+  const made = (then = steps) => ({ relayId: "r".repeat(32), provider: "phantom" as const, method: "signAllTransactions" as const, path: "/tg/create", at: Date.now(), then });
+
+  // Both land: the launch's signature is what the user is told; the buy is recorded as a trade.
+  let w = mk(["LAUNCH", "BUY"]);
+  assert.deepEqual(await completeOp(made(), answer, w.fetcher, async () => true), { phase: "sent", signature: "LAUNCH" });
+  assert.deepEqual(w.sent, b64);
+  assert.deepEqual(w.recorded, [["/api/portfolio/record-trade", { mint: "M", side: "buy", signature: "BUY" }]]);
+
+  // The launch is refused by the network: the buy is never sent, nothing is recorded.
+  w = mk([null, "BUY"]);
+  assert.deepEqual(await completeOp(made(), answer, w.fetcher, async () => true), { phase: "error" });
+  assert.deepEqual(w.sent, [b64[0]]);
+  assert.deepEqual(w.recorded, []);
+
+  // The launch was sent but never confirmed: the buy waits (it is not sent).
+  w = mk(["LAUNCH", "BUY"]);
+  assert.deepEqual(await completeOp(made(), answer, w.fetcher, async () => false), { phase: "error" });
+  assert.deepEqual(w.sent, [b64[0]]);
+
+  // The launch lands and the buy is refused: the coin exists, no trade is recorded.
+  w = mk(["LAUNCH", null]);
+  assert.deepEqual(await completeOp(made(), answer, w.fetcher, async () => true), { phase: "sent", signature: "LAUNCH" });
+  assert.deepEqual(w.recorded, []);
+
+  // No signed transactions in the answer.
+  w = mk([]);
+  assert.deepEqual(await completeOp(made(), {}, w.fetcher, async () => true), { phase: "error" });
+  assert.deepEqual(w.sent, []);
 });

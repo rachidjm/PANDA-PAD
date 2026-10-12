@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { confirmSignature } from "@/lib/solana/confirm";
 import Link from "next/link";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, type VersionedTransaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Panda from "@/components/panda/Panda";
 import ImagePlaceholderIcon from "@/components/icons/ImagePlaceholderIcon";
 import { base64ToTransaction, base64ToVersionedTransaction } from "@/lib/pump/wire";
 import { applyFeeSplit, registerFeeDistribution } from "@/lib/pump/fee-split-client";
+import { sendSigned } from "@/lib/pump/send-signed";
+import { noteContinuation } from "@/lib/wallet/deeplink/ops";
 import FeeDistributionStep, { FeeDistributionResult } from "@/components/create/FeeDistributionStep";
 import LaunchConfirm from "@/components/create/LaunchConfirm";
 import LaunchModeToggle, { LaunchMode } from "@/components/create/LaunchModeToggle";
@@ -50,7 +52,7 @@ export default function CreateClient({
   onLaunched?: (mint: string) => void;
 }) {
   const { connection } = useConnection();
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connected, publicKey, sendTransaction, signAllTransactions } = useWallet();
   const { t } = useLanguage();
   const { otcRewards, referrals } = useFeatures();
   const { blocked: creationBlocked, singleTx } = useCreationStatus();
@@ -81,6 +83,7 @@ export default function CreateClient({
   const rates = useRates(SOL_MINT);
   const firstBuy = firstBuyFromInput(firstBuyUnit, firstBuyAmount, rates);
   const [buyError, setBuyError] = useState("");
+  const [retryingBuy, setRetryingBuy] = useState(false);
   const [feeResult, setFeeResult] = useState<FeeDistributionResult | null>(null);
   const searchParams = useSearchParams();
   // From the AI Assistant's "Crear moneda con IA" (src/components/ai/CreatePanel.tsx): the user already
@@ -146,18 +149,41 @@ export default function CreateClient({
     const signature = await sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
 
     await confirmSignature(connection, signature);
-
-    // Best-effort, same as every other real buy in the app (TradingPanel.tsx) — without this, a creator's own
-    // first buy never enters their trade history, so Portfolio's cost-basis/P&L math has nothing to work from
-    // for that coin (it either doesn't show at all, or shows degenerate numbers once the on-chain backfill
-    // eventually — and only partially — catches up to it).
-    fetch("/api/portfolio/record-trade", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet: publicKey.toBase58(), mint, ticker: ticker.trim().toUpperCase() || mint.slice(0, 4), side: "buy", signature }),
-    }).catch(() => {});
-
+    recordFirstBuy(mint, signature);
     return signature;
+  }
+
+  // Best-effort, same as every other real buy in the app (TradingPanel.tsx) — without this, a creator's own
+  // first buy never enters their trade history, so Portfolio's cost-basis/P&L math has nothing to work from
+  // for that coin (it either doesn't show at all, or shows degenerate numbers once the on-chain backfill
+  // eventually — and only partially — catches up to it).
+  const firstBuyRecord = (mint: string) => ({ wallet: publicKey?.toBase58(), mint, ticker: ticker.trim().toUpperCase() || mint.slice(0, 4), side: "buy" });
+  function recordFirstBuy(mint: string, signature: string) {
+    fetch("/api/portfolio/record-trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...firstBuyRecord(mint), signature }) }).catch(() => {});
+  }
+
+  // The first buy the wallet already signed together with the launch: simulated, then sent — never sent if it would fail
+  // (someone bought first and moved the price past the slippage, or it took too long), and then a fresh one is offered.
+  async function sendFirstBuy(mint: string, signedBuy: VersionedTransaction): Promise<string> {
+    const signature = await sendSigned(connection, signedBuy);
+    await confirmSignature(connection, signature);
+    recordFirstBuy(mint, signature);
+    return signature;
+  }
+
+  // The coin exists and its first buy didn't go through: a new buy at the current price, without creating anything again.
+  async function retryFirstBuy() {
+    if (!result || result.buySignature) return;
+    setRetryingBuy(true);
+    try {
+      const buySignature = await buyFirst(result.mint, firstBuy.sol);
+      setResult({ ...result, buySignature });
+      setBuyError("");
+    } catch (err) {
+      setBuyError(explainError(err, t));
+    } finally {
+      setRetryingBuy(false);
+    }
   }
 
   async function retryFeeSplit() {
@@ -220,11 +246,29 @@ export default function CreateClient({
 
       setStage("signing");
       onSigning?.(mint.publicKey.toBase58());
-      const signature = await sendTransaction(transaction, connection, {
-        signers: [mint],
-        maxRetries: 3,
-        preflightCommitment: "confirmed",
-      });
+      let signature: string;
+      let signedBuy: VersionedTransaction | null = null;
+      if (buildData.combined && typeof buildData.buyTransaction === "string" && signAllTransactions) {
+        // ONE approval in the wallet for the launch and the first buy (src/lib/pump/first-buy.ts): both are signed
+        // together, then sent here in order — the launch first, the buy once the launch has confirmed.
+        const launchTx = base64ToVersionedTransaction(buildData.transaction);
+        const buyTx = base64ToVersionedTransaction(buildData.buyTransaction);
+        launchTx.sign([mint]);
+        // In the Telegram Mini App the answer can reach a new copy of the app: that copy sends them the same way.
+        noteContinuation([
+          { url: "/api/rpc", body: {}, put: "send" },
+          { url: "/api/portfolio/record-trade", body: firstBuyRecord(mint.publicKey.toBase58()), put: "signature", confirmed: true },
+        ]);
+        const [signedLaunch, signed] = await signAllTransactions([launchTx, buyTx]);
+        signedBuy = signed;
+        signature = await sendSigned(connection, signedLaunch);
+      } else {
+        signature = await sendTransaction(transaction, connection, {
+          signers: [mint],
+          maxRetries: 3,
+          preflightCommitment: "confirmed",
+        });
+      }
 
       setStage("confirming");
       await confirmSignature(connection, signature);
@@ -264,7 +308,7 @@ export default function CreateClient({
       if (buyAmount > 0) {
         setStage("buying");
         try {
-          const buySignature = await buyFirst(mint.publicKey.toBase58(), buyAmount);
+          const buySignature = signedBuy ? await sendFirstBuy(mint.publicKey.toBase58(), signedBuy) : await buyFirst(mint.publicKey.toBase58(), buyAmount);
           setResult({ mint: mint.publicKey.toBase58(), signature, buySignature });
         } catch (buyErr) {
           // The coin itself launched fine — only the optional first buy failed.
@@ -358,9 +402,19 @@ export default function CreateClient({
           <p className="text-sm text-bamboo">{t("cr.firstBuyOk", { ticker })}</p>
         )}
         {buyError && (
-          <p className="max-w-xs text-xs text-clay-red">
-            {t("cr.firstBuyFail", { error: buyError })}
-          </p>
+          <div className="w-full max-w-sm rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-left text-sm" role="alert">
+            <p className="font-semibold text-clay-red">{t("cr.firstBuyFailTitle", { ticker })}</p>
+            <p className="mt-1 text-paper/80">{t("cr.firstBuyFailBody")}</p>
+            <p className="mt-1 break-words text-xs text-clay-red">{buyError}</p>
+            <button
+              type="button"
+              onClick={retryFirstBuy}
+              disabled={retryingBuy}
+              className="mt-3 w-full rounded-full bg-paper py-2.5 text-sm font-semibold text-ink transition hover:brightness-90 disabled:opacity-50"
+            >
+              {retryingBuy ? t("cr.stageBuying", { ticker: ticker || "COIN" }) : t("cr.firstBuyRetry")}
+            </button>
+          </div>
         )}
         {feesPending ? (
           <div className="w-full max-w-sm rounded-2xl border border-clay-red/40 bg-clay-red/10 px-4 py-3 text-left text-sm" role="alert">
@@ -694,6 +748,7 @@ function Field({ label, optional, count, error, children }: { label: string; opt
 
 function explainError(err: unknown, t: (key: DictKey) => string): string {
   const message = err instanceof Error ? err.message : String(err);
+  if (/simulation failed/i.test(message)) return t("cr.err.simulation");
   if (/reject|cancel/i.test(message)) return t("cr.err.rejected");
   if (/insufficient/i.test(message)) return t("cr.err.insufficient");
   if (/hosting isn't configured/i.test(message)) return message;

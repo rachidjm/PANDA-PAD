@@ -1939,8 +1939,8 @@ export const dict = {
   // Create
   "cr.heading": { en: "Launch your coin on PANDA", es: "Lanza tu moneda en PANDA" },
   "cr.sub": {
-    en: "Two steps on Solana. Give it a name and an image, choose how the fees are shared and approve it in your wallet: first the coin, then your first buy.",
-    es: "Dos pasos en Solana. Ponle nombre e imagen, elige cómo se reparten las comisiones y apruébalo en tu wallet: primero la moneda, después tu primera compra.",
+    en: "Two steps on Solana. Give it a name and an image, choose how the fees are shared and approve once in your wallet.",
+    es: "Dos pasos en Solana. Ponle nombre e imagen, elige cómo se reparten las comisiones y aprueba una vez en tu wallet.",
   },
   "cr.step1": { en: "Identity", es: "Identidad" },
   "cr.step2": { en: "Economics", es: "Economía" },
@@ -2000,6 +2000,16 @@ export const dict = {
     es: "Pump.fun no cobra por crear una moneda. Solo cobra su comisión en las operaciones.",
   },
   "cr.cost.total": { en: "Total", es: "Total" },
+  "cr.firstBuyFailTitle": { en: "Your first buy of ${ticker} didn't go through", es: "Tu primera compra de ${ticker} no se ha hecho" },
+  "cr.firstBuyFailBody": {
+    en: "The coin is live and nothing was charged for the buy. Try it again: it buys at the current price and your wallet will ask you to approve it.",
+    es: "La moneda ya está lanzada y no se te ha cobrado la compra. Inténtalo otra vez: compra al precio actual y tu wallet te pedirá aprobarla.",
+  },
+  "cr.firstBuyRetry": { en: "Retry the first buy", es: "Reintentar la primera compra" },
+  "cr.err.simulation": {
+    en: "The network says this transaction would fail, so it wasn't sent. Nothing was charged.",
+    es: "La red dice que esta transacción fallaría, así que no se ha enviado. No se te ha cobrado nada.",
+  },
   "cr.launchOn": { en: "Launch on", es: "Lanzar en" },
   "cr.uploadImage": { en: "Upload image", es: "Subir imagen" },
   "cr.uploadHint": { en: "GIF, PNG, JPG or WEBP — or drag and drop", es: "GIF, PNG, JPG o WEBP — o arrastra y suelta" },
@@ -2065,8 +2075,8 @@ export const dict = {
     es: "Tu wallet te pedirá aprobar dos transacciones, una tras otra: primero la moneda y después este reparto de comisiones (se escribe on-chain justo cuando tu moneda ya existe). Después te lo pide una vez más, para tu primera compra.",
   },
   "cr.confirmBodyOne": {
-    en: "Your wallet will ask you to approve the launch in one transaction: the coin and this fee distribution are created together, so either both exist or neither does. Right after, it asks you to approve your first buy.",
-    es: "Tu wallet te pedirá aprobar el lanzamiento en una sola transacción: la moneda y este reparto de comisiones se crean juntos, así que existen los dos o ninguno. Justo después te pedirá aprobar tu primera compra.",
+    en: "Your wallet will ask you to approve once. The coin and this fee distribution are created together in one transaction, so either both exist or neither does; your first buy is approved with them and sent right after.",
+    es: "Tu wallet te pedirá aprobar una sola vez. La moneda y este reparto de comisiones se crean juntos en una transacción, así que existen los dos o ninguno; tu primera compra se aprueba con ellos y se envía justo después.",
   },
   "cr.confirmFirstBuy": { en: "First buy", es: "Primera compra" },
   "cr.confirmNoBuy": { en: "None", es: "Ninguna" },

@@ -18,9 +18,11 @@ export type OpMethod = "connect" | "signAndSendTransaction" | "signTransaction" 
 /**
  * One call that completes an operation after the wallet answered. `put` says where the answer goes in the body:
  * "signature" — the sent transaction's signature; "orders" — the signed transactions, one per id, as the orders route
- * takes them. `confirmed`: only after the chain has confirmed that signature.
+ * takes them; "send" — the signed transactions are sent to the network through `url` (PANDA's RPC proxy), in order, each
+ * one once the one before has confirmed (a launch and its first buy). `confirmed`: only after the chain has confirmed
+ * that signature.
  */
-export type OpStep = { url: string; body: Record<string, unknown>; put?: "signature" | "orders"; ids?: string[]; confirmed?: boolean };
+export type OpStep = { url: string; body: Record<string, unknown>; put?: "signature" | "orders" | "send"; ids?: string[]; confirmed?: boolean };
 export type PendingOp = { relayId: string; provider: DeepLinkProvider; method: OpMethod; path: string; at: number; then: OpStep[]; settled?: { ok: boolean; signature?: string } };
 
 const KEY = "panda.tg.op";

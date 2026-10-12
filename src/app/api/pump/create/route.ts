@@ -5,6 +5,7 @@ import { clientIp, moneyRateGate } from "@/lib/rate-limit";
 import { Connection, Keypair, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { buildCreateTransaction, buildFeeSharingTransaction, buildLaunchTransaction } from "@/lib/pump/create";
 import { getLaunchLookupTable } from "@/lib/pump/launch-alt";
+import { buildFirstBuyTransaction } from "@/lib/pump/first-buy";
 import { registerPendingFeeLock } from "@/lib/pump/fee-lock";
 import { validateShareholders, FeeShareholderInput } from "@/lib/pump/fee-shares-validation";
 import { pausedResponse } from "@/lib/protocol/guard";
@@ -50,8 +51,9 @@ export async function POST(req: Request) {
 
     // The first buy is now a mandatory part of a launch, not an afterthought: the "create" step itself is
     // refused without one that clears the configured minimum, so the requirement can't be skipped by calling
-    // this API directly. The buy itself still happens afterwards, as its own transaction (see buyFirst in
-    // CreateClient.tsx) — this only checks that the client declared a qualifying amount before the coin exists.
+    // this API directly. The buy is its own transaction, sent right after the launch: when the launch is one
+    // transaction it is built here too (below), so the wallet approves both at once; otherwise the client asks for it
+    // once the coin exists (buyFirst in CreateClient.tsx).
     if (!forFees) {
       const minFirstBuy = createMinFirstBuySol();
       if (typeof firstBuySol !== "number" || !Number.isFinite(firstBuySol) || firstBuySol < minFirstBuy) {
@@ -103,6 +105,7 @@ export async function POST(req: Request) {
     const split = shareholders as FeeShareholderInput[];
 
     let tx: Transaction | VersionedTransaction | null = null;
+    let buyTx: VersionedTransaction | null = null;
     let combined = false;
     if (!forFees) {
       // Preferred: the whole launch atomically in one transaction (falls back below when there is no table, or it doesn't fit).
@@ -110,6 +113,15 @@ export async function POST(req: Request) {
       if (lookupTable) {
         tx = await buildLaunchTransaction({ mint: mintKey, user: userKey, name: String(name), symbol: String(symbol), uri: String(uri), shareholders: split, lookupTable, blockhash });
         combined = tx !== null;
+        if (combined) {
+          // The creator's first buy, built now (src/lib/pump/first-buy.ts) so the wallet is asked ONCE for the launch and
+          // the buy. Never a reason a launch fails: without it the client builds the buy after the coin exists, as before.
+          try {
+            buyTx = await buildFirstBuyTransaction({ connection, mint: mintKey, user: userKey, solAmount: firstBuySol, blockhash });
+          } catch (err) {
+            console.warn("[PANDA launch] the first buy couldn't be pre-built:", err instanceof Error ? err.message : err);
+          }
+        }
       }
     }
 
@@ -155,6 +167,8 @@ export async function POST(req: Request) {
       versioned: combined,
       combined,
       feeSplitStep: !forFees && !combined,
+      // Present only with `combined`: sign it together with the launch, send it once the launch has confirmed.
+      ...(buyTx ? { buyTransaction: Buffer.from(buyTx.serialize()).toString("base64") } : {}),
       ...(forFees ? {} : { mint, mintSecretKey: Array.from(mintKeypair!.secretKey), vanity }),
     });
   } catch (err) {
