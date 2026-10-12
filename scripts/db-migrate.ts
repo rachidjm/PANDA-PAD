@@ -12,12 +12,18 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import { migrate } from "drizzle-orm/neon-serverless/migrator";
 import ws from "ws";
 import path from "node:path";
+import { isPreview, previewMayUse } from "../src/lib/config/preview-guard";
 
 async function main() {
   const url = process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.DATABASE_URL?.trim();
   if (!url) {
     console.error("Set DATABASE_URL_UNPOOLED (or DATABASE_URL) — e.g. `vercel env pull .env.local`.");
     process.exit(2);
+  }
+  // A Vercel preview migrates only a database that is provably not production's (src/lib/config/preview-guard.ts).
+  if (isPreview() && !previewMayUse("database", url)) {
+    console.error("Refusing to migrate from a preview: this database can't be told apart from production's.");
+    process.exit(3);
   }
   neonConfig.webSocketConstructor = ws;
   const pool = new Pool({ connectionString: url, max: 1 });

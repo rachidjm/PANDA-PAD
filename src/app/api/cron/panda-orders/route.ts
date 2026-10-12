@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { isEnabled } from "@/lib/config/flags";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
@@ -20,6 +21,8 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   if (!isAuthorized(req)) return new NextResponse(null, { status: 404 });
   // Switched off (the default): returns at once, costs nothing.
   if (!isEnabled("PANDA_ORDERS")) return NextResponse.json({ skipped: "flag off" });

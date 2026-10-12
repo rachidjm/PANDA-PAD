@@ -3,6 +3,9 @@
  *
  * 1. PRODUCTION builds apply the database migrations first (idempotent; needs DATABASE_URL_UNPOOLED or DATABASE_URL). If the
  *    migration fails the build fails and the previous deployment keeps serving: a schema problem never reaches users.
+ *    A PREVIEW build never migrates production's database: it migrates only a database of its own — one that is provably
+ *    not production's (src/lib/config/preview-guard.ts, docs/PREVIEWS.md) — and otherwise skips the step. The one-off
+ *    tasks below don't run in a preview at all.
  * 2. Optional one-off tasks, only when PANDA_BUILD_TASKS is set for THAT deployment (`vercel deploy --build-env PANDA_BUILD_TASKS=…`,
  *    never stored in the project): they run where the "Sensitive" variables exist and print to the build log, which is how they are
  *    read. Tasks: verify-services, verify-audit, compare, backfill (add PANDA_BUILD_BACKFILL=yes to really write; otherwise a dry run),
@@ -16,6 +19,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { parseStorageModes } from "../src/lib/db/mode";
+import { fingerprintsLine, previewMayUse } from "../src/lib/config/preview-guard";
 
 const run = (label: string, args: string[], fatal: boolean): boolean => {
   console.log(`\n=== ${label} ===`);
@@ -41,10 +45,30 @@ ${Object.entries(modes).map(([d, m]) => `${d}=${m}`).join(", ")}${problems.lengt
 PROBLEMS: ${problems.join("; ")}` : ""}`);
 }
 
-if (production && hasDb) run("database migrations", tsx("scripts/db-migrate.ts"), true);
-else console.log(`(skipping database migrations: ${production ? "no database configured" : "not a production build"})`);
+const preview = process.env.VERCEL_ENV === "preview";
+const migrationUrl = process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.DATABASE_URL?.trim() || "";
+const blob = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN || process.env.PANDA_PAD_BLOB_READ_WRITE_TOKEN;
+const redis = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 
-const tasks = (process.env.PANDA_BUILD_TASKS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+if (production) {
+  // Not secrets: short hashes of the database host, the Redis host and the Blob store id. Copied into
+  // PANDA_PRODUCTION_FINGERPRINTS (Preview), they are how a preview knows a service is NOT production's.
+  console.log(`=== production service fingerprints (not secrets) ===\n${fingerprintsLine({ database: process.env.DATABASE_URL, redis, blob })}`);
+}
+
+if (production && hasDb) run("database migrations", tsx("scripts/db-migrate.ts"), true);
+else if (preview && hasDb && previewMayUse("database", migrationUrl) && previewMayUse("database", process.env.DATABASE_URL))
+  run("database migrations (this preview's own database)", tsx("scripts/db-migrate.ts"), true);
+else console.log(`(skipping database migrations: ${production ? "no database configured" : preview ? (hasDb ? "this preview's database can't be told apart from production's — it will not be used" : "this preview has no database") : "not a production build"})`);
+if (preview) {
+  console.log(`=== preview services ===
+database: ${hasDb ? (previewMayUse("database", process.env.DATABASE_URL) ? "its own" : "BLOCKED (same as production, or production's fingerprint unknown)") : "none"}
+redis: ${redis ? (previewMayUse("redis", redis) ? "its own" : "BLOCKED") : "none"}
+blob: ${blob ? (previewMayUse("blob", blob) ? "its own" : "BLOCKED") : "none"}`);
+}
+
+// One-off tasks read and write real data: never from a preview.
+const tasks = preview ? [] : (process.env.PANDA_BUILD_TASKS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 for (const t of tasks) {
   if (t === "verify-services") run("verify-services", tsx("scripts/verify-services.ts"), false);
   else if (t === "verify-rpc") run("verify-rpc", tsx("scripts/verify-rpc.ts"), false);

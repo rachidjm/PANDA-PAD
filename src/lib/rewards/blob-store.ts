@@ -1,3 +1,4 @@
+import { blobToken } from "@/lib/config/preview-guard";
 import { put, get, list, BlobPreconditionFailedError } from "@vercel/blob";
 
 /**
@@ -14,10 +15,8 @@ import { put, get, list, BlobPreconditionFailedError } from "@vercel/blob";
 
 // Same token-name fallback as upload-metadata/route.ts — Vercel's "connect a
 // store" flow doesn't always land on the plain BLOB_READ_WRITE_TOKEN name.
-const BLOB_TOKEN =
-  process.env.BLOB_READ_WRITE_TOKEN ||
-  process.env.BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN ||
-  process.env.PANDA_PAD_BLOB_READ_WRITE_TOKEN;
+// Null also in a Vercel preview that would be writing to production's store (src/lib/config/preview-guard.ts).
+const BLOB_TOKEN = blobToken();
 
 export function blobConfigured(): boolean {
   return !!BLOB_TOKEN;

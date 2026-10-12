@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { moneyFlowGuardResponse } from "@/lib/config/launch-guard";
 import { serverRpcUrl } from "@/lib/solana/rpc";
@@ -33,6 +34,8 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   if (!isAuthorized(req)) return new NextResponse(null, { status: 404 }); // a stranger learns nothing, not even that the route exists
   const moneyBlocked = await moneyFlowGuardResponse();
   if (moneyBlocked) return moneyBlocked;

@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { checkActive } from "@/lib/protocol/pause-store";
@@ -24,6 +25,8 @@ function isAuthorized(req: Request): boolean {
  * failing (an upstream API down) never stops the others, and none of this is on any path a PANDA user waits on.
  */
 export async function GET(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   if (!isAuthorized(req)) return new NextResponse(null, { status: 404 });
   const cfg = telegramConfig();
   if (!cfg.enabled) return NextResponse.json({ skipped: "flag off" });

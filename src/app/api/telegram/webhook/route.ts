@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { checkActive } from "@/lib/protocol/pause-store";
 import { telegramConfig } from "@/lib/telegram/config";
@@ -14,6 +15,8 @@ export const maxDuration = 30;
  * Every reply goes through the outbox, flushed for a few seconds here so answers are immediate; the cron retries the rest.
  */
 export async function POST(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   const cfg = telegramConfig();
   if (!cfg.enabled || !cfg.hasToken || !cfg.webhookSecret) return new NextResponse(null, { status: 404 });
   if (!secretMatches(req.headers.get("x-telegram-bot-api-secret-token"), cfg.webhookSecret)) return new NextResponse(null, { status: 401 });

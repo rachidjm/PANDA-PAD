@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { Connection, type Keypair } from "@solana/web3.js";
 import { alertOps } from "@/lib/alerts";
@@ -23,6 +24,8 @@ export const maxDuration = 60;
  * Stops entirely — nothing bought, nothing burned — with the flag off, the money-flow guard closed or "burns" paused.
  */
 export async function GET(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return new NextResponse(null, { status: 404 });
   if (!burnEnabled()) return NextResponse.json({ skipped: "FEATURE_BURN is off or the burn wallet isn't configured" });

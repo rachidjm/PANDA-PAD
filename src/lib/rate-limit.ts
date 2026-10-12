@@ -1,3 +1,4 @@
+import { previewMayUse } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
@@ -51,7 +52,8 @@ export function upstashCredentials(env: Record<string, string | undefined> = pro
   // Vercel's Upstash/KV integration may inject either naming (sin verificar cuál usa hoy): both are accepted.
   const url = (env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL)?.trim();
   const token = (env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN)?.trim();
-  return url && token ? { url, token } : null;
+  // A Vercel preview never uses production's Redis (src/lib/config/preview-guard.ts).
+  return url && token && previewMayUse("redis", url, env) ? { url, token } : null;
 }
 
 const prefixFor = (env: Record<string, string | undefined> = process.env) => `panda:${env.VERCEL_ENV || env.NODE_ENV || "dev"}:rl`;

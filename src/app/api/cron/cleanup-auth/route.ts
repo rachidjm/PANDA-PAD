@@ -1,3 +1,4 @@
+import { isPreview } from "@/lib/config/preview-guard";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { storageMode } from "@/lib/db/mode";
@@ -16,6 +17,8 @@ function isAuthorized(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  // Background work belongs to production only: in a Vercel preview this route does not exist (docs/PREVIEWS.md).
+  if (isPreview()) return new NextResponse(null, { status: 404 });
   if (!isAuthorized(req)) return new NextResponse(null, { status: 404 }); // a stranger learns nothing, not even that the route exists
   if (storageMode("sessions") === "blob") return NextResponse.json({ skipped: "sessions are still in Blob" });
   try {

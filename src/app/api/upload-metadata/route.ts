@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { put } from "@vercel/blob";
+import { blobToken } from "@/lib/config/preview-guard";
 import { IMAGE_MAX_MB, LINK_MAX, NAME_MAX, TICKER_MAX, imageIssue } from "@/lib/create/fields";
 
 /**
@@ -16,10 +17,8 @@ import { IMAGE_MAX_MB, LINK_MAX, NAME_MAX, TICKER_MAX, imageIssue } from "@/lib/
 // looks for by default (e.g. it can come out as
 // BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN) — try the common variants instead
 // of forcing a rename in the Vercel dashboard.
-const BLOB_TOKEN =
-  process.env.BLOB_READ_WRITE_TOKEN ||
-  process.env.BLOB_READ_WRITE_TOKEN_READ_WRITE_TOKEN ||
-  process.env.PANDA_PAD_BLOB_READ_WRITE_TOKEN;
+// Null also in a Vercel preview that would be writing to production's store (src/lib/config/preview-guard.ts).
+const BLOB_TOKEN = blobToken();
 
 export async function POST(req: Request) {
   if (await rateLimited(`upload-metadata:${clientIp(req)}`, 10, 60_000)) {

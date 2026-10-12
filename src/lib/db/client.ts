@@ -2,6 +2,7 @@ import { Pool, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import ws from "ws";
+import { previewMayUse } from "@/lib/config/preview-guard";
 import { schema } from "./schema";
 
 /**
@@ -24,7 +25,11 @@ export class DbNotConfiguredError extends Error {
   }
 }
 
-export const databaseUrl = (env: Record<string, string | undefined> = process.env): string | null => env.DATABASE_URL?.trim() || null;
+/** Null also in a Vercel preview whose DATABASE_URL isn't provably another database than production's (src/lib/config/preview-guard.ts). */
+export const databaseUrl = (env: Record<string, string | undefined> = process.env): string | null => {
+  const url = env.DATABASE_URL?.trim() || null;
+  return url && previewMayUse("database", url, env) ? url : null;
+};
 
 let testDb: Db | null = null;
 export function setDbForTests(db: Db | null): void {

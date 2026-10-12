@@ -31,6 +31,14 @@ export const FEATURES = [
 
 export type Feature = (typeof FEATURES)[number];
 
+/**
+ * What a Vercel PREVIEW never does, whatever its variables say: act with a server wallet (holder payouts, burns), send
+ * what users pre-signed (PANDA orders), or speak as PANDA (the Telegram bot, the changelog, the Mini App, X). A preview
+ * is for looking at a change; these belong to production alone (docs/PREVIEWS.md).
+ */
+export const NEVER_IN_PREVIEW: readonly Feature[] = ["HOLDER_REWARDS", "BURN", "PANDA_ORDERS", "TELEGRAM_BOT", "TELEGRAM_CHANGELOG", "TELEGRAM_MINIAPP", "X_POSTING", "STRATEGIES", "PANDA_AIRDROPS", "MERKLE_CLAIMS"];
+
 export function isEnabled(feature: Feature, env: Record<string, string | undefined> = process.env): boolean {
+  if (env.VERCEL_ENV === "preview" && NEVER_IN_PREVIEW.includes(feature)) return false;
   return env[`FEATURE_${feature}`] === "true";
 }
