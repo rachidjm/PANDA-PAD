@@ -1939,8 +1939,8 @@ export const dict = {
   // Create
   "cr.heading": { en: "Launch your coin on PANDA", es: "Lanza tu moneda en PANDA" },
   "cr.sub": {
-    en: "Two steps on Solana. Give it a name and an image, choose how the fees are shared and sign once.",
-    es: "Dos pasos en Solana. Ponle nombre e imagen, elige cómo se reparten las comisiones y firma una vez.",
+    en: "Two steps on Solana. Give it a name and an image, choose how the fees are shared and approve it in your wallet: first the coin, then your first buy.",
+    es: "Dos pasos en Solana. Ponle nombre e imagen, elige cómo se reparten las comisiones y apruébalo en tu wallet: primero la moneda, después tu primera compra.",
   },
   "cr.step1": { en: "Identity", es: "Identidad" },
   "cr.step2": { en: "Economics", es: "Economía" },
@@ -2061,12 +2061,12 @@ export const dict = {
   },
   "cr.confirmTitle": { en: "Review before you sign", es: "Revisa antes de firmar" },
   "cr.confirmBody": {
-    en: "Your wallet will ask you to approve two transactions, one after the other: first the coin, then this fee distribution (written on-chain right after your coin exists).",
-    es: "Tu wallet te pedirá aprobar dos transacciones, una tras otra: primero la moneda y después este reparto de comisiones (se escribe on-chain justo cuando tu moneda ya existe).",
+    en: "Your wallet will ask you to approve two transactions, one after the other: first the coin, then this fee distribution (written on-chain right after your coin exists). After that it asks once more, for your first buy.",
+    es: "Tu wallet te pedirá aprobar dos transacciones, una tras otra: primero la moneda y después este reparto de comisiones (se escribe on-chain justo cuando tu moneda ya existe). Después te lo pide una vez más, para tu primera compra.",
   },
   "cr.confirmBodyOne": {
-    en: "Your wallet will ask you to approve one transaction: the coin and this fee distribution are created together, so either both exist or neither does.",
-    es: "Tu wallet te pedirá aprobar una sola transacción: la moneda y este reparto de comisiones se crean juntos, así que existen los dos o ninguno.",
+    en: "Your wallet will ask you to approve the launch in one transaction: the coin and this fee distribution are created together, so either both exist or neither does. Right after, it asks you to approve your first buy.",
+    es: "Tu wallet te pedirá aprobar el lanzamiento en una sola transacción: la moneda y este reparto de comisiones se crean juntos, así que existen los dos o ninguno. Justo después te pedirá aprobar tu primera compra.",
   },
   "cr.confirmFirstBuy": { en: "First buy", es: "Primera compra" },
   "cr.confirmNoBuy": { en: "None", es: "Ninguna" },
